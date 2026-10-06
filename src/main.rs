@@ -4,6 +4,7 @@ mod composition;
 mod domain;
 mod infrastructure;
 mod presentation;
+mod image_io;
 
 use std::{env, sync::Arc, time::Duration};
 
