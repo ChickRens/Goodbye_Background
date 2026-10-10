@@ -1,12 +1,14 @@
 mod application;
 mod common;
 mod composition;
-mod domain;
 mod infrastructure;
 mod presentation;
 mod image_io;
 mod editing;
 mod api;
+mod image;
+mod point;
+mod session;
 
 use std::{env, sync::Arc, time::Duration};
 

@@ -1,6 +1,6 @@
 use std::ops::{Div, Mul};
 
-use crate::domain::value_object::coordinate::Coordinate;
+use crate::point::coordinate::Coordinate;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Point {
