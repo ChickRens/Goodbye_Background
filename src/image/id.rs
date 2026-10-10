@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::domain::value_object::image_id::error::ImageIdError;
+use crate::image::error::ImageIdError;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct ImageId {
@@ -35,7 +35,7 @@ impl ImageId {
 mod image_id_tests {
     use uuid::Uuid;
 
-    use crate::domain::value_object::image_id::{error::ImageIdError, image_id::ImageId};
+use crate::image::{error::ImageIdError, id::ImageId};
 
     #[test]
     fn test_normal_convert_from_uuid() {

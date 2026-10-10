@@ -2,19 +2,7 @@ use std::time::{Duration, Instant};
 
 use dashmap::{DashMap, mapref::one::RefMut};
 
-use crate::{
-    application::{
-        interface::{clock::AppClock, delete_expired_repository::DeleteExpiredRepository},
-        types::entry::{Entry, EntryGuard},
-    },
-    domain::{
-        entity::original_image::OriginalImage,
-        repository::original_image_repository::{
-            error::OriginalImageRepositoryError, repository::OriginalImageRepository,
-        },
-        value_object::image_id::image_id::ImageId,
-    },
-};
+use crate::{application::{interface::{clock::AppClock, delete_expired_repository::DeleteExpiredRepository}, types::entry::{Entry, EntryGuard}}, image::{id::ImageId, original_image::OriginalImage, original_repository::{error::OriginalImageRepositoryError, repository::OriginalImageRepository}}};
 
 pub struct OriginalImageRepositoryInMemory<Clock>
 where
@@ -76,20 +64,7 @@ mod image_repository_test {
     use std::time::{Duration, Instant};
 
     use crate::{
-        application::interface::delete_expired_repository::DeleteExpiredRepository,
-        domain::{
-            entity::{image::Image, original_image::OriginalImage},
-            repository::original_image_repository::{
-                error::OriginalImageRepositoryError, repository::OriginalImageRepository,
-            },
-            value_object::{
-                image_data::ImageData, image_id::image_id::ImageId,
-                image_size::image_size::ImageSize,
-            },
-        },
-        infrastructure::{
-            clock::FakeClock, repository::image_repository::OriginalImageRepositoryInMemory,
-        },
+        application::interface::delete_expired_repository::DeleteExpiredRepository, image::{id::ImageId, image::Image, original_image::OriginalImage, original_repository::{error::OriginalImageRepositoryError, implement::repository::OriginalImageRepositoryInMemory}, raw_data::ImageData, size::ImageSize}, infrastructure::clock::FakeClock,
     };
 
     fn make_image() -> OriginalImage {

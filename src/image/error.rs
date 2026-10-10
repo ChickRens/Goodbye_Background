@@ -8,3 +8,9 @@ leaf_error!(
         ShortWidth => ("SHORT_WIDTH", InvalidInput),
     }
 );
+
+leaf_error!(
+    pub enum ImageIdError {
+        InvalidImageId => ("INVALID_IMAGE_ID", InvalidInput),
+    }
+);

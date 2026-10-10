@@ -5,20 +5,7 @@ use std::{
 
 use dashmap::mapref::one::RefMut;
 
-use crate::{
-    application::{
-        interface::{clock::AppClock, delete_expired_repository::DeleteExpiredRepository},
-        types::entry::{Entry, EntryGuard},
-    },
-    domain::{
-        entity::original_image::OriginalImage,
-        repository::original_image_repository::{
-            error::OriginalImageRepositoryError, repository::OriginalImageRepository,
-        },
-        value_object::image_id::image_id::ImageId,
-    },
-    infrastructure::repository::image_repository::OriginalImageRepositoryInMemory,
-};
+use crate::{application::{interface::{clock::AppClock, delete_expired_repository::DeleteExpiredRepository}, types::entry::{Entry, EntryGuard}}, image::{id::ImageId, original_image::OriginalImage, original_repository::{error::OriginalImageRepositoryError, implement::repository::OriginalImageRepositoryInMemory, repository::OriginalImageRepository}}};
 
 #[derive(Clone)]
 pub struct SharedOriginalImageRepository<Clock>
