@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
-use crate::domain::value_object::session_id::error::SessionIdError;
+use crate::session::error::SessionIdError;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct SessionId {
     id: Uuid,
@@ -34,12 +35,12 @@ impl SessionId {
 mod session_id_tests {
     use uuid::Uuid;
 
-    use crate::domain::value_object::session_id::{error::SessionIdError, session_id::SessionId};
+use crate::session::{error::SessionIdError, id::SessionId};
 
     #[test]
     fn test_normal_convert_from_uuid() {
-        let uuid: Uuid = Uuid::new_v4();
-        let id: SessionId = SessionId::from_uuid(uuid);
+        let uuid = Uuid::new_v4();
+        let id = SessionId::from_uuid(uuid);
 
         assert_eq!(id.value(), &uuid)
     }

@@ -7,11 +7,11 @@ use crate::application::interface::{
     clock::AppClock, delete_expired_repository::DeleteExpiredRepository,
 };
 use crate::application::types::entry::{Entry, EntryGuard};
-use crate::domain::entity::session::Session;
-use crate::domain::repository::session_repository::error::SessionRepositoryError;
-use crate::domain::repository::session_repository::repository::SessionRepository;
-use crate::domain::value_object::session_id::session_id::SessionId;
-use crate::infrastructure::repository::session_repository::SessionRepositoryInMemory;
+use crate::session::id::SessionId;
+use crate::session::repository::error::SessionRepositoryError;
+use crate::session::repository::implement::repository::SessionRepositoryInMemory;
+use crate::session::repository::repository::SessionRepository;
+use crate::session::session::Session;
 
 #[derive(Clone)]
 pub struct SharedSessionRepository<Clock>
