@@ -9,6 +9,8 @@ mod api;
 mod image;
 mod point;
 mod session;
+mod maintenance;
+mod analytics;
 
 use std::{env, sync::Arc, time::Duration};
 
