@@ -9,7 +9,7 @@ use crate::application::interface::{
 use crate::application::types::entry::{Entry, EntryGuard};
 use crate::session::id::SessionId;
 use crate::session::repository::error::SessionRepositoryError;
-use crate::session::repository::implement::repository::SessionRepositoryInMemory;
+use crate::session::repository::implement::repository_impl::SessionRepositoryInMemory;
 use crate::session::repository::repository::SessionRepository;
 use crate::session::session::Session;
 

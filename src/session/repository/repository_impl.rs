@@ -66,7 +66,7 @@ where
 mod session_repository_test {
     use std::time::{Duration, Instant};
 
-use crate::{image::id::ImageId, infrastructure::clock::FakeClock, session::{id::SessionId, repository::{error::SessionRepositoryError, implement::repository::SessionRepositoryInMemory}, session::Session}};
+use crate::{image::id::ImageId, infrastructure::clock::FakeClock, session::{id::SessionId, repository::{error::SessionRepositoryError, implement::repository_impl::SessionRepositoryInMemory}, session::Session}};
 
     fn make_session() -> Session {
         let session_id = SessionId::new();
