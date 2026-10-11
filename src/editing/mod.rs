@@ -3,3 +3,4 @@ pub mod segment;
 pub mod undo;
 pub mod redo;
 pub mod save;
+pub mod session;
