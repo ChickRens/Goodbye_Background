@@ -1,9 +1,11 @@
 use crate::{
-    application::{
-        interface::image_segmenter::error::{SegmenterLoadingError, SegmenterRuntimeError},
-        types::{segmented_image::SegmentedImage, segmenter_input_image::SegmenterInputImage},
+    editing::segmenter::error::{SegmenterLoadingError, SegmenterRuntimeError},
+    editing::segmenter::segmented_image::SegmentedImage,
+    image::{
+        original::original_image::OriginalImage,
+        segmenter_input::segmenter_input_image::SegmenterInputImage,
     },
-    domain::{entity::original_image::OriginalImage, value_object::point::Point},
+    point::point::Point,
 };
 
 pub trait ImageSegmenter {

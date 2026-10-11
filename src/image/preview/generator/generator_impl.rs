@@ -4,8 +4,10 @@ use fast_image_resize as fr;
 use image::RgbaImage;
 use webp::{Encoder, WebPConfig};
 
-use crate::{image::{image::Image, raw_data::ImageData, size::ImageSize}, preview::{generator::generator::PreviewImageGenerator, preview::PreviewImage}};
-
+use crate::image::{
+    image::{image::Image, raw_data::ImageData, size::ImageSize},
+    preview::{generator::generator::PreviewImageGenerator, preview::PreviewImage},
+};
 
 #[derive(Debug)]
 pub struct WebPPreviewImageGenerator {
@@ -76,7 +78,12 @@ impl PreviewImageGenerator for WebPPreviewImageGenerator {
 
 #[cfg(test)]
 mod preview_image_generator_test {
-    use crate::{image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize}, preview::generator::generator_impl::WebPPreviewImageGenerator};
+    use crate::image::{
+        image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize},
+        preview::generator::{
+            generator::PreviewImageGenerator, generator_impl::WebPPreviewImageGenerator,
+        },
+    };
 
     #[test]
     fn generate_returns_webp_preview_and_preserves_metadata() {

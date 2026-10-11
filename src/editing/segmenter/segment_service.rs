@@ -1,25 +1,17 @@
 use std::{ops::Deref, sync::Arc, time::Instant};
 
 use crate::{
-    application::{
-        interface::{
-            editing_session_repository::repository::EditingSessionRepository,
-            image_segmenter::segmenter::ImageSegmenter,
-            segmenter_input_image_storage::storage::SegmenterInputImageStorage,
-        },
-        service::error::SegmentServiceError,
-        types::editing_session::session::EditingSession,
+    editing::{
+        segmenter::{error::SegmentServiceError, segmenter::ImageSegmenter},
+        session::{repository::repository::EditingSessionRepository, session::EditingSession},
     },
-    domain::{
-        entity::image::Image,
-        repository::{
-            original_image_repository::repository::OriginalImageRepository,
-            session_repository::repository::SessionRepository,
-        },
-        value_object::{
-            image_id::image_id::ImageId, point::Point, session_id::session_id::SessionId,
-        },
+    image::{
+        image::{id::ImageId, image::Image},
+        original::original_repository::repository::OriginalImageRepository,
+        segmenter_input::storage::storage::SegmenterInputImageStorage,
     },
+    point::point::Point,
+    session::{id::SessionId, repository::repository::SessionRepository},
 };
 
 pub trait SegmentService {

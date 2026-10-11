@@ -1,8 +1,7 @@
-use crate::application::{
-    service::preview_service::PreviewService,
-    usecase::get_preview_usecase::{
-        error::GetPreviewUseCaseError, get_preview_input::GetPreviewInput,
-        get_preview_output::GetPreviewOutput,
+use crate::{
+    image::preview::service::PreviewService,
+    image_io::get_preview::{
+        error::GetPreviewUseCaseError, input::GetPreviewInput, output::GetPreviewOutput,
     },
 };
 

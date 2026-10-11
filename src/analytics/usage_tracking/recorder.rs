@@ -1,9 +1,9 @@
 use sqlx::SqlitePool;
 use tokio::sync::mpsc::{self, Sender};
 
-use crate::application::{
-    interface::usage_recorder::UsageRecorder,
-    types::usage::{event::UsageEvent, operation::UsageOperation, status::UsageStatus},
+use crate::analytics::usage_tracking::{
+    event::UsageEvent, operation::UsageOperation, status::UsageStatus,
+    usage_recorder::UsageRecorder,
 };
 
 pub struct SQLiteUsageRecorder {

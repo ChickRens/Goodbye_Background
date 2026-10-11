@@ -69,7 +69,7 @@ impl SAM2MaskResizer {
 
 #[cfg(test)]
 mod resizer_test {
-    use crate::infrastructure::segmenter::mask_resizer::SAM2MaskResizer;
+    use super::SAM2MaskResizer;
     use ndarray::Array4;
 
     const EPSILON: f32 = 1e-5;

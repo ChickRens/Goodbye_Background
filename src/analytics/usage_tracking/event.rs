@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::application::types::usage::{
+use crate::analytics::usage_tracking::{
     id::UsageId, operation::UsageOperation, status::UsageStatus,
 };
 

@@ -3,20 +3,20 @@ use std::time::{Duration, Instant};
 use dashmap::{DashMap, mapref::one::RefMut};
 
 use crate::{
-    application::{
-        interface::{
-            clock::AppClock,
-            delete_expired_repository::DeleteExpiredRepository,
-            segmenter_input_image_storage::{
+    image::{
+        image::id::ImageId,
+        segmenter_input::{
+            segmenter_input_image::SegmenterInputImage,
+            storage::{
                 error::SegmenterInputImageStorageError, storage::SegmenterInputImageStorage,
             },
         },
-        types::{
-            entry::{Entry, EntryGuard},
-            segmenter_input_image::SegmenterInputImage,
-        },
     },
-    domain::value_object::image_id::image_id::ImageId,
+    maintenance::deleting_expired_entries::{
+        clock::clock::AppClock,
+        entry::{Entry, EntryGuard},
+        repository::DeleteExpiredRepository,
+    },
 };
 
 #[derive(Debug)]
@@ -80,25 +80,18 @@ mod segmenter_input_image_repository_test {
     use std::time::{Duration, Instant};
 
     use crate::{
-        application::{
-            interface::{
-                delete_expired_repository::DeleteExpiredRepository,
-                segmenter_input_image_storage::{
+        image::{
+            image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize},
+            segmenter_input::{
+                segmenter_input_image::SegmenterInputImage,
+                storage::{
                     error::SegmenterInputImageStorageError, storage::SegmenterInputImageStorage,
+                    storage_impl::SegmenterInputStorageInMemory,
                 },
             },
-            types::segmenter_input_image::SegmenterInputImage,
         },
-        domain::{
-            entity::image::Image,
-            value_object::{
-                image_data::ImageData, image_id::image_id::ImageId,
-                image_size::image_size::ImageSize,
-            },
-        },
-        infrastructure::{
-            clock::FakeClock,
-            storage::segmenter_input_storage_in_memory::SegmenterInputStorageInMemory,
+        maintenance::deleting_expired_entries::{
+            clock::clock_impl::FakeClock, repository::DeleteExpiredRepository,
         },
     };
 

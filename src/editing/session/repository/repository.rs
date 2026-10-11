@@ -1,11 +1,10 @@
 use std::ops::DerefMut;
 
 use crate::{
-    application::{
-        interface::editing_session_repository::error::EditingSessionRepositoryError,
-        types::editing_session::session::CommonEditingSession,
+    editing::session::{
+        repository::error::EditingSessionRepositoryError, session::CommonEditingSession,
     },
-    domain::value_object::session_id::session_id::SessionId,
+    session::id::SessionId,
 };
 
 pub trait EditingSessionRepository {

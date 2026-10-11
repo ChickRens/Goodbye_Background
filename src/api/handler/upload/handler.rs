@@ -7,12 +7,10 @@ use axum::{
 use tokio::task::spawn_blocking;
 
 use crate::{
-    application::usecase::upload_usecase::upload_input::UploadInput,
+    api::handler::upload::response::UploadResponse,
     composition::wiring::App,
-    presentation::{
-        errors::{app_error::AppError, presentation_error::PresentationError},
-        handler::upload::response::UploadResponse,
-    },
+    image_io::upload::input::UploadInput,
+    presentation::errors::{app_error::AppError, presentation_error::PresentationError},
 };
 
 #[axum::debug_handler]

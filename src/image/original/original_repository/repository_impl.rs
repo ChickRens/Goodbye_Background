@@ -2,7 +2,22 @@ use std::time::{Duration, Instant};
 
 use dashmap::{DashMap, mapref::one::RefMut};
 
-use crate::{application::{interface::{clock::AppClock, delete_expired_repository::DeleteExpiredRepository}, types::entry::{Entry, EntryGuard}}, image::{id::ImageId, original_image::OriginalImage, original_repository::{error::OriginalImageRepositoryError, repository::OriginalImageRepository}}};
+use crate::{
+    image::{
+        image::id::ImageId,
+        original::{
+            original_image::OriginalImage,
+            original_repository::{
+                error::OriginalImageRepositoryError, repository::OriginalImageRepository,
+            },
+        },
+    },
+    maintenance::deleting_expired_entries::{
+        clock::clock::AppClock,
+        entry::{Entry, EntryGuard},
+        repository::DeleteExpiredRepository,
+    },
+};
 
 pub struct OriginalImageRepositoryInMemory<Clock>
 where
@@ -64,7 +79,20 @@ mod image_repository_test {
     use std::time::{Duration, Instant};
 
     use crate::{
-        application::interface::delete_expired_repository::DeleteExpiredRepository, image::{image::id::ImageId, image::image::Image, original_image::OriginalImage, original_repository::{error::OriginalImageRepositoryError, implement::repository::OriginalImageRepositoryInMemory}, raw_data::ImageData, size::ImageSize}, infrastructure::clock::FakeClock,
+        image::original::original_repository::repository::OriginalImageRepository,
+        image::{
+            image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize},
+            original::{
+                original_image::OriginalImage,
+                original_repository::{
+                    error::OriginalImageRepositoryError,
+                    repository_impl::OriginalImageRepositoryInMemory,
+                },
+            },
+        },
+        maintenance::deleting_expired_entries::{
+            clock::clock_impl::FakeClock, repository::DeleteExpiredRepository,
+        },
     };
 
     fn make_image() -> OriginalImage {

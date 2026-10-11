@@ -1,21 +1,17 @@
 use std::{ops::Deref, sync::Arc, time::Instant};
 
-use crate::{
-    application::{
-        interface::{
-            completed_image_generator::CompletedImageGenerator,
-            completed_image_repository::{
-                error::CompletedImageRepositoryError, repository::CompletedImageRepository,
-            },
-        },
-        types::completed_image::CompletedImage,
+use crate::image::{
+    completed::{
+        completed_image::CompletedImage,
+        generator::generator_impl::CompletedImageGenerator,
+        storage::{error::CompletedImageStorageError, storage::CompletedImageRepository},
     },
-    domain::{entity::image::Image, value_object::image_id::image_id::ImageId},
+    image::{id::ImageId, image::Image},
 };
 
 pub trait CompletedService {
     fn generate_and_save(&self, image: &Image);
-    fn get(&self, image_id: ImageId) -> Result<CompletedImage, CompletedImageRepositoryError>;
+    fn get(&self, image_id: ImageId) -> Result<CompletedImage, CompletedImageStorageError>;
 }
 
 #[derive(Debug)]
@@ -41,7 +37,7 @@ where
         self.repository.save(completed_image);
     }
 
-    fn get(&self, image_id: ImageId) -> Result<CompletedImage, CompletedImageRepositoryError> {
+    fn get(&self, image_id: ImageId) -> Result<CompletedImage, CompletedImageStorageError> {
         let guard = self.repository.get(image_id)?;
         Ok(guard.deref().clone())
     }
@@ -78,7 +74,7 @@ where
         self.service.generate_and_save(image);
     }
 
-    fn get(&self, image_id: ImageId) -> Result<CompletedImage, CompletedImageRepositoryError> {
+    fn get(&self, image_id: ImageId) -> Result<CompletedImage, CompletedImageStorageError> {
         self.service.get(image_id)
     }
 }

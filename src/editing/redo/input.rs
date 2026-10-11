@@ -1,4 +1,4 @@
-use crate::domain::value_object::session_id::session_id::SessionId;
+use crate::session::id::SessionId;
 
 pub struct RedoInput {
     session_id: SessionId,

@@ -2,10 +2,18 @@ use std::time::{Duration, Instant};
 
 use dashmap::{DashMap, mapref::one::RefMut};
 
-use crate::{application::{
-    interface::{clock::AppClock, delete_expired_repository::DeleteExpiredRepository},
-    types::entry::{Entry, EntryGuard},
-}, session::{id::SessionId, repository::{error::SessionRepositoryError, repository::SessionRepository}, session::Session}};
+use crate::{
+    maintenance::deleting_expired_entries::{
+        clock::clock::AppClock,
+        entry::{Entry, EntryGuard},
+        repository::DeleteExpiredRepository,
+    },
+    session::{
+        id::SessionId,
+        repository::{error::SessionRepositoryError, repository::SessionRepository},
+        session::Session,
+    },
+};
 
 pub struct SessionRepositoryInMemory<Clock>
 where
@@ -66,7 +74,18 @@ where
 mod session_repository_test {
     use std::time::{Duration, Instant};
 
-use crate::{image::id::ImageId, infrastructure::clock::FakeClock, session::{id::SessionId, repository::{error::SessionRepositoryError, implement::repository_impl::SessionRepositoryInMemory}, session::Session}};
+    use super::SessionRepositoryInMemory;
+    use crate::{
+        image::image::id::ImageId,
+        maintenance::deleting_expired_entries::{
+            clock::clock_impl::FakeClock, repository::DeleteExpiredRepository,
+        },
+        session::{
+            id::SessionId,
+            repository::{error::SessionRepositoryError, repository::SessionRepository},
+            session::Session,
+        },
+    };
 
     fn make_session() -> Session {
         let session_id = SessionId::new();

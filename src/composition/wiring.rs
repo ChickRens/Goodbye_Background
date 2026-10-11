@@ -1,58 +1,53 @@
 use std::time::Instant;
 
 use crate::{
-    application::{
-        error::ApplicationError,
-        service::{
+    analytics::usage_tracking::recorder::SQLiteUsageRecorder,
+    application::error::ApplicationError,
+    config::{MAX_HISTORY, TTL_SEC},
+    editing::{
+        prepare_segment::{input::PrepareSegmentInput, usecase::PrepareSegmentUseCase},
+        redo::{input::RedoInput, output::RedoOutput, usecase::RedoUseCase},
+        save::{input::SaveInput, output::SaveOutput, usecase::SaveUseCase},
+        segment::{input::SegmentInput, output::SegmentOutput, usecase::SegmentUseCase},
+        segmenter::{
+            prepare_service::SharedPrepareSegmentService, segment_service::SharedSegmentService,
+            shared_segmenter_sam2::SharedSAM2Segmenter,
+        },
+        session::repository::shared_repository_impl::SharedEditingSessionRepository,
+        undo::{input::UndoInput, output::UndoOutput, usecase::UndoUseCase},
+    },
+    image::{
+        completed::{
             completed_service::SharedCompletedService,
-            prepare_service::SharedPrepareSegmentService, preview_service::SharedPreviewService,
-            segment_service::SharedSegmentService,
+            generator::generator::SharedWebPCompletedImageGenerator,
+            storage::storage_impl::SharedCompletedImageRepository,
         },
-        usecase::{
-            config::{MAX_HISTORY, TTL_SEC},
-            delete_expired_entries_usecase::DeleteExpiredEntriesUseCase,
-            get_completed_usecase::{
-                input::GetCompletedInput, output::GetCompletedOutput, usecase::GetCompletedUseCase,
-            },
-            get_preview_usecase::{
-                get_preview_input::GetPreviewInput, get_preview_output::GetPreviewOutput,
-                usecase::GetPreviewUseCase,
-            },
-            prepare_segment_usecase::{
-                prepare_segment_input::PrepareSegmentInput, usecase::PrepareSegmentUseCase,
-            },
-            redo_usecase::{redo_input::RedoInput, redo_output::RedoOutput, usecase::RedoUseCase},
-            save_usecase::{input::SaveInput, output::SaveOutput, usecase::SaveUseCase},
-            segment_usecase::{
-                segment_input::SegmentInput, segment_output::SegmentOutput, usecase::SegmentUseCase,
-            },
-            undo_usecase::{undo_input::UndoInput, undo_output::UndoOutput, usecase::UndoUseCase},
-            upload_usecase::{
-                upload_input::UploadInput, upload_output::UploadOutput, usecase::UploadUseCase,
-            },
+        original::original_repository::shared_repository_impl::SharedOriginalImageRepository,
+        preview::{
+            generator::shared_generator_impl::SharedPreviewGenerator,
+            service::SharedPreviewService, storage::storage_impl::SharedPreviewStorage,
+        },
+        segmenter_input::{
+            generator::shared_generator_impl::SharedSAM2InputGenerator,
+            storage::shared_storage_impl::SharedSegmenterInputStorage,
         },
     },
-    infrastructure::{
-        clock::RealClock,
-        generator::{
-            completed_image::SharedWebPCompletedImageGenerator,
-            shared_preview::SharedPreviewGenerator,
-            shared_segmenter_input::SharedSAM2InputGenerator,
+    image_io::{
+        get_completed::{
+            input::GetCompletedInput, output::GetCompletedOutput, usecase::GetCompletedUseCase,
         },
-        image_loader::FileImageLoader,
-        repository::{
-            completed_repository::SharedCompletedImageRepository,
-            shared_editing_session_repository::SharedEditingSessionRepository,
-            shared_image_repository::SharedOriginalImageRepository,
-            shared_session_repository::SharedSessionRepository,
+        get_preview::{
+            input::GetPreviewInput, output::GetPreviewOutput, usecase::GetPreviewUseCase,
         },
-        segmenter::shared_sam2::SharedSAM2Segmenter,
-        storage::{
-            preview_storage_in_memory::SharedPreviewStorage,
-            shared_segmenter_input_storage::SharedSegmenterInputStorage,
+        upload::{
+            image_loader::loader_impl::FileImageLoader, input::UploadInput, output::UploadOutput,
+            usecase::UploadUseCase,
         },
-        usage::recorder::SQLiteUsageRecorder,
     },
+    maintenance::deleting_expired_entries::{
+        clock::clock_impl::RealClock, usecase::DeleteExpiredEntriesUseCase,
+    },
+    session::repository::shared_repository_impl::SharedSessionRepository,
 };
 
 pub struct App {

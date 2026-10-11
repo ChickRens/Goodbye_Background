@@ -3,13 +3,11 @@ use std::sync::Arc;
 use axum::{Json, body::Body, extract::State, response::Response};
 
 use crate::{
-    application::usecase::get_completed_usecase::input::GetCompletedInput,
+    api::handler::get_completed::request::GetCompletedRequest,
     composition::wiring::App,
-    domain::value_object::image_id::image_id::ImageId,
-    presentation::{
-        errors::{app_error::AppError, presentation_error::PresentationError},
-        handler::get_completed::request::GetCompletedRequest,
-    },
+    image::image::id::ImageId,
+    image_io::get_completed::input::GetCompletedInput,
+    presentation::errors::{app_error::AppError, presentation_error::PresentationError},
 };
 
 #[axum::debug_handler]

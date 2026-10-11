@@ -1,4 +1,4 @@
-use crate::domain::{entity::image::Image, value_object::image_id::image_id::ImageId};
+use crate::image::image::{id::ImageId, image::Image};
 
 #[derive(Debug, Clone)]
 pub struct CompletedImage {

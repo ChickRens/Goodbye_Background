@@ -3,13 +3,11 @@ use std::sync::Arc;
 use axum::{Json, body::Body, extract::State, response::Response};
 
 use crate::{
-    application::usecase::get_preview_usecase::get_preview_input::GetPreviewInput,
+    api::handler::get_preview::request::GetImageRequest,
     composition::wiring::App,
-    domain::value_object::image_id::image_id::ImageId,
-    presentation::{
-        errors::{app_error::AppError, presentation_error::PresentationError},
-        handler::get_preview::request::GetImageRequest,
-    },
+    image::image::id::ImageId,
+    image_io::get_preview::input::GetPreviewInput,
+    presentation::errors::{app_error::AppError, presentation_error::PresentationError},
 };
 
 #[axum::debug_handler]

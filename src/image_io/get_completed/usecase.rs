@@ -1,6 +1,6 @@
-use crate::application::{
-    service::completed_service::CompletedService,
-    usecase::get_completed_usecase::{
+use crate::{
+    image::completed::completed_service::CompletedService,
+    image_io::get_completed::{
         error::GetCompletedUseCaseError, input::GetCompletedInput, output::GetCompletedOutput,
     },
 };

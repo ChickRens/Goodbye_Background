@@ -3,14 +3,12 @@ use image::{
     imageops::{self, FilterType},
 };
 
-use crate::{
-    application::{
-        interface::segmenter_input_image_generator::SegmenterInputImageGenerator,
-        types::segmenter_input_image::SegmenterInputImage,
-    },
-    domain::{
-        entity::{image::Image, original_image::OriginalImage},
-        value_object::{image_data::ImageData, image_size::image_size::ImageSize},
+use crate::image::{
+    image::{image::Image, raw_data::ImageData, size::ImageSize},
+    original::original_image::OriginalImage,
+    segmenter_input::{
+        generator::generator::SegmenterInputImageGenerator,
+        segmenter_input_image::SegmenterInputImage,
     },
 };
 
@@ -55,16 +53,11 @@ impl SegmenterInputImageGenerator for SAM2InputGenerator {
 
 #[cfg(test)]
 mod segmenter_input_image_generator_test {
-    use crate::{
-        application::interface::segmenter_input_image_generator::SegmenterInputImageGenerator,
-        domain::{
-            entity::{image::Image, original_image::OriginalImage},
-            value_object::{
-                image_data::ImageData, image_id::image_id::ImageId,
-                image_size::image_size::ImageSize,
-            },
-        },
-        infrastructure::generator::segmenter_input::SAM2InputGenerator,
+    use super::SAM2InputGenerator;
+    use crate::image::{
+        image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize},
+        original::original_image::OriginalImage,
+        segmenter_input::generator::generator::SegmenterInputImageGenerator,
     };
 
     #[test]

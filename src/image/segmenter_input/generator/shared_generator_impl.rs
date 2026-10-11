@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
-use crate::{
-    application::{
-        interface::segmenter_input_image_generator::SegmenterInputImageGenerator,
-        types::segmenter_input_image::SegmenterInputImage,
+use crate::image::{
+    original::original_image::OriginalImage,
+    segmenter_input::{
+        generator::{generator::SegmenterInputImageGenerator, generator_impl::SAM2InputGenerator},
+        segmenter_input_image::SegmenterInputImage,
     },
-    domain::entity::original_image::OriginalImage,
-    infrastructure::generator::segmenter_input::SAM2InputGenerator,
 };
 
 #[derive(Debug)]

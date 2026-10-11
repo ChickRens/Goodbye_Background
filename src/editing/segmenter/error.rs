@@ -1,4 +1,15 @@
-use crate::{common::traits::ErrorType::Internal, leaf_detail_error};
+use crate::{
+    common::traits::ErrorType::Internal,
+    editing::session::{
+        error::EditingSessionError, repository::error::EditingSessionRepositoryError,
+    },
+    image::{
+        original::original_repository::error::OriginalImageRepositoryError,
+        segmenter_input::storage::error::SegmenterInputImageStorageError,
+    },
+    leaf_detail_error, parent_error,
+    session::repository::error::SessionRepositoryError,
+};
 
 leaf_detail_error!(
     pub enum SegmenterModelError {

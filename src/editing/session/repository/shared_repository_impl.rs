@@ -3,15 +3,20 @@ use std::time::{Duration, Instant};
 
 use dashmap::mapref::one::RefMut;
 
-use crate::application::interface::clock::AppClock;
-use crate::application::interface::delete_expired_repository::DeleteExpiredRepository;
-use crate::application::interface::editing_session_repository::error::EditingSessionRepositoryError;
-use crate::application::interface::editing_session_repository::repository::EditingSessionRepository;
-use crate::application::types::editing_session::session::CommonEditingSession;
-use crate::application::types::entry::{Entry, EntryGuard};
-use crate::domain::value_object::session_id::session_id::SessionId;
-use crate::infrastructure::repository::editing_session_repository::SAM2EditingSessionRepository;
-use crate::infrastructure::segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext};
+use crate::editing::segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext};
+use crate::editing::session::{
+    repository::{
+        error::EditingSessionRepositoryError, repository::EditingSessionRepository,
+        repository_impl::SAM2EditingSessionRepository,
+    },
+    session::CommonEditingSession,
+};
+use crate::maintenance::deleting_expired_entries::{
+    clock::clock::AppClock,
+    entry::{Entry, EntryGuard},
+    repository::DeleteExpiredRepository,
+};
+use crate::session::id::SessionId;
 
 #[derive(Clone)]
 pub struct SharedEditingSessionRepository<Clock>

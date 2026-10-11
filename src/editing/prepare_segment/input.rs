@@ -1,4 +1,4 @@
-use crate::domain::value_object::{image_id::image_id::ImageId, session_id::session_id::SessionId};
+use crate::{image::image::id::ImageId, session::id::SessionId};
 
 pub struct PrepareSegmentInput {
     image_id: ImageId,

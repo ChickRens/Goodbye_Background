@@ -4,17 +4,15 @@ use axum::{Json, extract::State};
 use tokio::task::spawn_blocking;
 
 use crate::{
-    application::usecase::segment_usecase::segment_input::SegmentInput,
+    api::handler::segment::{request::SegmentRequest, response::SegmentResponse},
     composition::wiring::App,
-    domain::value_object::{
+    editing::segment::input::SegmentInput,
+    point::{
         coordinate::Coordinate,
         point::{Point, PointLabel},
-        session_id::session_id::SessionId,
     },
-    presentation::{
-        errors::{app_error::AppError, presentation_error::PresentationError},
-        handler::segment::{request::SegmentRequest, response::SegmentResponse},
-    },
+    presentation::errors::{app_error::AppError, presentation_error::PresentationError},
+    session::id::SessionId,
 };
 
 #[axum::debug_handler]

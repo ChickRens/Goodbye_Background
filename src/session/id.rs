@@ -35,7 +35,7 @@ impl SessionId {
 mod session_id_tests {
     use uuid::Uuid;
 
-use crate::session::{error::SessionIdError, id::SessionId};
+    use crate::session::{error::SessionIdError, id::SessionId};
 
     #[test]
     fn test_normal_convert_from_uuid() {

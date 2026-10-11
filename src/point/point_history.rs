@@ -1,4 +1,4 @@
-use crate::domain::value_object::point::Point;
+use crate::point::point::Point;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PointHistory {

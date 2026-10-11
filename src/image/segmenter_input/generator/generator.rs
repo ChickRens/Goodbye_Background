@@ -1,6 +1,6 @@
-use crate::{
-    application::types::segmenter_input_image::SegmenterInputImage,
-    domain::entity::original_image::OriginalImage,
+use crate::image::{
+    original::original_image::OriginalImage,
+    segmenter_input::segmenter_input_image::SegmenterInputImage,
 };
 
 pub trait SegmenterInputImageGenerator {

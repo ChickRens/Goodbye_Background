@@ -1,9 +1,6 @@
 use crate::{
-    application::{
-        interface::segmenter_input_image_storage::error::SegmenterInputImageStorageError,
-        service::error::SegmentServiceError,
-    },
-    parent_error,
+    editing::segmenter::error::SegmentServiceError,
+    image::segmenter_input::storage::error::SegmenterInputImageStorageError, parent_error,
 };
 
 parent_error!(

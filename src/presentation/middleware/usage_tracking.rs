@@ -9,11 +9,9 @@ use axum::{
 use uuid::Uuid;
 
 use crate::{
-    application::{
-        interface::usage_recorder::UsageRecorder,
-        types::usage::{
-            event::UsageEvent, id::UsageId, operation::UsageOperation, status::UsageStatus,
-        },
+    analytics::usage_tracking::{
+        event::UsageEvent, id::UsageId, operation::UsageOperation, status::UsageStatus,
+        usage_recorder::UsageRecorder,
     },
     composition::wiring::App,
     presentation::middleware::extension::UsageStatusExt,

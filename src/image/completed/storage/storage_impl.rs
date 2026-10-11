@@ -6,20 +6,18 @@ use std::{
 use dashmap::{DashMap, mapref::one::RefMut};
 
 use crate::{
-    application::{
-        interface::{
-            clock::AppClock,
-            completed_image_repository::{
-                error::CompletedImageRepositoryError, repository::CompletedImageRepository,
-            },
-            delete_expired_repository::DeleteExpiredRepository,
-        },
-        types::{
+    image::{
+        completed::{
             completed_image::CompletedImage,
-            entry::{Entry, EntryGuard},
+            storage::{error::CompletedImageStorageError, storage::CompletedImageRepository},
         },
+        image::id::ImageId,
     },
-    domain::value_object::image_id::image_id::ImageId,
+    maintenance::deleting_expired_entries::{
+        clock::clock::AppClock,
+        entry::{Entry, EntryGuard},
+        repository::DeleteExpiredRepository,
+    },
 };
 
 #[derive(Debug)]
@@ -47,14 +45,11 @@ where
         self.image.insert(image_id, entry);
     }
 
-    fn get<'a>(
-        &'a self,
-        image_id: ImageId,
-    ) -> Result<Self::Guard<'a>, CompletedImageRepositoryError> {
+    fn get<'a>(&'a self, image_id: ImageId) -> Result<Self::Guard<'a>, CompletedImageStorageError> {
         self.image
             .get_mut(&image_id)
             .map(|entry| EntryGuard::new(entry, self.clock.now()))
-            .ok_or(CompletedImageRepositoryError::ImageNotFound)
+            .ok_or(CompletedImageStorageError::ImageNotFound)
     }
 }
 
@@ -84,24 +79,18 @@ mod completed_image_repository_test {
     use std::time::{Duration, Instant};
 
     use crate::{
-        application::{
-            interface::{
-                completed_image_repository::{
-                    error::CompletedImageRepositoryError, repository::CompletedImageRepository,
+        image::{
+            completed::{
+                completed_image::CompletedImage,
+                storage::{
+                    error::CompletedImageStorageError, storage::CompletedImageRepository,
+                    storage_impl::CompletedRepositoryInMemory,
                 },
-                delete_expired_repository::DeleteExpiredRepository,
             },
-            types::completed_image::CompletedImage,
+            image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize},
         },
-        domain::{
-            entity::image::Image,
-            value_object::{
-                image_data::ImageData, image_id::image_id::ImageId,
-                image_size::image_size::ImageSize,
-            },
-        },
-        infrastructure::{
-            clock::FakeClock, repository::completed_repository::CompletedRepositoryInMemory,
+        maintenance::deleting_expired_entries::{
+            clock::clock_impl::FakeClock, repository::DeleteExpiredRepository,
         },
     };
 
@@ -142,7 +131,7 @@ mod completed_image_repository_test {
 
         assert!(matches!(
             result,
-            Err(CompletedImageRepositoryError::ImageNotFound)
+            Err(CompletedImageStorageError::ImageNotFound)
         ));
     }
 
@@ -177,10 +166,7 @@ where
     where
         Self: 'a;
 
-    fn get<'a>(
-        &'a self,
-        image_id: ImageId,
-    ) -> Result<Self::Guard<'a>, CompletedImageRepositoryError> {
+    fn get<'a>(&'a self, image_id: ImageId) -> Result<Self::Guard<'a>, CompletedImageStorageError> {
         self.repository.get(image_id)
     }
 

@@ -4,13 +4,11 @@ use axum::{Json, extract::State};
 use tokio::task::spawn_blocking;
 
 use crate::{
-    application::usecase::redo_usecase::redo_input::RedoInput,
+    api::handler::redo::{request::RedoRequest, response::RedoResponse},
     composition::wiring::App,
-    domain::value_object::session_id::session_id::SessionId,
-    presentation::{
-        errors::{app_error::AppError, presentation_error::PresentationError},
-        handler::redo::{request::RedoRequest, response::RedoResponse},
-    },
+    editing::redo::input::RedoInput,
+    presentation::errors::{app_error::AppError, presentation_error::PresentationError},
+    session::id::SessionId,
 };
 
 #[axum::debug_handler]

@@ -1,8 +1,6 @@
-use crate::application::{
-    service::prepare_service::PrepareSegmentService,
-    usecase::prepare_segment_usecase::{
-        error::PrepareSegmentUseCaseError, prepare_segment_input::PrepareSegmentInput,
-    },
+use crate::editing::{
+    prepare_segment::{error::PrepareSegmentUseCaseError, input::PrepareSegmentInput},
+    segmenter::prepare_service::PrepareSegmentService,
 };
 
 pub struct PrepareSegmentUseCase<PS>

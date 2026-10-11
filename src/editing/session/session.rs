@@ -1,9 +1,8 @@
 use crate::{
-    application::types::{
-        editing_session::error::EditingSessionError,
-        inference_context_history::InferenceContextHistory, point_history::PointHistory,
+    editing::session::{
+        error::EditingSessionError, inference_context_history::InferenceContextHistory,
     },
-    domain::value_object::point::Point,
+    point::{point::Point, point_history::PointHistory},
 };
 
 #[derive(Debug, PartialEq, Clone)]

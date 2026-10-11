@@ -1,4 +1,4 @@
-use crate::domain::value_object::image_size::image_size::ImageSize;
+use crate::image::image::size::ImageSize;
 
 pub struct GetCompletedOutput {
     data: Vec<u8>,

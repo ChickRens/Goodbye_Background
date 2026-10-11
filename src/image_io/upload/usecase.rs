@@ -1,19 +1,15 @@
 use crate::{
-    application::{
-        interface::image_loader::loader::ImageLoader,
-        service::preview_service::PreviewService,
-        usecase::upload_usecase::{
-            error::UploadUseCaseError, upload_input::UploadInput, upload_output::UploadOutput,
+    image::{
+        original::{
+            original_image::OriginalImage, original_repository::repository::OriginalImageRepository,
         },
+        preview::service::PreviewService,
     },
-    domain::{
-        entity::{original_image::OriginalImage, session::Session},
-        repository::{
-            original_image_repository::repository::OriginalImageRepository,
-            session_repository::repository::SessionRepository,
-        },
-        value_object::session_id::session_id::SessionId,
+    image_io::upload::{
+        error::UploadUseCaseError, image_loader::loader::ImageLoader, input::UploadInput,
+        output::UploadOutput,
     },
+    session::{id::SessionId, repository::repository::SessionRepository, session::Session},
 };
 
 pub struct UploadUseCase<SR, IR, LD, PS>

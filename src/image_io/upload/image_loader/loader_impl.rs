@@ -1,12 +1,9 @@
 use std::time::Instant;
 
-use crate::application::interface::image_loader::error::LoadingError;
-use crate::application::interface::image_loader::loader::ImageLoader;
-use crate::application::types::loaded_image::LoadedImage;
-use crate::domain::entity::image::Image;
-use crate::domain::value_object::image_data::ImageData;
-use crate::domain::value_object::image_id::image_id::ImageId;
-use crate::domain::value_object::image_size::image_size::ImageSize;
+use crate::image::image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize};
+use crate::image_io::upload::image_loader::{
+    error::LoadingError, loaded_image::LoadedImage, loader::ImageLoader,
+};
 use image::{DynamicImage, ImageDecoder, ImageError, ImageReader};
 use std::io::Cursor;
 
@@ -72,7 +69,7 @@ mod image_loader_tests {
     use std::{fs::read, path::Path};
 
     use super::FileImageLoader;
-    use crate::application::interface::image_loader::{error::LoadingError, loader::ImageLoader};
+    use crate::image_io::upload::image_loader::{error::LoadingError, loader::ImageLoader};
 
     #[test]
     fn test_normal_load() {

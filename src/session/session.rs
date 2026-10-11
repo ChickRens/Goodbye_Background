@@ -1,4 +1,4 @@
-use crate::{image::id::ImageId, session::id::SessionId};
+use crate::{image::image::id::ImageId, session::id::SessionId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {

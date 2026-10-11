@@ -4,7 +4,8 @@ use crate::{
         ErrorType::{self, Internal, InvalidInput},
         ErrorTypeProvider,
     },
-    domain::value_object::{image_id::error::ImageIdError, session_id::error::SessionIdError},
+    image::image::error::ImageIdError,
+    session::error::SessionIdError,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]

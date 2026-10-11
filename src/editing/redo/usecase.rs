@@ -1,8 +1,9 @@
-use crate::application::{
-    service::{preview_service::PreviewService, segment_service::SegmentService},
-    usecase::redo_usecase::{
-        error::RedoUseCaseError, redo_input::RedoInput, redo_output::RedoOutput,
+use crate::{
+    editing::{
+        redo::{error::RedoUseCaseError, input::RedoInput, output::RedoOutput},
+        segmenter::segment_service::SegmentService,
     },
+    image::preview::service::PreviewService,
 };
 
 pub struct RedoUseCase<PS, SS>

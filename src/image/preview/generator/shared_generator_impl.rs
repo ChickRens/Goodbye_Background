@@ -1,6 +1,12 @@
 use std::sync::Arc;
 
-use crate::{image::image::Image, preview::{generator::{generator::PreviewImageGenerator, generator_impl::WebPPreviewImageGenerator}, preview::PreviewImage}};
+use crate::image::{
+    image::image::Image,
+    preview::{
+        generator::{generator::PreviewImageGenerator, generator_impl::WebPPreviewImageGenerator},
+        preview::PreviewImage,
+    },
+};
 
 #[derive(Debug, Clone)]
 pub struct SharedPreviewGenerator {

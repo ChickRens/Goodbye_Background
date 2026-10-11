@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use webp::Encoder;
 
-use crate::{
-    application::{
-        interface::completed_image_generator::CompletedImageGenerator,
-        types::completed_image::CompletedImage,
+use crate::image::{
+    completed::{
+        completed_image::CompletedImage, generator::generator_impl::CompletedImageGenerator,
     },
-    domain::{entity::image::Image, value_object::image_data::ImageData},
+    image::{image::Image, raw_data::ImageData},
 };
 
 #[derive(Debug)]
@@ -40,16 +39,10 @@ impl WebPCompletedImageGenerator {
 
 #[cfg(test)]
 mod completed_image_generator_test {
-    use crate::{
-        application::interface::completed_image_generator::CompletedImageGenerator,
-        domain::{
-            entity::image::Image,
-            value_object::{
-                image_data::ImageData, image_id::image_id::ImageId,
-                image_size::image_size::ImageSize,
-            },
-        },
-        infrastructure::generator::completed_image::WebPCompletedImageGenerator,
+    use super::WebPCompletedImageGenerator;
+    use crate::image::{
+        completed::generator::generator_impl::CompletedImageGenerator,
+        image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize},
     };
 
     #[test]

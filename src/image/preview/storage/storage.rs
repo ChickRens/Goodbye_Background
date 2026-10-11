@@ -1,6 +1,9 @@
 use std::ops::DerefMut;
 
-use crate::{image::id::ImageId, preview::{preview::PreviewImage, storage::error::PreviewStorageError}};
+use crate::image::{
+    image::id::ImageId,
+    preview::{preview::PreviewImage, storage::error::PreviewStorageError},
+};
 
 pub trait PreviewStorage {
     type Guard<'a>: DerefMut<Target = PreviewImage>

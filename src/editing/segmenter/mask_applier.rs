@@ -1,7 +1,7 @@
 use ndarray::{ArrayView4, s};
 use rayon::prelude::*;
 
-use crate::domain::entity::image::Image;
+use crate::image::image::image::Image;
 
 pub struct SAM2MaskApplier;
 
@@ -34,16 +34,8 @@ mod mask_applier_test {
     use image::RgbaImage;
     use ndarray::Array4;
 
-    use crate::{
-        domain::{
-            entity::image::Image,
-            value_object::{
-                image_data::ImageData, image_id::image_id::ImageId,
-                image_size::image_size::ImageSize,
-            },
-        },
-        infrastructure::segmenter::mask_applier::SAM2MaskApplier,
-    };
+    use super::SAM2MaskApplier;
+    use crate::image::image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize};
 
     fn _create_5x5_rgba_image() -> Image {
         let image_pixels = [

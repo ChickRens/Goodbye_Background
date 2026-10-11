@@ -1,4 +1,4 @@
-use crate::domain::value_object::{point::Point, session_id::session_id::SessionId};
+use crate::{point::point::Point, session::id::SessionId};
 
 pub struct SegmentInput {
     session_id: SessionId,

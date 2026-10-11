@@ -1,4 +1,4 @@
-use crate::domain::value_object::image_id::image_id::ImageId;
+use crate::image::image::id::ImageId;
 
 pub struct SegmentOutput {
     image_id: ImageId,

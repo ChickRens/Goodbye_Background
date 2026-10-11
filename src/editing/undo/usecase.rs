@@ -1,8 +1,9 @@
-use crate::application::{
-    service::{preview_service::PreviewService, segment_service::SegmentService},
-    usecase::undo_usecase::{
-        error::UndoUseCaseError, undo_input::UndoInput, undo_output::UndoOutput,
+use crate::{
+    editing::{
+        segmenter::segment_service::SegmentService,
+        undo::{error::UndoUseCaseError, input::UndoInput, output::UndoOutput},
     },
+    image::preview::service::PreviewService,
 };
 
 pub struct UndoUseCase<SS, PS>

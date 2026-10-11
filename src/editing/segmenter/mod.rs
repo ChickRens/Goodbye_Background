@@ -1,10 +1,11 @@
+pub mod error;
 pub mod mask_applier;
 pub mod mask_resizer;
 pub mod mask_smoother;
-pub mod segmenter_sam2;
-pub mod sam2_data;
-pub mod shared_segmenter_sam2;
-pub mod error;
-pub mod segmenter;
-pub mod segment_service;
 pub mod prepare_service;
+pub mod sam2_data;
+pub mod segment_service;
+pub mod segmented_image;
+pub mod segmenter;
+pub mod segmenter_sam2;
+pub mod shared_segmenter_sam2;

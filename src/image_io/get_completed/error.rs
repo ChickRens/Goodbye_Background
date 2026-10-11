@@ -1,10 +1,7 @@
-use crate::{
-    application::interface::completed_image_repository::error::CompletedImageRepositoryError,
-    parent_error,
-};
+use crate::{image::completed::storage::error::CompletedImageStorageError, parent_error};
 
 parent_error!(
     pub enum GetCompletedUseCaseError {
-        CompletedService(CompletedImageRepositoryError),
+        CompletedService(CompletedImageStorageError),
     }
 );

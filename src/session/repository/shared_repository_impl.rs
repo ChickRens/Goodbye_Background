@@ -3,14 +3,15 @@ use std::time::{Duration, Instant};
 
 use dashmap::mapref::one::RefMut;
 
-use crate::application::interface::{
-    clock::AppClock, delete_expired_repository::DeleteExpiredRepository,
+use crate::maintenance::deleting_expired_entries::{
+    clock::clock::AppClock,
+    entry::{Entry, EntryGuard},
+    repository::DeleteExpiredRepository,
 };
-use crate::application::types::entry::{Entry, EntryGuard};
 use crate::session::id::SessionId;
 use crate::session::repository::error::SessionRepositoryError;
-use crate::session::repository::implement::repository_impl::SessionRepositoryInMemory;
 use crate::session::repository::repository::SessionRepository;
+use crate::session::repository::repository_impl::SessionRepositoryInMemory;
 use crate::session::session::Session;
 
 #[derive(Clone)]

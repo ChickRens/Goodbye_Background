@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::application::interface::clock::AppClock;
+use crate::maintenance::deleting_expired_entries::clock::clock::AppClock;
 
 #[derive(Debug, Clone)]
 pub struct RealClock;

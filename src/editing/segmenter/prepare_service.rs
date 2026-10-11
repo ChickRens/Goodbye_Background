@@ -1,23 +1,23 @@
 use std::sync::Arc;
 
 use crate::{
-    application::{
-        interface::{
-            editing_session_repository::repository::EditingSessionRepository,
-            image_segmenter::segmenter::ImageSegmenter,
-            segmenter_input_image_generator::SegmenterInputImageGenerator,
-            segmenter_input_image_storage::storage::SegmenterInputImageStorage,
-        },
-        service::error::PrepareServiceError,
-        types::{
-            editing_session::session::CommonEditingSession,
-            inference_context_history::InferenceContextHistory, point_history::PointHistory,
+    editing::{
+        segmenter::{error::PrepareServiceError, segmenter::ImageSegmenter},
+        session::{
+            inference_context_history::InferenceContextHistory,
+            repository::repository::EditingSessionRepository, session::CommonEditingSession,
         },
     },
-    domain::{
-        repository::original_image_repository::repository::OriginalImageRepository,
-        value_object::{image_id::image_id::ImageId, session_id::session_id::SessionId},
+    image::{
+        image::id::ImageId,
+        original::original_repository::repository::OriginalImageRepository,
+        segmenter_input::{
+            generator::generator::SegmenterInputImageGenerator,
+            storage::storage::SegmenterInputImageStorage,
+        },
     },
+    point::point_history::PointHistory,
+    session::id::SessionId,
 };
 
 pub trait PrepareSegmentService {

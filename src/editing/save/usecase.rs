@@ -1,6 +1,9 @@
-use crate::application::{
-    service::{completed_service::CompletedService, segment_service::SegmentService},
-    usecase::save_usecase::{error::SaveUseCaseError, input::SaveInput, output::SaveOutput},
+use crate::{
+    editing::{
+        save::{error::SaveUseCaseError, input::SaveInput, output::SaveOutput},
+        segmenter::segment_service::SegmentService,
+    },
+    image::completed::completed_service::CompletedService,
 };
 
 pub struct SaveUseCase<SS, CS>

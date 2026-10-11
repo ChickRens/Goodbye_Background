@@ -3,14 +3,17 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use dashmap::mapref::one::RefMut;
 
-use crate::application::interface::clock::AppClock;
-use crate::application::interface::delete_expired_repository::DeleteExpiredRepository;
-use crate::application::interface::editing_session_repository::error::EditingSessionRepositoryError;
-use crate::application::interface::editing_session_repository::repository::EditingSessionRepository;
-use crate::application::types::editing_session::session::CommonEditingSession;
-use crate::application::types::entry::{Entry, EntryGuard};
-use crate::domain::value_object::session_id::session_id::SessionId;
-use crate::infrastructure::segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext};
+use crate::editing::segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext};
+use crate::editing::session::{
+    repository::{error::EditingSessionRepositoryError, repository::EditingSessionRepository},
+    session::CommonEditingSession,
+};
+use crate::maintenance::deleting_expired_entries::{
+    clock::clock::AppClock,
+    entry::{Entry, EntryGuard},
+    repository::DeleteExpiredRepository,
+};
+use crate::session::id::SessionId;
 
 pub struct SAM2EditingSessionRepository<Clock>
 where
@@ -84,25 +87,21 @@ where
 mod editing_session_repository_test {
     use std::time::{Duration, Instant};
 
+    use crate::editing::session::inference_context_history::InferenceContextHistory;
     use crate::{
-        application::{
-            interface::{
-                delete_expired_repository::DeleteExpiredRepository,
-                editing_session_repository::{
-                    error::EditingSessionRepositoryError, repository::EditingSessionRepository,
-                },
+        editing::segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext},
+        editing::session::{
+            repository::{
+                error::EditingSessionRepositoryError, repository::EditingSessionRepository,
+                repository_impl::SAM2EditingSessionRepository,
             },
-            types::{
-                editing_session::session::CommonEditingSession,
-                inference_context_history::InferenceContextHistory, point_history::PointHistory,
-            },
+            session::CommonEditingSession,
         },
-        domain::value_object::session_id::session_id::SessionId,
-        infrastructure::{
-            clock::FakeClock,
-            repository::editing_session_repository::SAM2EditingSessionRepository,
-            segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext},
+        maintenance::deleting_expired_entries::{
+            clock::clock_impl::FakeClock, repository::DeleteExpiredRepository,
         },
+        point::point_history::PointHistory,
+        session::id::SessionId,
     };
 
     type EditingSession = CommonEditingSession<SAM2StaticContext, SAM2InferenceContext>;

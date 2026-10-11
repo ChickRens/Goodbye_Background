@@ -5,7 +5,23 @@ use std::{
 
 use dashmap::mapref::one::RefMut;
 
-use crate::{application::{interface::{clock::AppClock, delete_expired_repository::DeleteExpiredRepository}, types::entry::{Entry, EntryGuard}}, image::{id::ImageId, original_image::OriginalImage, original_repository::{error::OriginalImageRepositoryError, implement::repository::OriginalImageRepositoryInMemory, repository::OriginalImageRepository}}};
+use crate::{
+    image::{
+        image::id::ImageId,
+        original::{
+            original_image::OriginalImage,
+            original_repository::{
+                error::OriginalImageRepositoryError, repository::OriginalImageRepository,
+                repository_impl::OriginalImageRepositoryInMemory,
+            },
+        },
+    },
+    maintenance::deleting_expired_entries::{
+        clock::clock::AppClock,
+        entry::{Entry, EntryGuard},
+        repository::DeleteExpiredRepository,
+    },
+};
 
 #[derive(Clone)]
 pub struct SharedOriginalImageRepository<Clock>

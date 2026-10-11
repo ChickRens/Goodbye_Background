@@ -1,16 +1,16 @@
+mod analytics;
+mod api;
 mod application;
 mod common;
 mod composition;
-mod infrastructure;
-mod presentation;
-mod image_io;
+mod config;
 mod editing;
-mod api;
 mod image;
-mod point;
-mod session;
+mod image_io;
 mod maintenance;
-mod analytics;
+mod point;
+mod presentation;
+mod session;
 
 use std::{env, sync::Arc, time::Duration};
 
@@ -19,9 +19,9 @@ use sqlx::sqlite::SqlitePoolOptions;
 use tokio::net::TcpListener;
 
 use crate::{
-    application::{interface::clock::AppClock, usecase::config::CLEANUP_INTERVAL},
     composition::wiring::App,
-    infrastructure::clock::RealClock,
+    config::CLEANUP_INTERVAL,
+    maintenance::deleting_expired_entries::clock::{clock::AppClock, clock_impl::RealClock},
 };
 
 #[tokio::main]

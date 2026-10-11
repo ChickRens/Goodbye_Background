@@ -1,8 +1,9 @@
-use crate::application::{
-    service::{preview_service::PreviewService, segment_service::SegmentService},
-    usecase::segment_usecase::{
-        error::SegmentUseCaseError, segment_input::SegmentInput, segment_output::SegmentOutput,
+use crate::{
+    editing::{
+        segment::{error::SegmentUseCaseError, input::SegmentInput, output::SegmentOutput},
+        segmenter::segment_service::SegmentService,
     },
+    image::preview::service::PreviewService,
 };
 
 pub struct SegmentUseCase<SS, PS>

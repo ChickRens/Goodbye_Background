@@ -1,4 +1,4 @@
-use crate::domain::entity::image::Image;
+use crate::image::image::image::Image;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct LoadedImage {

@@ -1,13 +1,12 @@
 use crate::{
-    application::interface::{
-        editing_session_repository::error::EditingSessionRepositoryError,
-        image_loader::error::LoadingError, image_segmenter::error::SegmenterLoadingError,
+    editing::{
+        segmenter::error::SegmenterLoadingError,
+        session::repository::error::EditingSessionRepositoryError,
     },
-    domain::repository::{
-        original_image_repository::error::OriginalImageRepositoryError,
-        session_repository::error::SessionRepositoryError,
-    },
+    image::original::original_repository::error::OriginalImageRepositoryError,
+    image_io::upload::image_loader::error::LoadingError,
     parent_error,
+    session::repository::error::SessionRepositoryError,
 };
 
 parent_error!(

@@ -1,4 +1,4 @@
-use crate::{application::types::completed_image::CompletedImage, domain::entity::image::Image};
+use crate::image::{completed::completed_image::CompletedImage, image::image::Image};
 
 pub trait CompletedImageGenerator {
     fn generate(&self, image: &Image) -> CompletedImage;

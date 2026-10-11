@@ -1,6 +1,13 @@
 use std::{ops::Deref, sync::Arc, time::Instant};
 
-use crate::{image::{id::ImageId, image::Image}, preview::{generator::generator::PreviewImageGenerator, preview::PreviewImage, storage::{error::PreviewStorageError, storage::PreviewStorage}}};
+use crate::image::{
+    image::{id::ImageId, image::Image},
+    preview::{
+        generator::generator::PreviewImageGenerator,
+        preview::PreviewImage,
+        storage::{error::PreviewStorageError, storage::PreviewStorage},
+    },
+};
 
 pub trait PreviewService {
     fn generate_and_save_original(&self, image: &Image) -> f64;

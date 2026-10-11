@@ -1,11 +1,10 @@
 use std::ops::DerefMut;
 
-use crate::{
-    application::{
-        interface::segmenter_input_image_storage::error::SegmenterInputImageStorageError,
-        types::segmenter_input_image::SegmenterInputImage,
+use crate::image::{
+    image::id::ImageId,
+    segmenter_input::{
+        segmenter_input_image::SegmenterInputImage, storage::error::SegmenterInputImageStorageError,
     },
-    domain::value_object::image_id::image_id::ImageId,
 };
 
 pub trait SegmenterInputImageStorage {

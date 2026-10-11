@@ -5,7 +5,7 @@ use rayon::{
     slice::ParallelSliceMut,
 };
 
-use crate::domain::entity::image::Image;
+use crate::image::image::image::Image;
 
 pub struct SAM2MaskSmoother;
 

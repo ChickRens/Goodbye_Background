@@ -9,18 +9,8 @@ use ort::{
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{
-    application::{
-        interface::image_segmenter::{
-            error::{SegmenterLoadingError, SegmenterModelError, SegmenterRuntimeError},
-            segmenter::ImageSegmenter,
-        },
-        types::{segmented_image::SegmentedImage, segmenter_input_image::SegmenterInputImage},
-    },
-    domain::{
-        entity::original_image::OriginalImage,
-        value_object::{image_data::ImageData, image_size::image_size::ImageSize, point::Point},
-    },
-    infrastructure::segmenter::{
+    editing::segmenter::{
+        error::{SegmenterLoadingError, SegmenterModelError, SegmenterRuntimeError},
         mask_applier::SAM2MaskApplier,
         mask_resizer::SAM2MaskResizer,
         mask_smoother::SAM2MaskSmoother,
@@ -28,7 +18,15 @@ use crate::{
             DenseEmbeddings, HighResFeatureS0, HighResFeatureS1, ImageEmbeddings, Mask,
             SAM2InferenceContext, SAM2StaticContext, SparseEmbeddings,
         },
+        segmented_image::SegmentedImage,
+        segmenter::ImageSegmenter,
     },
+    image::{
+        image::{raw_data::ImageData, size::ImageSize},
+        original::original_image::OriginalImage,
+        segmenter_input::segmenter_input_image::SegmenterInputImage,
+    },
+    point::point::Point,
 };
 use std::fs::read;
 
@@ -522,18 +520,12 @@ impl ImageSegmenter for Sam2Segmenter {
 mod sam2_test {
     use ndarray::Array4;
 
-    use crate::{
-        domain::{
-            entity::{image::Image, original_image::OriginalImage},
-            value_object::{
-                image_data::ImageData, image_id::image_id::ImageId,
-                image_size::image_size::ImageSize,
-            },
-        },
-        infrastructure::segmenter::sam2_data::Mask,
-    };
-
     use super::Sam2Segmenter;
+    use crate::editing::segmenter::sam2_data::Mask;
+    use crate::image::{
+        image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize},
+        original::original_image::OriginalImage,
+    };
 
     #[test]
     fn scale_prompt_scales_points_to_target_size() {

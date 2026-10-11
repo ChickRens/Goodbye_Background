@@ -3,21 +3,21 @@ use std::sync::Arc;
 use dashmap::mapref::one::RefMut;
 
 use crate::{
-    application::{
-        interface::{
-            clock::AppClock,
-            delete_expired_repository::DeleteExpiredRepository,
-            segmenter_input_image_storage::{
+    image::{
+        image::id::ImageId,
+        segmenter_input::{
+            segmenter_input_image::SegmenterInputImage,
+            storage::{
                 error::SegmenterInputImageStorageError, storage::SegmenterInputImageStorage,
+                storage_impl::SegmenterInputStorageInMemory,
             },
         },
-        types::{
-            entry::{Entry, EntryGuard},
-            segmenter_input_image::SegmenterInputImage,
-        },
     },
-    domain::value_object::image_id::image_id::ImageId,
-    infrastructure::storage::segmenter_input_storage_in_memory::SegmenterInputStorageInMemory,
+    maintenance::deleting_expired_entries::{
+        clock::clock::AppClock,
+        entry::{Entry, EntryGuard},
+        repository::DeleteExpiredRepository,
+    },
 };
 
 #[derive(Debug, Clone)]

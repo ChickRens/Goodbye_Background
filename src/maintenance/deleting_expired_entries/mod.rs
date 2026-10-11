@@ -1,4 +1,4 @@
 pub mod clock;
-pub mod usecase;
-pub mod repository;
 pub mod entry;
+pub mod repository;
+pub mod usecase;

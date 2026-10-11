@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
 use crate::{
-    application::{
-        interface::image_segmenter::{
-            error::{SegmenterLoadingError, SegmenterModelError, SegmenterRuntimeError},
-            segmenter::ImageSegmenter,
-        },
-        types::{segmented_image::SegmentedImage, segmenter_input_image::SegmenterInputImage},
-    },
-    domain::{entity::original_image::OriginalImage, value_object::point::Point},
-    infrastructure::segmenter::{
-        sam2::Sam2Segmenter,
+    editing::segmenter::{
+        error::{SegmenterLoadingError, SegmenterModelError, SegmenterRuntimeError},
         sam2_data::{SAM2InferenceContext, SAM2StaticContext},
+        segmented_image::SegmentedImage,
+        segmenter::ImageSegmenter,
+        segmenter_sam2::Sam2Segmenter,
     },
+    image::{
+        original::original_image::OriginalImage,
+        segmenter_input::segmenter_input_image::SegmenterInputImage,
+    },
+    point::point::Point,
 };
 
 #[derive(Clone)]

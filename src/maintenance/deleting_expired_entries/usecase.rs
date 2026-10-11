@@ -1,16 +1,14 @@
 use std::time::{Duration, Instant};
 
 use crate::{
-    application::interface::{
-        completed_image_repository::repository::CompletedImageRepository,
-        delete_expired_repository::DeleteExpiredRepository,
-        preview_storage::storage::PreviewStorage,
-        segmenter_input_image_storage::storage::SegmenterInputImageStorage,
+    image::{
+        completed::storage::storage::CompletedImageRepository,
+        original::original_repository::repository::OriginalImageRepository,
+        preview::storage::storage::PreviewStorage,
+        segmenter_input::storage::storage::SegmenterInputImageStorage,
     },
-    domain::repository::{
-        original_image_repository::repository::OriginalImageRepository,
-        session_repository::repository::SessionRepository,
-    },
+    maintenance::deleting_expired_entries::repository::DeleteExpiredRepository,
+    session::repository::repository::SessionRepository,
 };
 
 pub struct DeleteExpiredEntriesUseCase<IR, SR, CIR, PS, SS>
