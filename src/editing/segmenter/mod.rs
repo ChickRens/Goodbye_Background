@@ -7,3 +7,4 @@ pub mod shared_segmenter_sam2;
 pub mod error;
 pub mod segmenter;
 pub mod segment_service;
+pub mod prepare_service;
