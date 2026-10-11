@@ -4,3 +4,4 @@ pub mod undo;
 pub mod redo;
 pub mod save;
 pub mod session;
+pub mod segmenter;
