@@ -64,7 +64,7 @@ mod image_repository_test {
     use std::time::{Duration, Instant};
 
     use crate::{
-        application::interface::delete_expired_repository::DeleteExpiredRepository, image::{id::ImageId, image::Image, original_image::OriginalImage, original_repository::{error::OriginalImageRepositoryError, implement::repository::OriginalImageRepositoryInMemory}, raw_data::ImageData, size::ImageSize}, infrastructure::clock::FakeClock,
+        application::interface::delete_expired_repository::DeleteExpiredRepository, image::{image::id::ImageId, image::image::Image, original_image::OriginalImage, original_repository::{error::OriginalImageRepositoryError, implement::repository::OriginalImageRepositoryInMemory}, raw_data::ImageData, size::ImageSize}, infrastructure::clock::FakeClock,
     };
 
     fn make_image() -> OriginalImage {

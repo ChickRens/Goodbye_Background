@@ -1,6 +1,6 @@
 use std::ops::DerefMut;
 
-use crate::image::{id::ImageId, original_image::OriginalImage, original_repository::error::OriginalImageRepositoryError};
+use crate::image::image::{id::ImageId, original_image::OriginalImage, original_repository::error::OriginalImageRepositoryError};
 
 pub trait OriginalImageRepository {
     type Guard<'a>: DerefMut<Target = OriginalImage>

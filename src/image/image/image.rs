@@ -1,4 +1,4 @@
-use crate::image::{id::ImageId, raw_data::ImageData, size::ImageSize};
+use crate::image::image::{id::ImageId, raw_data::ImageData, size::ImageSize};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Image {

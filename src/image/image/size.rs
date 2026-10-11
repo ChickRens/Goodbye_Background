@@ -1,4 +1,4 @@
-use crate::image::error::ImageSizeError;
+use crate::image::image::error::ImageSizeError;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ImageSize {
@@ -41,7 +41,7 @@ impl ImageSize {
 
 #[cfg(test)]
 mod image_size_tests {
-    use crate::image::{error::ImageSizeError, size::ImageSize};
+    use crate::image::image::{error::ImageSizeError, size::ImageSize};
 
     #[test]
     fn test_valid_size() {
