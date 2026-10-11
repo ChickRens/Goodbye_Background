@@ -1,15 +1,6 @@
 use std::{ops::Deref, sync::Arc, time::Instant};
 
-use crate::{
-    application::{
-        interface::{
-            preview_image_generator::PreviewImageGenerator,
-            preview_storage::{error::PreviewStorageError, storage::PreviewStorage},
-        },
-        types::preview_image::PreviewImage,
-    },
-    domain::{entity::image::Image, value_object::image_id::image_id::ImageId},
-};
+use crate::{image::{id::ImageId, image::Image}, preview::{generator::generator::PreviewImageGenerator, preview::PreviewImage, storage::{error::PreviewStorageError, storage::PreviewStorage}}};
 
 pub trait PreviewService {
     fn generate_and_save_original(&self, image: &Image) -> f64;

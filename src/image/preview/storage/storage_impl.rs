@@ -6,20 +6,7 @@ use std::{
 
 use dashmap::{DashMap, mapref::one::RefMut};
 
-use crate::{
-    application::{
-        interface::{
-            clock::AppClock,
-            delete_expired_repository::DeleteExpiredRepository,
-            preview_storage::{error::PreviewStorageError, storage::PreviewStorage},
-        },
-        types::{
-            entry::{Entry, EntryGuard},
-            preview_image::PreviewImage,
-        },
-    },
-    domain::value_object::image_id::image_id::ImageId,
-};
+use crate::{application::{interface::{clock::AppClock, delete_expired_repository::DeleteExpiredRepository}, types::entry::{Entry, EntryGuard}}, image::id::ImageId, preview::{preview::PreviewImage, storage::{error::PreviewStorageError, storage::PreviewStorage}}};
 
 #[derive(Debug)]
 pub struct PreviewStorageInMemory<Clock>
@@ -259,25 +246,7 @@ where
 mod preview_storage_in_memory_test {
     use std::time::{Duration, Instant};
 
-    use crate::{
-        application::{
-            interface::{
-                delete_expired_repository::DeleteExpiredRepository,
-                preview_storage::{error::PreviewStorageError, storage::PreviewStorage},
-            },
-            types::preview_image::PreviewImage,
-        },
-        domain::{
-            entity::image::Image,
-            value_object::{
-                image_data::ImageData, image_id::image_id::ImageId,
-                image_size::image_size::ImageSize,
-            },
-        },
-        infrastructure::{
-            clock::FakeClock, storage::preview_storage_in_memory::PreviewStorageInMemory,
-        },
-    };
+use crate::{image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize}, infrastructure::clock::FakeClock, preview::{preview::PreviewImage, storage::{error::PreviewStorageError, storage_impl::PreviewStorageInMemory}}};
 
     fn make_preview_image() -> PreviewImage {
         let size = ImageSize::new(4, 4).unwrap();
