@@ -1,7 +1,7 @@
 use std::{sync::Mutex, time::Instant};
 
 use image::{DynamicImage, ImageBuffer};
-use ndarray::{Array2, Array3, Array4, ArrayView3, ArrayView4, Ix3, Ix4};
+use ndarray::{Array1, Array2, Array3, Array4, ArrayView3, ArrayView4, Ix3, Ix4};
 use ort::{
     session::{Session, SessionOutputs, builder::GraphOptimizationLevel},
     value::{PrimitiveTensorElementType, TensorRef, TensorValueType, Value},
@@ -210,11 +210,13 @@ impl Sam2Segmenter {
             Some(mask) => mask,
             None => none_binding.view(),
         };
+        let has_mask: Array1<f32> = Array1::from_vec(vec![if mask.is_some() { 1.0 } else { 0.0 }]);
 
         let outputs = session.run(ort::inputs![
                 "point_coords" => TensorRef::from_array_view(&input_coords)?,
                 "point_labels" => TensorRef::from_array_view(&input_labels)?,
-                "mask"          => TensorRef::from_array_view(input_mask)?])?;
+                "mask"          => TensorRef::from_array_view(input_mask)?,
+                "has_mask" => TensorRef::from_array_view(&has_mask)?])?;
 
         let sparse_embeddings_value: Array3<f32> =
             Self::_tensor_to_array3::<f32>(&outputs, "sparse_embeddings");
