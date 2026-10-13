@@ -89,7 +89,7 @@ export function initStrip({
           store.updateSession(localId, { status: 'error', error: err.message });
           showToast({
             type: 'danger',
-            message: `${file.name}: アップロードに失敗しました (${err.message})`,
+            message: `${file.name} のアップロードに失敗しました: ${err.message}`,
             code: err.code,
           });
         });
