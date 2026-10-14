@@ -1,9 +1,9 @@
 -- Add migration script here
 CREATE TABLE IF NOT EXISTS usage_records (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id BIGSERIAL PRIMARY KEY,
     operation TEXT NOT NULL,
     status TEXT NOT NULL,
     failure_cause TEXT,
     processing_time_ms INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
