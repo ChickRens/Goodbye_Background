@@ -15,7 +15,7 @@ mod session;
 use std::{env, sync::Arc, time::Duration};
 
 use presentation::router;
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
 
 use crate::{
@@ -28,13 +28,9 @@ use crate::{
 async fn main() {
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
-    let pool = SqlitePoolOptions::new()
+    let pool = PgPoolOptions::new()
         .max_connections(1)
-        .connect(&format!("{}?mode=rwc", database_url))
-        .await
-        .unwrap();
-    sqlx::query("PRAGMA journal_mode=WAL")
-        .execute(&pool)
+        .connect(&format!("{}", database_url))
         .await
         .unwrap();
     sqlx::migrate!("./migrations").run(&pool).await.unwrap();
@@ -50,9 +46,18 @@ async fn main() {
     });
 
     let router = router::route(app_for_router.clone());
-    println!("Server running on http://localhost:3000");
 
-    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let port: u16 = env::var("PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse()
+        .expect("PORT must be a valid port number");
+
+    let listener = TcpListener::bind(("0.0.0.0", port))
+        .await
+        .expect("Failed to bind TCP listener");
+
+    println!("Server running on 0.0.0.0:{port}");
+
     axum::serve(listener, router).await.unwrap();
 }
 
