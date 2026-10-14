@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use crate::{
-    analytics::usage_tracking::recorder::SQLiteUsageRecorder,
+    analytics::usage_tracking::recorder::PostgresUsageRecorder,
     application::error::ApplicationError,
     config::{MAX_HISTORY, TTL_SEC},
     editing::{
@@ -125,11 +125,11 @@ pub struct App {
         SharedPreviewStorage<RealClock>,
         SharedSegmenterInputStorage<RealClock>,
     >,
-    usage_recorder: SQLiteUsageRecorder,
+    usage_recorder: PostgresUsageRecorder,
 }
 
 impl App {
-    pub fn new(pool: sqlx::Pool<sqlx::Sqlite>) -> Result<Self, ApplicationError> {
+    pub fn new(pool: sqlx::Pool<sqlx::Postgres>) -> Result<Self, ApplicationError> {
         let clock = RealClock::new();
 
         let session_repo = SharedSessionRepository::new(clock.clone());
@@ -186,7 +186,7 @@ impl App {
             TTL_SEC,
         );
 
-        let usage_recorder = SQLiteUsageRecorder::new(pool);
+        let usage_recorder = PostgresUsageRecorder::new(pool);
 
         Ok(App {
             upload_usecase: upload_uc,
@@ -246,7 +246,7 @@ impl App {
         self.delete_expired_usecase.execute(now);
     }
 
-    pub fn usage_recorder(&self) -> &SQLiteUsageRecorder {
+    pub fn usage_recorder(&self) -> &PostgresUsageRecorder {
         &self.usage_recorder
     }
 }
