@@ -2508,6 +2508,7 @@ dependencies = [
  "indexmap",
  "log",
  "memchr",
+ "native-tls",
  "percent-encoding",
  "serde",
  "serde_json",
