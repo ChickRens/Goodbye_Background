@@ -352,6 +352,32 @@ after側の画像枠には市松模様の背景（`checker-colors.css`と同じ�
 「アプリを使ってみる」「アプリを開く」ボタンはどちらも `app.html` への
 通常のリンク（`<a href="app.html">`）。JSでの画面遷移ではなく素のページ遷移。
 
+## 検索エンジン対策（SEO / Bing・Edge検索）
+
+公開URL: `https://goodbye-background-560564917290.asia-northeast1.run.app/`
+（Edgeの検索はBing。Googleでも同じ設定が効く）
+
+- **`index.html`（紹介ページ）を検索の入口にする**: `<title>`・`description`・`canonical`・
+  OGP・`robots`・構造化データ（JSON-LD、`WebApplication`）を `<head>` に入れてある。
+  説明文は、ページに実際に書いてある機能（タップで指定 / Undo・Redo / 元の画質で保存）だけを
+  述べている。「無料」などページに書いていないことは入れないこと。
+- **`app.html`（編集画面）は `noindex`**: 中身が動的で検索に出す価値が薄く、紹介ページと
+  評価が分散するため。検索に出したくなったら `<meta name="robots">` の行を消す。
+- **`robots.txt` / `sitemap.xml`**: `index.html` と同じ場所に置く（サイトのルートから
+  配信されること）。`robots.txt` では `app.html` を禁止しない（`noindex` は、ロボットが
+  ページを読めて初めて効くため）。
+- **ドメインを変えるとき**（独自ドメインにするなど）は、公開URLが書かれた次の5か所を
+  すべて書き換える: `index.html` の `canonical` / `og:url` / JSON-LDの `url`、
+  `robots.txt` の `Sitemap`、`sitemap.xml` の `<loc>`。
+- **この設定だけでは検索に出ない**: Bing側にサイトを知らせる必要がある。
+  1. Bing Webmaster Tools でサイトを登録し、所有権を確認する（HTMLのmetaタグか
+     XMLファイルを `index.html` と同じ場所に置く方法が簡単）。
+  2. 「サイトマップ」に `sitemap.xml` を送信し、「URL送信」でトップページを送信する。
+  3. 反映には数日〜数週間かかる。確認は、Bingで `site:goodbye-background-560564917290.asia-northeast1.run.app`
+     を検索する（何も出なければ未登録）。
+- `*.run.app` は誰でも使える共通ドメインで評価が付きにくい。「Goodbye Background」の
+  完全一致での検索を最初の目標にし、長く運用するなら独自ドメインにするほうがよい。
+
 ## 既知の未対応
 
 - 認証・エラーの詳細なリトライUIは未実装
