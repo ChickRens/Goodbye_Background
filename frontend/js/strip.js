@@ -16,7 +16,15 @@ import { showToast } from './toast.js';
  * アップロードが完了した画像があれば、最初の1枚だけ自動的に選択する
  * （毎回のアップロードで編集中の画像を勝手に奪わないよう、既に何か
  * 選ばれていれば自動選択はしない）。
+ *
+ * - 複数枚を選んでも、同時に送るのは MAX_CONCURRENT_UPLOADS 件まで（残りは順番待ち）。
+ * - アップロードに失敗したサムネイル（赤いドット）は、クリックすると一覧から消せる。
+ * - サムネイルのDOMは localId ごとに使い回し、変更のあった属性だけを更新する
+ *   （store が更新されるたびに全部作り直すと、ちらつきや画像の再デコードが起きる）。
  */
+
+const MAX_CONCURRENT_UPLOADS = 3;
+
 export function initStrip({
   store,
   dropzoneEl,
@@ -29,6 +37,10 @@ export function initStrip({
   onSelect,
 }) {
   let activeLocalId = null;
+  const thumbs = new Map(); // localId -> { btn, dot }
+
+  const uploadQueue = [];
+  let runningUploads = 0;
 
   dropzoneEl.addEventListener('click', () => fileInputEl.click());
   addBtnEl.addEventListener('click', () => fileInputEl.click());
@@ -66,7 +78,18 @@ export function initStrip({
   stripEl.addEventListener('click', (evt) => {
     const thumb = evt.target.closest('[data-local-id]');
     if (!thumb || thumb.disabled) return;
-    setActive(thumb.dataset.localId);
+    const localId = thumb.dataset.localId;
+    const session = store.getSession(localId);
+    if (!session) return;
+
+    if (session.status === 'error') {
+      // 失敗したアップロードは、クリックで一覧から取り除く
+      thumbs.get(localId)?.btn.remove();
+      thumbs.delete(localId);
+      store.removeSession(localId);
+      return;
+    }
+    setActive(localId);
   });
 
   store.subscribe((state) => render(state));
@@ -79,20 +102,38 @@ export function initStrip({
       const thumbUrl = URL.createObjectURL(file);
 
       store.createSession(localId, { thumbUrl, file });
+      enqueueUpload(() =>
+        uploadImage(file)
+          .then(({ sessionId, imageId }) => {
+            store.updateSession(localId, { sessionId, imageId, status: 'ready' });
+            if (!activeLocalId) setActive(localId);
+          })
+          .catch((err) => {
+            store.updateSession(localId, { status: 'error', error: err.message });
+            showToast({
+              type: 'danger',
+              message: `${file.name} のアップロードに失敗しました: ${err.message}`,
+              code: err.code,
+            });
+          }),
+      );
+    }
+  }
 
-      uploadImage(file)
-        .then(({ sessionId, imageId }) => {
-          store.updateSession(localId, { sessionId, imageId, status: 'ready' });
-          if (!activeLocalId) setActive(localId);
-        })
-        .catch((err) => {
-          store.updateSession(localId, { status: 'error', error: err.message });
-          showToast({
-            type: 'danger',
-            message: `${file.name} のアップロードに失敗しました: ${err.message}`,
-            code: err.code,
-          });
-        });
+  // 同時アップロード数を制限する（大量に選んだときに一斉送信して詰まらせない）
+  function enqueueUpload(task) {
+    uploadQueue.push(task);
+    pumpUploads();
+  }
+
+  function pumpUploads() {
+    while (runningUploads < MAX_CONCURRENT_UPLOADS && uploadQueue.length > 0) {
+      const task = uploadQueue.shift();
+      runningUploads += 1;
+      task().finally(() => {
+        runningUploads -= 1;
+        pumpUploads();
+      });
     }
   }
 
@@ -102,33 +143,49 @@ export function initStrip({
     onSelect(localId);
   }
 
+  function createThumb(session) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'strip-thumb';
+    btn.dataset.localId = session.localId;
+
+    const img = document.createElement('img');
+    img.src = session.thumbUrl;
+    img.alt = session.file ? session.file.name : '画像';
+    btn.appendChild(img);
+
+    const dot = document.createElement('span');
+    btn.appendChild(dot);
+
+    stripEl.appendChild(btn);
+    return { btn, dot };
+  }
+
   function render(state) {
     const hasImages = state.sessions.size > 0;
     dropzoneEl.hidden = hasImages;
     stripWrapEl.hidden = !hasImages;
 
-    // addBtnEl以外のサムネイルを作り直す。枚数が多くない前提のシンプルな実装。
-    stripEl.querySelectorAll('[data-local-id]').forEach((el) => el.remove());
+    // ストアから無くなったセッションのサムネイルを取り除く
+    for (const [localId, thumb] of thumbs) {
+      if (!state.sessions.has(localId)) {
+        thumb.btn.remove();
+        thumbs.delete(localId);
+      }
+    }
 
     for (const session of state.sessions.values()) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'strip-thumb';
-      btn.dataset.localId = session.localId;
-      btn.disabled = session.status === 'uploading' || session.status === 'error';
-      btn.classList.toggle('is-active', session.localId === activeLocalId);
-      btn.title = session.file ? session.file.name : '画像';
+      let thumb = thumbs.get(session.localId);
+      if (!thumb) {
+        thumb = createThumb(session);
+        thumbs.set(session.localId, thumb);
+      }
 
-      const img = document.createElement('img');
-      img.src = session.thumbUrl;
-      img.alt = session.file ? session.file.name : '画像';
-      btn.appendChild(img);
-
-      const dot = document.createElement('span');
-      dot.className = `status-dot status-${session.status}`;
-      btn.appendChild(dot);
-
-      stripEl.appendChild(btn);
+      const name = session.file ? session.file.name : '画像';
+      thumb.btn.disabled = session.status === 'uploading';
+      thumb.btn.classList.toggle('is-active', session.localId === activeLocalId);
+      thumb.btn.title = session.status === 'error' ? `${name}（アップロード失敗・クリックで削除）` : name;
+      thumb.dot.className = `status-dot status-${session.status}`;
     }
   }
 }

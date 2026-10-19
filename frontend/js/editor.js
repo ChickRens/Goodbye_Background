@@ -18,6 +18,8 @@ import { showToast } from './toast.js';
  * 「呼び出し時点の localId」と「今表示している currentLocalId」を
  * 比較し、一致しなければ描画を破棄する。これをしないと、切り替え後の
  * 画面に前の画像の結果が紛れ込むレースコンディションが起きる。
+ * 画像の切り替え時は canvas を一度空にして(controller.reset)、読み込みが
+ * 終わるまで前の画像が残ったままタップできてしまうのを防ぐ。
  *
  * undo/redoはサーバーがポイント一覧を返さない(image_idだけを返す)ため、
  * マーカー表示用の points 配列はクライアント側で
@@ -26,7 +28,19 @@ import { showToast } from './toast.js';
  * という前提でベストエフォートに同期する。実際に表示される画像自体は
  * 常に get-preview で取得し直すので、この前提が崩れてもマスクの表示は
  * 正しいままだが、マーカーの見た目だけはズレ得る。
+ * segment が失敗した場合は、先に追加しておいた点を取り除いて元に戻す。
+ *
+ * /get-preview の結果は Blob URL。差し替えるたびに古いURLを revoke する
+ * （しないと操作のたびに画像がメモリに溜まる）。
  */
+
+// サーバーが返す形式(現状 image/webp)に合わせた拡張子。中身と拡張子を一致させる。
+const EXTENSION_BY_MIME = {
+  'image/webp': 'webp',
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+};
+
 export function initEditor({ store, elements }) {
   const {
     canvasEl,
@@ -58,11 +72,46 @@ export function initEditor({ store, elements }) {
   redoBtn.addEventListener('click', () => runHistory(redoEdit, restoreLastPoint));
   saveBtn.addEventListener('click', () => runSave());
 
+  // Ctrl/Cmd+Z で Undo、Ctrl/Cmd+Shift+Z または Ctrl+Y で Redo。
+  // 無効状態のボタンへの click() は何も起きないので、busy中や履歴が空のときは自然に無視される。
+  document.addEventListener('keydown', (evt) => {
+    if (!(evt.ctrlKey || evt.metaKey) || evt.altKey) return;
+    const target = evt.target;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+    const key = evt.key.toLowerCase();
+    if (key === 'z') {
+      evt.preventDefault();
+      (evt.shiftKey ? redoBtn : undoBtn).click();
+    } else if (key === 'y') {
+      evt.preventDefault();
+      redoBtn.click();
+    }
+  });
+
   applyMode('positive');
+
+  const isStale = (localId) => () => localId !== currentLocalId;
+
+  /**
+   * session.fullUrl を差し替え、古いBlob URLを解放する。
+   * canvas側の Image は読み込み済み(デコード済み)なので、URLを解放しても表示は消えない。
+   */
+  function replaceFullUrl(localId, url) {
+    const session = store.getSession(localId);
+    if (session && session.fullUrl && session.fullUrl !== url) {
+      URL.revokeObjectURL(session.fullUrl);
+    }
+    store.updateSession(localId, { fullUrl: url });
+  }
 
   async function open(localId) {
     currentLocalId = localId;
+    controller.reset(); // 前の画像が残ったままタップできてしまわないよう、まず空にする
+
     const session = store.getSession(localId);
+    syncToolbar(session);
     if (!session || !session.imageId) {
       showToast({ type: 'warning', message: 'この画像はまだアップロードが完了していません' });
       return;
@@ -72,23 +121,37 @@ export function initEditor({ store, elements }) {
     editorSectionEl.hidden = false;
 
     setStatus('画像を読み込み中…');
-    syncToolbar(session);
 
+    let url = null;
+    let adopted = false;
     try {
-      const url = await getPreviewImage(session.imageId);
+      url = await getPreviewImage(session.imageId);
       if (localId !== currentLocalId) return; // その間に別画像へ切り替えられていたら破棄
 
-      store.updateSession(localId, { fullUrl: url, status: 'editing' });
-      const { width, height } = await controller.loadBaseImage(url);
-      if (localId !== currentLocalId) return;
+      const size = await controller.loadBaseImage(url, isStale(localId));
+      if (!size) return; // 読み込み中に切り替えられた
 
-      store.updateSession(localId, { naturalWidth: width, naturalHeight: height });
-      controller.setPoints(session.points);
-      controller.loadOriginalImage(session.thumbUrl); // 元画像の薄い表示（既にあるBlob URLを再利用、通信不要）
+      replaceFullUrl(localId, url);
+      adopted = true;
+      store.updateSession(localId, {
+        status: 'editing',
+        naturalWidth: size.width,
+        naturalHeight: size.height,
+      });
+
+      const latest = store.getSession(localId);
+      controller.setPoints(latest.points);
+      // 元画像の薄い表示（既にあるBlob URLを再利用、通信不要）。待たずに進める
+      controller.loadOriginalImage(latest.thumbUrl, isStale(localId));
       setStatus('');
     } catch (err) {
-      setStatus('');
-      showToast({ type: 'danger', message: `読み込みに失敗しました: ${err.message}`, code: err.code });
+      if (localId === currentLocalId) {
+        setStatus('');
+        showToast({ type: 'danger', message: `読み込みに失敗しました: ${err.message}`, code: err.code });
+      }
+    } finally {
+      // 採用されなかったBlob URL（切り替えで破棄 / 失敗）は解放する
+      if (url && !adopted) URL.revokeObjectURL(url);
     }
   }
 
@@ -100,7 +163,8 @@ export function initEditor({ store, elements }) {
 
   function handlePointAdd(point) {
     if (!currentLocalId) return;
-    const session = store.getSession(currentLocalId);
+    const localId = currentLocalId;
+    const session = store.getSession(localId);
     if (!session) return;
 
     if (session.busy) {
@@ -109,31 +173,51 @@ export function initEditor({ store, elements }) {
       return;
     }
 
-    // 新しくポイントを打ったらredoの前提が崩れるのでredoStackは破棄する
+    // 新しくポイントを打ったらredoの前提が崩れるのでredoStackは破棄する。
+    // ただし segment が失敗したら元に戻すので、破棄前の内容を渡しておく。
+    const previousRedoStack = session.redoStack;
     const points = [...session.points, point];
-    store.updateSession(currentLocalId, { points, redoStack: [] });
+    store.updateSession(localId, { points, redoStack: [] });
     controller.setPoints(points);
-    runSegment(point);
+    runSegment(localId, point, previousRedoStack);
   }
 
-  async function runSegment(point) {
-    const localId = currentLocalId;
+  /** segment が失敗したとき、先に追加しておいたマーカーを取り除いて元の状態に戻す */
+  function rollbackPoint(localId, point, previousRedoStack) {
     const session = store.getSession(localId);
-    if (!session || session.busy) return;
+    if (!session) return;
+    const index = session.points.lastIndexOf(point);
+    if (index === -1) return;
+    const points = session.points.filter((_, i) => i !== index);
+    store.updateSession(localId, { points, redoStack: previousRedoStack });
+    if (localId === currentLocalId) controller.setPoints(points);
+  }
+
+  async function runSegment(localId, point, previousRedoStack) {
+    const session = store.getSession(localId);
+    if (!session || session.busy) {
+      rollbackPoint(localId, point, previousRedoStack);
+      return;
+    }
 
     store.updateSession(localId, { busy: true });
     setStatus('セグメンテーション実行中…');
+    let segmentApplied = false;
     try {
       const { imageId } = await segmentImage(session.sessionId, point);
+      segmentApplied = true; // ここから先の失敗はサーバー側では適用済み。マーカーは戻さない
+      store.updateSession(localId, { imageId });
+
       const url = await getPreviewImage(imageId);
+      replaceFullUrl(localId, url);
 
-      store.updateSession(localId, { imageId, fullUrl: url });
-
+      // 待っている間に別の画像に切り替えられていたら、今開いている画面には反映しない
       if (localId === currentLocalId) {
-        await controller.loadBaseImage(url);
+        await controller.loadBaseImage(url, isStale(localId));
         setStatus('');
       }
     } catch (err) {
+      if (!segmentApplied) rollbackPoint(localId, point, previousRedoStack);
       if (localId === currentLocalId) {
         setStatus('');
         showToast({ type: 'danger', message: `セグメンテーションに失敗しました: ${err.message}`, code: err.code });
@@ -149,7 +233,7 @@ export function initEditor({ store, elements }) {
     const removed = session.points[session.points.length - 1];
     const redoStack = [...session.redoStack, removed];
     store.updateSession(session.localId, { points, redoStack });
-    controller.setPoints(points);
+    if (session.localId === currentLocalId) controller.setPoints(points);
   }
 
   function restoreLastPoint(session) {
@@ -158,7 +242,7 @@ export function initEditor({ store, elements }) {
     const restored = session.redoStack[session.redoStack.length - 1];
     const points = [...session.points, restored];
     store.updateSession(session.localId, { points, redoStack });
-    controller.setPoints(points);
+    if (session.localId === currentLocalId) controller.setPoints(points);
   }
 
   async function runHistory(apiFn, localPointSync) {
@@ -170,13 +254,15 @@ export function initEditor({ store, elements }) {
     setStatus('処理中…');
     try {
       const { imageId } = await apiFn(session.sessionId);
-      const url = await getPreviewImage(imageId);
+      // サーバーの履歴は進んだので、表示中かどうかに関わらずマーカー履歴も同期する
+      store.updateSession(localId, { imageId });
+      localPointSync(store.getSession(localId));
 
-      store.updateSession(localId, { imageId, fullUrl: url });
+      const url = await getPreviewImage(imageId);
+      replaceFullUrl(localId, url);
 
       if (localId === currentLocalId) {
-        localPointSync(store.getSession(localId));
-        await controller.loadBaseImage(url);
+        await controller.loadBaseImage(url, isStale(localId));
         setStatus('');
       }
     } catch (err) {
@@ -191,8 +277,9 @@ export function initEditor({ store, elements }) {
 
   function syncToolbar(session) {
     const busy = !session || session.busy;
-    undoBtn.disabled = busy;
-    redoBtn.disabled = busy;
+    // 戻せる/やり直せる履歴が無いときは押せないようにする
+    undoBtn.disabled = busy || session.points.length === 0;
+    redoBtn.disabled = busy || session.redoStack.length === 0;
     saveBtn.disabled = busy;
   }
 
@@ -201,6 +288,7 @@ export function initEditor({ store, elements }) {
     const session = store.getSession(localId);
     if (!session || session.busy) return;
 
+    const fileName = session.file ? session.file.name : null;
     store.updateSession(localId, { busy: true, status: 'saving' });
     setStatus('保存用のフル画質版を作成中…');
     try {
@@ -208,17 +296,18 @@ export function initEditor({ store, elements }) {
       setStatus('ダウンロード準備中…');
       const blob = await getCompletedImage(completedImageId);
 
-      if (localId === currentLocalId) {
-        store.updateSession(localId, { status: 'saved' });
-        setStatus('');
-        showToast({ type: 'success', message: '保存が完了しました' });
-        triggerDownload(blob, session.file ? session.file.name : null);
-      }
+      // 保存中に別の画像へ切り替えられていても、ファイルはできているのでダウンロードする
+      store.updateSession(localId, { status: 'saved' });
+      if (localId === currentLocalId) setStatus('');
+      showToast({ type: 'success', message: fileName ? `${fileName} の保存が完了しました` : '保存が完了しました' });
+      triggerDownload(blob, fileName);
     } catch (err) {
-      if (localId === currentLocalId) {
-        setStatus('');
-        showToast({ type: 'danger', message: `保存に失敗しました: ${err.message}`, code: err.code });
-      }
+      if (localId === currentLocalId) setStatus('');
+      showToast({
+        type: 'danger',
+        message: `${fileName ? `${fileName}: ` : ''}保存に失敗しました: ${err.message}`,
+        code: err.code,
+      });
       store.updateSession(localId, { status: 'ready' }); // 失敗したら状態を戻す
     } finally {
       store.updateSession(localId, { busy: false });
@@ -228,9 +317,11 @@ export function initEditor({ store, elements }) {
   function triggerDownload(blob, originalFileName) {
     const url = URL.createObjectURL(blob);
     const baseName = originalFileName ? originalFileName.replace(/\.[^./\\]+$/, '') : 'image';
+    // 拡張子はサーバーが返した実際の形式に合わせる（中身がWebPなのに .png にしない）
+    const extension = EXTENSION_BY_MIME[blob.type] || 'webp';
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${baseName}_cropped.png`;
+    a.download = `${baseName}_cropped.${extension}`;
     document.body.appendChild(a);
     a.click();
     a.remove();

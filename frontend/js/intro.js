@@ -9,6 +9,12 @@
  * 動画は 1:1。画面の短辺にぴったり合わせて表示し、足りない左右(または上下)は
  * 同じ動画を拡大してぼかしたものでうめる。
  *
+ * 読み込みを軽くするための工夫:
+ *   - くっきり用(sharp)は切り替えの隙間を作らないよう全部 preload="auto" で先読みする。
+ *   - ぼかし用(blur)は縁を埋めるだけの補助なので、最初の1本以外は
+ *     preload="metadata" にして、再生が始まるまで本体のダウンロードを遅らせる。
+ *     （動画3本ぶん × 2枚 = 6本を一斉に読み込むのをやめ、帯域を sharp に回す）
+ *
  * 背景の暗さは css/landing.css の --bg-dim で調整できる。
  */
 (() => {
@@ -54,7 +60,7 @@
         return;
     }
 
-    function createVideo(src, className) {
+    function createVideo(src, className, preload) {
         const v = document.createElement('video');
         v.className = `bg-video ${className}`;
         v.src = src;
@@ -64,7 +70,7 @@
         v.setAttribute('muted', '');
         v.playsInline = true;
         v.setAttribute('playsinline', '');
-        v.preload = 'auto';
+        v.preload = preload;
         v.disablePictureInPicture = true;
         v.tabIndex = -1;
         v.setAttribute('aria-hidden', 'true');
@@ -72,12 +78,13 @@
     }
 
     // 動画ごとに「ぼかし用」と「くっきり用」の2枚をセットで持つ。
-    // 全部先に読み込んでおき、切り替え時に読み込み待ちが出ないようにする。
-    const slots = SOURCES.map((src) => {
+    // くっきり用は全部先に読み込んでおき、切り替え時に読み込み待ちが出ないようにする。
+    // ぼかし用は最初の1本だけ先読みし、残りはメタデータだけ読んでおく。
+    const slots = SOURCES.map((src, index) => {
         const el = document.createElement('div');
         el.className = 'bg-slot';
-        const blur = createVideo(src, 'bg-video-blur');
-        const sharp = createVideo(src, 'bg-video-sharp');
+        const blur = createVideo(src, 'bg-video-blur', index === 0 ? 'auto' : 'metadata');
+        const sharp = createVideo(src, 'bg-video-sharp', 'auto');
         el.append(blur, sharp);
         stage.append(el);
         return { el, blur, sharp };
@@ -123,6 +130,7 @@
         slot.el.style.zIndex = String(++zCounter);
         slot.el.classList.add('is-active');
 
+        // ぼかし側は再生を始めるときに本体の読み込みも始まる（preload="metadata" の場合）
         slot.blur.play().catch(() => { /* ぼかし側の失敗は無視してよい */ });
         slot.sharp.play().then(() => {
             failures = 0;

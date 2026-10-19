@@ -47,7 +47,7 @@ export function createStore() {
         // busy はそのための直列化ロックとして引き続き必要。
         busy: false,
         thumbUrl: null, // ギャラリー用（ローカルのFileから生成、ネットワーク不要）
-        fullUrl: null, // 編集画面用（/get-preview の結果）
+        fullUrl: null, // 編集画面用（/get-preview の結果。差し替え時に revoke する）
         naturalWidth: 0,
         naturalHeight: 0,
         error: null,
@@ -61,6 +61,20 @@ export function createStore() {
       const session = state.sessions.get(localId);
       if (!session) return; // 削除済み/存在しないセッションへの遅延レスポンスは握りつぶす
       Object.assign(session, patch);
+      notify();
+    },
+
+    /**
+     * セッションをストアから取り除き、持っているBlob URLを解放する。
+     * （現状はアップロード失敗したサムネイルをユーザーが消すときに使う）
+     */
+    removeSession(localId) {
+      const session = state.sessions.get(localId);
+      if (!session) return;
+      if (session.thumbUrl) URL.revokeObjectURL(session.thumbUrl);
+      if (session.fullUrl) URL.revokeObjectURL(session.fullUrl);
+      state.sessions.delete(localId);
+      if (state.activeLocalId === localId) state.activeLocalId = null;
       notify();
     },
 
