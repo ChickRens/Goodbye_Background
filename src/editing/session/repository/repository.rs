@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::sync::Arc;
 
 use crate::{
     editing::session::{
@@ -10,19 +10,17 @@ use crate::{
 pub trait EditingSessionRepository {
     type StaticContext;
     type InferenceContext;
-    type Guard<'a>: DerefMut<
-        Target = CommonEditingSession<Self::StaticContext, Self::InferenceContext>,
-    >
-    where
-        Self: 'a;
 
     fn save(
         &self,
         session_id: &SessionId,
         editing_session: CommonEditingSession<Self::StaticContext, Self::InferenceContext>,
     );
-    fn get<'a>(
-        &'a self,
+    fn get(
+        &self,
         session_id: &SessionId,
-    ) -> Result<Self::Guard<'a>, EditingSessionRepositoryError>;
+    ) -> Result<
+        Arc<CommonEditingSession<Self::StaticContext, Self::InferenceContext>>,
+        EditingSessionRepositoryError,
+    >;
 }

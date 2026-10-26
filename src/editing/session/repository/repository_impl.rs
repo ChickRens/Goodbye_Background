@@ -1,7 +1,7 @@
-use std::time::{Duration, Instant};
-
-use dashmap::DashMap;
-use dashmap::mapref::one::RefMut;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crate::editing::segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext};
 use crate::editing::session::{
@@ -9,76 +9,50 @@ use crate::editing::session::{
     session::CommonEditingSession,
 };
 use crate::maintenance::deleting_expired_entries::{
-    clock::clock::AppClock,
-    entry::{Entry, EntryGuard},
-    repository::DeleteExpiredRepository,
+    clock::clock::AppClock, repository::DeleteExpiredRepository,
 };
+use crate::maintenance::ttl_store::TtlStore;
 use crate::session::id::SessionId;
 
-pub struct SAM2EditingSessionRepository<Clock>
-where
-    Clock: AppClock,
-{
-    sessions:
-        DashMap<SessionId, Entry<CommonEditingSession<SAM2StaticContext, SAM2InferenceContext>>>,
-    clock: Clock,
+pub struct SAM2EditingSessionRepository {
+    sessions: TtlStore<SessionId, CommonEditingSession<SAM2StaticContext, SAM2InferenceContext>>,
 }
 
-impl<Clock> EditingSessionRepository for SAM2EditingSessionRepository<Clock>
-where
-    Clock: AppClock,
-{
+impl EditingSessionRepository for SAM2EditingSessionRepository {
     type StaticContext = SAM2StaticContext;
     type InferenceContext = SAM2InferenceContext;
-    type Guard<'a>
-        = EntryGuard<
-        RefMut<
-            'a,
-            SessionId,
-            Entry<CommonEditingSession<Self::StaticContext, Self::InferenceContext>>,
-        >,
-        CommonEditingSession<Self::StaticContext, Self::InferenceContext>,
-    >
-    where
-        Self: 'a;
 
     fn save(
         &self,
         session_id: &SessionId,
         editing_session: CommonEditingSession<Self::StaticContext, Self::InferenceContext>,
     ) {
-        let entry = Entry::new(editing_session, self.clock.now());
-        self.sessions.insert(*session_id, entry);
+        self.sessions.insert(*session_id, editing_session);
     }
 
-    fn get<'a>(
-        &'a self,
+    fn get(
+        &self,
         session_id: &SessionId,
-    ) -> Result<Self::Guard<'a>, EditingSessionRepositoryError> {
+    ) -> Result<
+        Arc<CommonEditingSession<Self::StaticContext, Self::InferenceContext>>,
+        EditingSessionRepositoryError,
+    > {
         self.sessions
-            .get_mut(session_id)
-            .map(|e| EntryGuard::new(e, self.clock.now()))
+            .get(*session_id)
             .ok_or(EditingSessionRepositoryError::EditingSessionNotFound)
     }
 }
 
-impl<C> DeleteExpiredRepository for SAM2EditingSessionRepository<C>
-where
-    C: AppClock,
-{
+impl DeleteExpiredRepository for SAM2EditingSessionRepository {
     fn delete_expired(&self, now: Instant, ttl: Duration) {
-        self.sessions.retain(|_, entry| !entry.is_expired(now, ttl));
+        self.sessions.delete_expired(now, ttl);
     }
 }
 
-impl<Clock> SAM2EditingSessionRepository<Clock>
-where
-    Clock: AppClock,
-{
-    pub fn new(clock: Clock) -> Self {
+impl SAM2EditingSessionRepository {
+    pub fn new(clock: impl AppClock + 'static) -> Self {
         Self {
-            sessions: DashMap::new(),
-            clock,
+            sessions: TtlStore::new(Arc::new(clock)),
         }
     }
 }

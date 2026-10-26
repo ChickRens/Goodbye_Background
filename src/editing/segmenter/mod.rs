@@ -8,4 +8,3 @@ pub mod segment_service;
 pub mod segmented_image;
 pub mod segmenter;
 pub mod segmenter_sam2;
-pub mod shared_segmenter_sam2;

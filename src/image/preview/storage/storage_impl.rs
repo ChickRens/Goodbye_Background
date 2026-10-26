@@ -1,10 +1,7 @@
 use std::{
-    ops::{Deref, DerefMut},
     sync::Arc,
     time::{Duration, Instant},
 };
-
-use dashmap::{DashMap, mapref::one::RefMut};
 
 use crate::{
     image::{
@@ -15,30 +12,18 @@ use crate::{
         },
     },
     maintenance::deleting_expired_entries::{
-        clock::clock::AppClock,
-        entry::{Entry, EntryGuard},
-        repository::DeleteExpiredRepository,
+        clock::clock::AppClock, repository::DeleteExpiredRepository,
     },
+    maintenance::ttl_store::TtlStore,
 };
 
 #[derive(Debug)]
-pub struct PreviewStorageInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    original_storage: PreviewOriginalStorage<Clock>,
-    segmented_storage: PreviewSegmentedStorage<Clock>,
+pub struct PreviewStorageInMemory {
+    original_storage: PreviewOriginalStorage,
+    segmented_storage: PreviewSegmentedStorage,
 }
 
-impl<Clock> PreviewStorage for PreviewStorageInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    type Guard<'a>
-        = PreviewGuard<'a>
-    where
-        Self: 'a;
-
+impl PreviewStorage for PreviewStorageInMemory {
     fn save_as_original(&self, image: PreviewImage) {
         self.original_storage.save(image);
     }
@@ -47,7 +32,7 @@ where
         self.segmented_storage.save(image);
     }
 
-    fn get<'a>(&'a self, image_id: ImageId) -> Result<Self::Guard<'a>, PreviewStorageError> {
+    fn get(&self, image_id: ImageId) -> Result<Arc<PreviewImage>, PreviewStorageError> {
         let is_original = self.original_storage.contains(image_id);
         let is_segmented = self.segmented_storage.contains(image_id);
         match (is_original, is_segmented) {
@@ -65,193 +50,75 @@ where
     }
 }
 
-impl<Clock> PreviewStorageInMemory<Clock>
-where
-    Clock: AppClock + Clone,
-{
-    pub fn new(clock: Clock) -> Self {
+impl PreviewStorageInMemory {
+    pub fn new(clock: impl AppClock + Clone + 'static) -> Self {
         Self {
             original_storage: PreviewOriginalStorage {
-                image: DashMap::new(),
-                clock: clock.clone(),
+                image: TtlStore::new(Arc::new(clock.clone())),
             },
             segmented_storage: PreviewSegmentedStorage {
-                image: DashMap::new(),
-                clock: clock.clone(),
+                image: TtlStore::new(Arc::new(clock)),
             },
         }
     }
 }
 
-impl<Clock> DeleteExpiredRepository for PreviewStorageInMemory<Clock>
-where
-    Clock: AppClock,
-{
+impl DeleteExpiredRepository for PreviewStorageInMemory {
     fn delete_expired(&self, now: Instant, ttl: Duration) {
         self.original_storage.delete_expired(now, ttl);
         self.segmented_storage.delete_expired(now, ttl);
     }
 }
 
-pub enum PreviewGuard<'a> {
-    Original(EntryGuard<RefMut<'a, ImageId, Entry<PreviewImage>>, PreviewImage>),
-    Segmented(EntryGuard<RefMut<'a, ImageId, Entry<PreviewImage>>, PreviewImage>),
-}
-
-impl<'a> Deref for PreviewGuard<'a> {
-    type Target = PreviewImage;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Original(guard) => guard.deref(),
-            Self::Segmented(guard) => guard.deref(),
-        }
-    }
-}
-
-impl<'a> DerefMut for PreviewGuard<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            Self::Original(guard) => guard.deref_mut(),
-            Self::Segmented(guard) => guard.deref_mut(),
-        }
-    }
-}
-
 #[derive(Debug)]
-struct PreviewOriginalStorage<Clock>
-where
-    Clock: AppClock,
-{
-    image: DashMap<ImageId, Entry<PreviewImage>>,
-    clock: Clock,
+struct PreviewOriginalStorage {
+    image: TtlStore<ImageId, PreviewImage>,
 }
 
-impl<Clock> PreviewOriginalStorage<Clock>
-where
-    Clock: AppClock,
-{
+impl PreviewOriginalStorage {
     fn save(&self, original: PreviewImage) {
         let image_id = original.image_id();
-        let entry = Entry::new(original, self.clock.now());
-        self.image.insert(image_id, entry);
+        self.image.insert(image_id, original);
     }
 
-    fn get(&self, image_id: ImageId) -> Option<PreviewGuard<'_>> {
-        self.image
-            .get_mut(&image_id)
-            .map(|entry| EntryGuard::new(entry, self.clock.now()))
-            .map(|guard| PreviewGuard::Original(guard))
+    fn get(&self, image_id: ImageId) -> Option<Arc<PreviewImage>> {
+        self.image.get(image_id)
     }
 
     fn contains(&self, image_id: ImageId) -> bool {
-        self.image.contains_key(&image_id)
-    }
-
-    fn new(clock: Clock) -> Self {
-        Self {
-            image: DashMap::new(),
-            clock,
-        }
+        self.image.contains(&image_id)
     }
 }
 
-impl<Clock> DeleteExpiredRepository for PreviewOriginalStorage<Clock>
-where
-    Clock: AppClock,
-{
+impl DeleteExpiredRepository for PreviewOriginalStorage {
     fn delete_expired(&self, now: Instant, ttl: Duration) {
-        self.image.retain(|_, entry| !entry.is_expired(now, ttl));
+        self.image.delete_expired(now, ttl);
     }
 }
 
 #[derive(Debug)]
-struct PreviewSegmentedStorage<Clock>
-where
-    Clock: AppClock,
-{
-    image: DashMap<ImageId, Entry<PreviewImage>>,
-    clock: Clock,
+struct PreviewSegmentedStorage {
+    image: TtlStore<ImageId, PreviewImage>,
 }
 
-impl<Clock> PreviewSegmentedStorage<Clock>
-where
-    Clock: AppClock,
-{
+impl PreviewSegmentedStorage {
     pub fn save(&self, segmented: PreviewImage) {
         let image_id = segmented.image_id();
-        let entry = Entry::new(segmented, self.clock.now());
-        self.image.insert(image_id, entry);
+        self.image.insert(image_id, segmented);
     }
 
-    fn get<'a>(&'a self, image_id: ImageId) -> Option<PreviewGuard<'a>> {
-        self.image
-            .get_mut(&image_id)
-            .map(|entry| EntryGuard::new(entry, self.clock.now()))
-            .map(|guard| PreviewGuard::Segmented(guard))
+    fn get(&self, image_id: ImageId) -> Option<Arc<PreviewImage>> {
+        self.image.get(image_id)
     }
 
     fn contains(&self, image_id: ImageId) -> bool {
-        self.image.contains_key(&image_id)
+        self.image.contains(&image_id)
     }
 }
 
-impl<Clock> DeleteExpiredRepository for PreviewSegmentedStorage<Clock>
-where
-    Clock: AppClock,
-{
+impl DeleteExpiredRepository for PreviewSegmentedStorage {
     fn delete_expired(&self, now: Instant, ttl: Duration) {
-        self.image.retain(|_, entry| !entry.is_expired(now, ttl));
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SharedPreviewStorage<Clock>
-where
-    Clock: AppClock,
-{
-    storage: Arc<PreviewStorageInMemory<Clock>>,
-}
-
-impl<Clock> PreviewStorage for SharedPreviewStorage<Clock>
-where
-    Clock: AppClock,
-{
-    type Guard<'a>
-        = PreviewGuard<'a>
-    where
-        Self: 'a;
-
-    fn save_as_original(&self, original: PreviewImage) {
-        self.storage.save_as_original(original);
-    }
-
-    fn save_as_segmented(&self, segmented: PreviewImage) {
-        self.storage.save_as_segmented(segmented);
-    }
-
-    fn get<'a>(&'a self, image_id: ImageId) -> Result<Self::Guard<'a>, PreviewStorageError> {
-        self.storage.get(image_id)
-    }
-}
-
-impl<Clock> DeleteExpiredRepository for SharedPreviewStorage<Clock>
-where
-    Clock: AppClock,
-{
-    fn delete_expired(&self, now: Instant, ttl: Duration) {
-        self.storage.delete_expired(now, ttl);
-    }
-}
-
-impl<Clock> SharedPreviewStorage<Clock>
-where
-    Clock: AppClock + Clone,
-{
-    pub fn new(clock: Clock) -> Self {
-        Self {
-            storage: Arc::new(PreviewStorageInMemory::new(clock)),
-        }
+        self.image.delete_expired(now, ttl);
     }
 }
 
@@ -296,7 +163,10 @@ mod preview_storage_in_memory_test {
 
         let fetched = repo.get(image_id).unwrap();
         assert_eq!(fetched.image_id(), image.image_id());
-        assert_eq!(fetched.clone().into_data().2, image.clone().into_data().2);
+        assert_eq!(
+            fetched.as_ref().clone().into_data().2,
+            image.clone().into_data().2
+        );
     }
 
     #[test]
@@ -310,7 +180,10 @@ mod preview_storage_in_memory_test {
 
         let fetched = repo.get(image_id).unwrap();
         assert_eq!(fetched.image_id(), image.image_id());
-        assert_eq!(fetched.clone().into_data().2, image.clone().into_data().2);
+        assert_eq!(
+            fetched.as_ref().clone().into_data().2,
+            image.clone().into_data().2
+        );
     }
 
     #[test]

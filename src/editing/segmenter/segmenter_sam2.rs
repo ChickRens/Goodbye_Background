@@ -1,4 +1,7 @@
-use std::{sync::Mutex, time::Instant};
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use image::{DynamicImage, ImageBuffer};
 use ndarray::{Array1, Array2, Array3, Array4, ArrayView3, ArrayView4, Ix3, Ix4};
@@ -30,10 +33,11 @@ use crate::{
 };
 use std::fs::read;
 
+#[derive(Clone)]
 pub struct Sam2Segmenter {
-    image_encoder_session: Mutex<Session>,
-    prompt_encoder_session: Mutex<Session>,
-    mask_decoder_session: Mutex<Session>,
+    image_encoder_session: Arc<Mutex<Session>>,
+    prompt_encoder_session: Arc<Mutex<Session>>,
+    mask_decoder_session: Arc<Mutex<Session>>,
     image_pe: Array4<f32>,
     image_height: usize,
     image_width: usize,
@@ -42,18 +46,18 @@ pub struct Sam2Segmenter {
 impl Sam2Segmenter {
     pub fn new(model_dir: &str) -> Result<Self, SegmenterModelError> {
         Ok(Self {
-            image_encoder_session: Mutex::new(Self::build_session(format!(
+            image_encoder_session: Arc::new(Mutex::new(Self::build_session(format!(
                 "{}/sam2.1_hiera_small_image_encoder.onnx",
                 model_dir
-            ))?),
-            prompt_encoder_session: Mutex::new(Self::build_session(format!(
+            ))?)),
+            prompt_encoder_session: Arc::new(Mutex::new(Self::build_session(format!(
                 "{}/sam2.1_hiera_small_prompt_encoder.onnx",
                 model_dir
-            ))?),
-            mask_decoder_session: Mutex::new(Self::build_session(format!(
+            ))?)),
+            mask_decoder_session: Arc::new(Mutex::new(Self::build_session(format!(
                 "{}/sam2.1_hiera_small_mask_decoder.onnx",
                 model_dir
-            ))?),
+            ))?)),
             image_pe: {
                 let bin_file = read("models/image_pe.bin")
                     .map_err(|e| SegmenterModelError::ModelLoadError(e.to_string()))?;

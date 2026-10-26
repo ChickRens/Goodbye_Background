@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc, time::Instant};
+use std::{ops::Deref, time::Instant};
 
 use crate::{
     editing::{
@@ -21,6 +21,7 @@ pub trait SegmentService {
     fn redo(&self, session_id: SessionId) -> Result<Image, SegmentServiceError>;
 }
 
+#[derive(Clone)]
 pub struct SegmentServiceImpl<SR, IS, IR, ESR, SS>
 where
     SR: SessionRepository,
@@ -40,6 +41,8 @@ impl<SR, IS, IR, ESR, SS, SC, IC> SegmentService for SegmentServiceImpl<SR, IS, 
 where
     SR: SessionRepository,
     IS: ImageSegmenter<StaticContext = SC, InferenceContext = IC>,
+    SC: Clone,
+    IC: Clone,
     IR: OriginalImageRepository,
     ESR: EditingSessionRepository<StaticContext = SC, InferenceContext = IC>,
     SS: SegmenterInputImageStorage,
@@ -55,7 +58,8 @@ where
 
         let input_image = self.input_storage.get(image_id)?;
 
-        let mut session = self.editing_session_repo.get(&session_id)?;
+        let editing_session = self.editing_session_repo.get(&session_id)?;
+        let mut session = editing_session.as_ref().clone();
         let static_context = session.static_context();
         let inference_context = session.inference_context();
 
@@ -74,6 +78,7 @@ where
         println!("Segment: {:?}", end);
 
         session.apply_edit(point, new_context);
+        self.editing_session_repo.save(&session_id, session);
 
         let (segmented_image_data, size) = segmented_image.into_image_and_size();
         let segmented_image_id = ImageId::new();
@@ -93,8 +98,10 @@ where
 
         let input_image = self.input_storage.get(image_id)?;
 
-        let mut session = self.editing_session_repo.get(&session_id)?;
+        let editing_session = self.editing_session_repo.get(&session_id)?;
+        let mut session = editing_session.as_ref().clone();
         session.undo()?;
+        self.editing_session_repo.save(&session_id, session.clone());
         let input_points = session.points();
 
         if input_points.is_empty() {
@@ -157,8 +164,10 @@ where
 
         let input_image = self.input_storage.get(image_id)?;
 
-        let mut session = self.editing_session_repo.get(&session_id)?;
+        let editing_session = self.editing_session_repo.get(&session_id)?;
+        let mut session = editing_session.as_ref().clone();
         session.redo()?;
+        self.editing_session_repo.save(&session_id, session.clone());
         let input_points = session.points();
 
         let static_context = session.static_context();
@@ -183,6 +192,8 @@ impl<SR, IS, IR, ESR, SS> SegmentServiceImpl<SR, IS, IR, ESR, SS>
 where
     SR: SessionRepository,
     IS: ImageSegmenter,
+    IS::StaticContext: Clone,
+    IS::InferenceContext: Clone,
     IR: OriginalImageRepository,
     ESR: EditingSessionRepository<
             StaticContext = IS::StaticContext,
@@ -203,79 +214,6 @@ where
             image_repo: image_repository,
             editing_session_repo: editing_session_repository,
             input_storage: segmenter_input_storage,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct SharedSegmentService<SR, IS, IR, ESR, SS>
-where
-    SR: SessionRepository,
-    IS: ImageSegmenter,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository<
-            StaticContext = IS::StaticContext,
-            InferenceContext = IS::InferenceContext,
-        >,
-    SS: SegmenterInputImageStorage,
-{
-    service: Arc<SegmentServiceImpl<SR, IS, IR, ESR, SS>>,
-}
-
-impl<SR, IS, IR, ESR, SS> SegmentService for SharedSegmentService<SR, IS, IR, ESR, SS>
-where
-    SR: SessionRepository,
-    IS: ImageSegmenter,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository<
-            StaticContext = IS::StaticContext,
-            InferenceContext = IS::InferenceContext,
-        >,
-    SS: SegmenterInputImageStorage,
-{
-    fn segment(&self, session_id: SessionId, point: Point) -> Result<Image, SegmentServiceError> {
-        self.service.segment(session_id, point)
-    }
-
-    fn resegment(&self, session_id: SessionId) -> Result<Image, SegmentServiceError> {
-        self.service.resegment(session_id)
-    }
-
-    fn undo(&self, session_id: SessionId) -> Result<Image, SegmentServiceError> {
-        self.service.undo(session_id)
-    }
-
-    fn redo(&self, session_id: SessionId) -> Result<Image, SegmentServiceError> {
-        self.service.redo(session_id)
-    }
-}
-
-impl<SR, IS, IR, ESR, SS> SharedSegmentService<SR, IS, IR, ESR, SS>
-where
-    SR: SessionRepository,
-    IS: ImageSegmenter,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository<
-            StaticContext = IS::StaticContext,
-            InferenceContext = IS::InferenceContext,
-        >,
-    SS: SegmenterInputImageStorage,
-{
-    pub fn new(
-        session_repository: SR,
-        image_segmenter: IS,
-        image_repository: IR,
-        editing_session_repository: ESR,
-        segmenter_input_storage: SS,
-    ) -> Self {
-        Self {
-            service: Arc::new(SegmentServiceImpl::new(
-                session_repository,
-                image_segmenter,
-                image_repository,
-                editing_session_repository,
-                segmenter_input_storage,
-            )),
         }
     }
 }

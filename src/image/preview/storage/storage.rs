@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::sync::Arc;
 
 use crate::image::{
     image::id::ImageId,
@@ -6,11 +6,7 @@ use crate::image::{
 };
 
 pub trait PreviewStorage {
-    type Guard<'a>: DerefMut<Target = PreviewImage>
-    where
-        Self: 'a;
-
     fn save_as_original(&self, original: PreviewImage);
     fn save_as_segmented(&self, segmented: PreviewImage);
-    fn get<'a>(&'a self, image_id: ImageId) -> Result<Self::Guard<'a>, PreviewStorageError>;
+    fn get(&self, image_id: ImageId) -> Result<Arc<PreviewImage>, PreviewStorageError>;
 }

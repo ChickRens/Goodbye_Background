@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::sync::Arc;
 
 use crate::image::{
     image::id::ImageId,
@@ -8,13 +8,9 @@ use crate::image::{
 };
 
 pub trait SegmenterInputImageStorage {
-    type Guard<'a>: DerefMut<Target = SegmenterInputImage>
-    where
-        Self: 'a;
-
     fn save(&self, image: SegmenterInputImage);
-    fn get<'a>(
-        &'a self,
+    fn get(
+        &self,
         image_id: ImageId,
-    ) -> Result<Self::Guard<'a>, SegmenterInputImageStorageError>;
+    ) -> Result<Arc<SegmenterInputImage>, SegmenterInputImageStorageError>;
 }

@@ -1,13 +1,13 @@
-use std::time::{Duration, Instant};
-
-use dashmap::{DashMap, mapref::one::RefMut};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crate::{
     maintenance::deleting_expired_entries::{
-        clock::clock::AppClock,
-        entry::{Entry, EntryGuard},
-        repository::DeleteExpiredRepository,
+        clock::clock::AppClock, repository::DeleteExpiredRepository,
     },
+    maintenance::ttl_store::TtlStore,
     session::{
         id::SessionId,
         repository::{error::SessionRepositoryError, repository::SessionRepository},
@@ -15,57 +15,32 @@ use crate::{
     },
 };
 
-pub struct SessionRepositoryInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    sessions: DashMap<SessionId, Entry<Session>>,
-    clock: Clock,
+pub struct SessionRepositoryInMemory {
+    sessions: TtlStore<SessionId, Session>,
 }
 
-impl<Clock> SessionRepository for SessionRepositoryInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    type Guard<'a>
-        = EntryGuard<RefMut<'a, SessionId, Entry<Session>>, Session>
-    where
-        Self: 'a;
-
+impl SessionRepository for SessionRepositoryInMemory {
     fn save(&self, session: Session) {
-        let session_id = session.session_id().clone();
-        let entry = Entry::new(session, self.clock.now());
-        self.sessions.insert(session_id, entry);
+        self.sessions.insert(*session.session_id(), session);
     }
 
-    fn get<'a>(
-        &'a self,
-        session_id: &SessionId,
-    ) -> Result<Self::Guard<'a>, SessionRepositoryError> {
+    fn get(&self, session_id: &SessionId) -> Result<Arc<Session>, SessionRepositoryError> {
         self.sessions
-            .get_mut(session_id)
-            .map(|entry| EntryGuard::new(entry, self.clock.now()))
+            .get(*session_id)
             .ok_or(SessionRepositoryError::SessionNotFound)
     }
 }
 
-impl<Clock> DeleteExpiredRepository for SessionRepositoryInMemory<Clock>
-where
-    Clock: AppClock,
-{
+impl DeleteExpiredRepository for SessionRepositoryInMemory {
     fn delete_expired(&self, now: Instant, ttl: Duration) {
-        self.sessions.retain(|_, entry| !entry.is_expired(now, ttl));
+        self.sessions.delete_expired(now, ttl);
     }
 }
 
-impl<Clock> SessionRepositoryInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    pub fn new(clock: Clock) -> Self {
+impl SessionRepositoryInMemory {
+    pub fn new(clock: impl AppClock + 'static) -> Self {
         Self {
-            sessions: DashMap::new(),
-            clock,
+            sessions: TtlStore::new(Arc::new(clock)),
         }
     }
 }

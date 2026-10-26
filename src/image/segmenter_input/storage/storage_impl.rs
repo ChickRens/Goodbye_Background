@@ -1,6 +1,7 @@
-use std::time::{Duration, Instant};
-
-use dashmap::{DashMap, mapref::one::RefMut};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crate::{
     image::{
@@ -13,64 +14,42 @@ use crate::{
         },
     },
     maintenance::deleting_expired_entries::{
-        clock::clock::AppClock,
-        entry::{Entry, EntryGuard},
-        repository::DeleteExpiredRepository,
+        clock::clock::AppClock, repository::DeleteExpiredRepository,
     },
+    maintenance::ttl_store::TtlStore,
 };
 
 #[derive(Debug)]
-pub struct SegmenterInputStorageInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    images: DashMap<ImageId, Entry<SegmenterInputImage>>,
-    clock: Clock,
+pub struct SegmenterInputStorageInMemory {
+    images: TtlStore<ImageId, SegmenterInputImage>,
 }
 
-impl<Clock> SegmenterInputImageStorage for SegmenterInputStorageInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    type Guard<'a>
-        = EntryGuard<RefMut<'a, ImageId, Entry<SegmenterInputImage>>, SegmenterInputImage>
-    where
-        Self: 'a;
-
+impl SegmenterInputImageStorage for SegmenterInputStorageInMemory {
     fn save(&self, image: SegmenterInputImage) {
         let id = image.image_id().clone();
-        let entry = Entry::new(image, self.clock.now());
-        self.images.insert(id, entry);
+        self.images.insert(id, image);
     }
 
-    fn get<'a>(
-        &'a self,
+    fn get(
+        &self,
         image_id: ImageId,
-    ) -> Result<Self::Guard<'a>, SegmenterInputImageStorageError> {
+    ) -> Result<Arc<SegmenterInputImage>, SegmenterInputImageStorageError> {
         self.images
-            .get_mut(&image_id)
-            .map(|entry| EntryGuard::new(entry, self.clock.now()))
+            .get(image_id)
             .ok_or(SegmenterInputImageStorageError::ImageNotFound)
     }
 }
 
-impl<Clock> DeleteExpiredRepository for SegmenterInputStorageInMemory<Clock>
-where
-    Clock: AppClock,
-{
+impl DeleteExpiredRepository for SegmenterInputStorageInMemory {
     fn delete_expired(&self, now: Instant, ttl: Duration) {
-        self.images.retain(|_, entry| !entry.is_expired(now, ttl));
+        self.images.delete_expired(now, ttl);
     }
 }
 
-impl<Clock> SegmenterInputStorageInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    pub fn new(clock: Clock) -> Self {
+impl SegmenterInputStorageInMemory {
+    pub fn new(clock: impl AppClock + 'static) -> Self {
         Self {
-            images: DashMap::new(),
-            clock,
+            images: TtlStore::new(Arc::new(clock)),
         }
     }
 }

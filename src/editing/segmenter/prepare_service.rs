@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{
     editing::{
         segmenter::{error::PrepareServiceError, segmenter::ImageSegmenter},
@@ -29,6 +27,7 @@ pub trait PrepareSegmentService {
     ) -> Result<(), PrepareServiceError>;
 }
 
+#[derive(Clone)]
 pub struct PrepareSegmentServiceImpl<IS, IR, ESR, SG, SS>
 where
     IS: ImageSegmenter,
@@ -111,74 +110,6 @@ where
             generator: segmenter_input_generator,
             storage: segmenter_input_storage,
             config_max_history: max_history,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct SharedPrepareSegmentService<IS, IR, ESR, SG, SS>
-where
-    IS: ImageSegmenter,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository<
-            StaticContext = IS::StaticContext,
-            InferenceContext = IS::InferenceContext,
-        >,
-    SG: SegmenterInputImageGenerator,
-    SS: SegmenterInputImageStorage,
-{
-    service: Arc<PrepareSegmentServiceImpl<IS, IR, ESR, SG, SS>>,
-}
-
-impl<IS, IR, ESR, SG, SS> PrepareSegmentService for SharedPrepareSegmentService<IS, IR, ESR, SG, SS>
-where
-    IS: ImageSegmenter,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository<
-            StaticContext = IS::StaticContext,
-            InferenceContext = IS::InferenceContext,
-        >,
-    SG: SegmenterInputImageGenerator,
-    SS: SegmenterInputImageStorage,
-{
-    fn prepare(
-        &self,
-        session_id: SessionId,
-        image_id: ImageId,
-        scale: f64,
-    ) -> Result<(), PrepareServiceError> {
-        self.service.prepare(session_id, image_id, scale)
-    }
-}
-
-impl<IS, IR, ESR, SG, SS> SharedPrepareSegmentService<IS, IR, ESR, SG, SS>
-where
-    IS: ImageSegmenter,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository<
-            StaticContext = IS::StaticContext,
-            InferenceContext = IS::InferenceContext,
-        >,
-    SG: SegmenterInputImageGenerator,
-    SS: SegmenterInputImageStorage,
-{
-    pub fn new(
-        image_segmenter: IS,
-        image_repository: IR,
-        editing_session_repository: ESR,
-        segmenter_input_generator: SG,
-        segmenter_input_storage: SS,
-        max_history: usize,
-    ) -> Self {
-        Self {
-            service: Arc::new(PrepareSegmentServiceImpl::new(
-                image_segmenter,
-                image_repository,
-                editing_session_repository,
-                segmenter_input_generator,
-                segmenter_input_storage,
-                max_history,
-            )),
         }
     }
 }
