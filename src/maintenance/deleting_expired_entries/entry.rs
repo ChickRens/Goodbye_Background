@@ -1,6 +1,5 @@
 use std::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     time::{Duration, Instant},
 };
 
@@ -32,49 +31,5 @@ impl<T> Deref for Entry<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.value
-    }
-}
-
-impl<T> DerefMut for Entry<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.value
-    }
-}
-
-pub struct EntryGuard<G, T> {
-    inner: G,
-    phantom: PhantomData<T>,
-}
-
-impl<G, T> Deref for EntryGuard<G, T>
-where
-    G: Deref<Target = Entry<T>>,
-{
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner.deref()
-    }
-}
-
-impl<G, T> DerefMut for EntryGuard<G, T>
-where
-    G: DerefMut<Target = Entry<T>>,
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner.deref_mut()
-    }
-}
-
-impl<G, T> EntryGuard<G, T>
-where
-    G: DerefMut<Target = Entry<T>>,
-{
-    pub fn new(mut entry: G, now: Instant) -> Self {
-        entry.touch(now);
-        Self {
-            inner: entry,
-            phantom: PhantomData,
-        }
     }
 }
