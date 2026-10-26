@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use webp::Encoder;
 
 use crate::image::{
@@ -9,7 +7,7 @@ use crate::image::{
     image::{image::Image, raw_data::ImageData},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WebPCompletedImageGenerator;
 
 impl CompletedImageGenerator for WebPCompletedImageGenerator {
@@ -63,24 +61,5 @@ mod completed_image_generator_test {
         assert_eq!(&bytes[8..12], b"WEBP");
         assert_eq!(encoded.image_id(), original.image_id());
         assert_eq!(encoded.image_size(), original.image_size());
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SharedWebPCompletedImageGenerator {
-    generator: Arc<WebPCompletedImageGenerator>,
-}
-
-impl CompletedImageGenerator for SharedWebPCompletedImageGenerator {
-    fn generate(&self, image: &Image) -> CompletedImage {
-        self.generator.generate(image)
-    }
-}
-
-impl SharedWebPCompletedImageGenerator {
-    pub fn new() -> Self {
-        Self {
-            generator: Arc::new(WebPCompletedImageGenerator::new()),
-        }
     }
 }

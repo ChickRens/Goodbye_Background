@@ -12,7 +12,7 @@ use crate::image::{
     },
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SAM2InputGenerator {
     sam2_required_height: f32,
     sam2_required_width: f32,

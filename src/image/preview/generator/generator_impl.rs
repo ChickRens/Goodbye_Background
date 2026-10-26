@@ -9,7 +9,7 @@ use crate::image::{
     preview::{generator::generator::PreviewImageGenerator, preview::PreviewImage},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WebPPreviewImageGenerator {
     long_side: f64,
 }
