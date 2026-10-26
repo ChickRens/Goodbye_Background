@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc, time::Instant};
+use std::time::Instant;
 
 use crate::image::{
     completed::{
@@ -14,7 +14,7 @@ pub trait CompletedService {
     fn get(&self, image_id: ImageId) -> Result<CompletedImage, CompletedImageStorageError>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CompletedServiceImpl<CG, CR>
 where
     CG: CompletedImageGenerator,
@@ -38,8 +38,8 @@ where
     }
 
     fn get(&self, image_id: ImageId) -> Result<CompletedImage, CompletedImageStorageError> {
-        let guard = self.repository.get(image_id)?;
-        Ok(guard.deref().clone())
+        let completed = self.repository.get(image_id)?;
+        Ok(completed.as_ref().clone())
     }
 }
 
@@ -52,44 +52,6 @@ where
         Self {
             generator: completed_image_generator,
             repository: completed_image_repository,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SharedCompletedService<CG, CR>
-where
-    CG: CompletedImageGenerator,
-    CR: CompletedImageRepository,
-{
-    service: Arc<CompletedServiceImpl<CG, CR>>,
-}
-
-impl<CG, CR> CompletedService for SharedCompletedService<CG, CR>
-where
-    CG: CompletedImageGenerator,
-    CR: CompletedImageRepository,
-{
-    fn generate_and_save(&self, image: &Image) {
-        self.service.generate_and_save(image);
-    }
-
-    fn get(&self, image_id: ImageId) -> Result<CompletedImage, CompletedImageStorageError> {
-        self.service.get(image_id)
-    }
-}
-
-impl<CG, CR> SharedCompletedService<CG, CR>
-where
-    CG: CompletedImageGenerator,
-    CR: CompletedImageRepository,
-{
-    pub fn new(completed_image_generator: CG, completed_image_repository: CR) -> Self {
-        Self {
-            service: Arc::new(CompletedServiceImpl::new(
-                completed_image_generator,
-                completed_image_repository,
-            )),
         }
     }
 }

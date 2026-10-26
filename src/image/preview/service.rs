@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc, time::Instant};
+use std::time::Instant;
 
 use crate::image::{
     image::{id::ImageId, image::Image},
@@ -15,6 +15,7 @@ pub trait PreviewService {
     fn get(&self, image_id: ImageId) -> Result<PreviewImage, PreviewStorageError>;
 }
 
+#[derive(Clone)]
 pub struct PreviewServiceImpl<PG, PS>
 where
     PG: PreviewImageGenerator,
@@ -49,8 +50,8 @@ where
     }
 
     fn get(&self, image_id: ImageId) -> Result<PreviewImage, PreviewStorageError> {
-        let guard = self.storage.get(image_id)?;
-        Ok(guard.deref().clone())
+        let preview = self.storage.get(image_id)?;
+        Ok(preview.as_ref().clone())
     }
 }
 
@@ -63,45 +64,6 @@ where
         Self {
             generator: preview_generator,
             storage: preview_storage,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct SharedPreviewService<PG, PS>
-where
-    PG: PreviewImageGenerator,
-    PS: PreviewStorage,
-{
-    service: Arc<PreviewServiceImpl<PG, PS>>,
-}
-
-impl<PG, PS> PreviewService for SharedPreviewService<PG, PS>
-where
-    PG: PreviewImageGenerator,
-    PS: PreviewStorage,
-{
-    fn generate_and_save_original(&self, image: &Image) -> f64 {
-        self.service.generate_and_save_original(image)
-    }
-
-    fn generate_and_save_segmented(&self, image: &Image) {
-        self.service.generate_and_save_segmented(image);
-    }
-
-    fn get(&self, image_id: ImageId) -> Result<PreviewImage, PreviewStorageError> {
-        self.service.get(image_id)
-    }
-}
-
-impl<PG, PS> SharedPreviewService<PG, PS>
-where
-    PG: PreviewImageGenerator,
-    PS: PreviewStorage,
-{
-    pub fn new(preview_generator: PG, preview_storage: PS) -> Self {
-        Self {
-            service: Arc::new(PreviewServiceImpl::new(preview_generator, preview_storage)),
         }
     }
 }
