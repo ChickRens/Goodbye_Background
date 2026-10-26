@@ -19,12 +19,13 @@ use crate::{
     },
 };
 
-pub(crate) struct OriginalImageRepositoryInMemory {
+#[derive(Clone)]
+pub struct OriginalImageRepositoryInMemory {
     store: TtlStore<ImageId, OriginalImage>,
 }
 
 impl OriginalImageRepositoryInMemory {
-    pub(crate) fn new(clock: Arc<dyn AppClock>) -> Self {
+    pub fn new(clock: Arc<dyn AppClock>) -> Self {
         Self {
             store: TtlStore::new(clock),
         }
