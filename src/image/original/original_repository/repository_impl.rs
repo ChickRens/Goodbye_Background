@@ -1,6 +1,7 @@
-use std::time::{Duration, Instant};
-
-use dashmap::{DashMap, mapref::one::RefMut};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crate::{
     image::{
@@ -12,65 +13,40 @@ use crate::{
             },
         },
     },
-    maintenance::deleting_expired_entries::{
-        clock::clock::AppClock,
-        entry::{Entry, EntryGuard},
-        repository::DeleteExpiredRepository,
+    maintenance::{
+        deleting_expired_entries::{clock::clock::AppClock, repository::DeleteExpiredRepository},
+        ttl_store::TtlStore,
     },
 };
 
-pub struct OriginalImageRepositoryInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    images: DashMap<ImageId, Entry<OriginalImage>>,
-    clock: Clock,
+pub(crate) struct OriginalImageRepositoryInMemory {
+    store: TtlStore<ImageId, OriginalImage>,
 }
 
-impl<Clock> OriginalImageRepository for OriginalImageRepositoryInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    type Guard<'a>
-        = EntryGuard<RefMut<'a, ImageId, Entry<OriginalImage>>, OriginalImage>
-    where
-        Self: 'a;
+impl OriginalImageRepositoryInMemory {
+    pub(crate) fn new(clock: Arc<dyn AppClock>) -> Self {
+        Self {
+            store: TtlStore::new(clock),
+        }
+    }
+}
 
+impl OriginalImageRepository for OriginalImageRepositoryInMemory {
     fn save(&self, image: OriginalImage) {
-        let key = image.image_id();
-        let entry = Entry::new(image, self.clock.now());
-        self.images.insert(key, entry);
+        let id = image.image_id();
+        self.store.insert(id, image);
     }
 
-    fn get<'a>(
-        &'a self,
-        image_id: &ImageId,
-    ) -> Result<Self::Guard<'a>, OriginalImageRepositoryError> {
-        self.images
-            .get_mut(&image_id)
-            .map(|entry| EntryGuard::new(entry, self.clock.now()))
+    fn get(&self, image_id: &ImageId) -> Result<Arc<OriginalImage>, OriginalImageRepositoryError> {
+        self.store
+            .get(*image_id)
             .ok_or(OriginalImageRepositoryError::ImageNotFound)
     }
 }
 
-impl<Clock> DeleteExpiredRepository for OriginalImageRepositoryInMemory<Clock>
-where
-    Clock: AppClock,
-{
+impl DeleteExpiredRepository for OriginalImageRepositoryInMemory {
     fn delete_expired(&self, now: Instant, ttl: Duration) {
-        self.images.retain(|_, entry| !entry.is_expired(now, ttl));
-    }
-}
-
-impl<Clock> OriginalImageRepositoryInMemory<Clock>
-where
-    Clock: AppClock,
-{
-    pub fn new(clock: Clock) -> Self {
-        Self {
-            images: DashMap::new(),
-            clock,
-        }
+        self.store.delete_expired(now, ttl);
     }
 }
 
@@ -110,7 +86,7 @@ mod image_repository_test {
     #[test]
     fn save_and_get_returns_the_saved_image() {
         let now = Instant::now();
-        let repo = OriginalImageRepositoryInMemory::new(FakeClock::new(now));
+        let repo = OriginalImageRepositoryInMemory::new(std::sync::Arc::new(FakeClock::new(now)));
         let image = make_image();
         let image_id = image.image_id();
 
@@ -123,7 +99,9 @@ mod image_repository_test {
 
     #[test]
     fn get_missing_image_returns_not_found() {
-        let repo = OriginalImageRepositoryInMemory::new(FakeClock::new(Instant::now()));
+        let repo = OriginalImageRepositoryInMemory::new(std::sync::Arc::new(FakeClock::new(
+            Instant::now(),
+        )));
 
         let result = repo.get(&ImageId::new());
 
@@ -136,7 +114,7 @@ mod image_repository_test {
     #[test]
     fn delete_expired_removes_old_images() {
         let base = Instant::now();
-        let repo = OriginalImageRepositoryInMemory::new(FakeClock::new(base));
+        let repo = OriginalImageRepositoryInMemory::new(std::sync::Arc::new(FakeClock::new(base)));
         let image = make_image();
         let image_id = image.image_id();
 
