@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::{
@@ -11,36 +12,55 @@ use crate::{
     session::repository::repository::SessionRepository,
 };
 
-pub struct DeleteExpiredEntriesUseCase<IR, SR, CIR, PS, SS>
-where
-    IR: OriginalImageRepository + DeleteExpiredRepository,
-    SR: SessionRepository + DeleteExpiredRepository,
-    CIR: CompletedImageRepository + DeleteExpiredRepository,
-    PS: PreviewStorage + DeleteExpiredRepository,
-    SS: SegmenterInputImageStorage + DeleteExpiredRepository,
+pub trait ExpiringOriginalImageRepository:
+    OriginalImageRepository + DeleteExpiredRepository
 {
-    image_repo: IR,
-    session_repo: SR,
-    completed_repo: CIR,
-    preview_storage: PS,
-    segmenter_input_storage: SS,
+}
+impl<T> ExpiringOriginalImageRepository for T where
+    T: OriginalImageRepository + DeleteExpiredRepository
+{
+}
+
+pub trait ExpiringSessionRepository: SessionRepository + DeleteExpiredRepository {}
+impl<T> ExpiringSessionRepository for T where T: SessionRepository + DeleteExpiredRepository {}
+
+pub trait ExpiringCompletedImageRepository:
+    CompletedImageRepository + DeleteExpiredRepository
+{
+}
+impl<T> ExpiringCompletedImageRepository for T where
+    T: CompletedImageRepository + DeleteExpiredRepository
+{
+}
+
+pub trait ExpiringPreviewStorage: PreviewStorage + DeleteExpiredRepository {}
+impl<T> ExpiringPreviewStorage for T where T: PreviewStorage + DeleteExpiredRepository {}
+
+pub trait ExpiringSegmenterInputStorage:
+    SegmenterInputImageStorage + DeleteExpiredRepository
+{
+}
+impl<T> ExpiringSegmenterInputStorage for T where
+    T: SegmenterInputImageStorage + DeleteExpiredRepository
+{
+}
+
+pub struct DeleteExpiredEntriesUseCase {
+    image_repo: Arc<dyn ExpiringOriginalImageRepository>,
+    session_repo: Arc<dyn ExpiringSessionRepository>,
+    completed_repo: Arc<dyn ExpiringCompletedImageRepository>,
+    preview_storage: Arc<dyn ExpiringPreviewStorage>,
+    segmenter_input_storage: Arc<dyn ExpiringSegmenterInputStorage>,
     ttl: Duration,
 }
 
-impl<IR, SR, CIR, PS, SS> DeleteExpiredEntriesUseCase<IR, SR, CIR, PS, SS>
-where
-    IR: OriginalImageRepository + DeleteExpiredRepository,
-    SR: SessionRepository + DeleteExpiredRepository,
-    CIR: CompletedImageRepository + DeleteExpiredRepository,
-    PS: PreviewStorage + DeleteExpiredRepository,
-    SS: SegmenterInputImageStorage + DeleteExpiredRepository,
-{
+impl DeleteExpiredEntriesUseCase {
     pub fn new(
-        image_repository: IR,
-        session_repository: SR,
-        completed_image_repository: CIR,
-        preview_storage: PS,
-        segmenter_input_storage: SS,
+        image_repository: Arc<dyn ExpiringOriginalImageRepository>,
+        session_repository: Arc<dyn ExpiringSessionRepository>,
+        completed_image_repository: Arc<dyn ExpiringCompletedImageRepository>,
+        preview_storage: Arc<dyn ExpiringPreviewStorage>,
+        segmenter_input_storage: Arc<dyn ExpiringSegmenterInputStorage>,
         ttl: Duration,
     ) -> Self {
         Self {

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     image::completed::completed_service::CompletedService,
     image_io::get_completed::{
@@ -5,18 +7,12 @@ use crate::{
     },
 };
 
-pub struct GetCompletedUseCase<CS>
-where
-    CS: CompletedService,
-{
-    completed_service: CS,
+pub struct GetCompletedUseCase {
+    completed_service: Arc<dyn CompletedService>,
 }
 
-impl<CS> GetCompletedUseCase<CS>
-where
-    CS: CompletedService,
-{
-    pub fn new(completed_service: CS) -> Self {
+impl GetCompletedUseCase {
+    pub fn new(completed_service: Arc<dyn CompletedService>) -> Self {
         Self { completed_service }
     }
 

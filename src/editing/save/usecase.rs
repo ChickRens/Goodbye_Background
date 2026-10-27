@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     editing::{
         save::{error::SaveUseCaseError, input::SaveInput, output::SaveOutput},
@@ -6,21 +8,16 @@ use crate::{
     image::completed::completed_service::CompletedService,
 };
 
-pub struct SaveUseCase<SS, CS>
-where
-    SS: SegmentService,
-    CS: CompletedService,
-{
-    segment_service: SS,
-    completed_service: CS,
+pub struct SaveUseCase {
+    segment_service: Arc<dyn SegmentService>,
+    completed_service: Arc<dyn CompletedService>,
 }
 
-impl<SS, CS> SaveUseCase<SS, CS>
-where
-    SS: SegmentService,
-    CS: CompletedService,
-{
-    pub fn new(segment_service: SS, completed_service: CS) -> Self {
+impl SaveUseCase {
+    pub fn new(
+        segment_service: Arc<dyn SegmentService>,
+        completed_service: Arc<dyn CompletedService>,
+    ) -> Self {
         Self {
             segment_service,
             completed_service,

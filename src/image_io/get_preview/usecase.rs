@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     image::preview::service::PreviewService,
     image_io::get_preview::{
@@ -5,18 +7,12 @@ use crate::{
     },
 };
 
-pub struct GetPreviewUseCase<PS>
-where
-    PS: PreviewService,
-{
-    preview_service: PS,
+pub struct GetPreviewUseCase {
+    preview_service: Arc<dyn PreviewService>,
 }
 
-impl<PS> GetPreviewUseCase<PS>
-where
-    PS: PreviewService,
-{
-    pub fn new(preview_service: PS) -> Self {
+impl GetPreviewUseCase {
+    pub fn new(preview_service: Arc<dyn PreviewService>) -> Self {
         Self { preview_service }
     }
 

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     editing::{
         segment::{error::SegmentUseCaseError, input::SegmentInput, output::SegmentOutput},
@@ -6,21 +8,16 @@ use crate::{
     image::preview::service::PreviewService,
 };
 
-pub struct SegmentUseCase<SS, PS>
-where
-    SS: SegmentService,
-    PS: PreviewService,
-{
-    segment_service: SS,
-    preview_service: PS,
+pub struct SegmentUseCase {
+    segment_service: Arc<dyn SegmentService>,
+    preview_service: Arc<dyn PreviewService>,
 }
 
-impl<SS, PS> SegmentUseCase<SS, PS>
-where
-    SS: SegmentService,
-    PS: PreviewService,
-{
-    pub fn new(segment_service: SS, preview_service: PS) -> Self {
+impl SegmentUseCase {
+    pub fn new(
+        segment_service: Arc<dyn SegmentService>,
+        preview_service: Arc<dyn PreviewService>,
+    ) -> Self {
         Self {
             segment_service,
             preview_service,

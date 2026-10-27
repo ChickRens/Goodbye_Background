@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     editing::{
         redo::{error::RedoUseCaseError, input::RedoInput, output::RedoOutput},
@@ -6,21 +8,16 @@ use crate::{
     image::preview::service::PreviewService,
 };
 
-pub struct RedoUseCase<PS, SS>
-where
-    PS: PreviewService,
-    SS: SegmentService,
-{
-    preview_service: PS,
-    segment_service: SS,
+pub struct RedoUseCase {
+    preview_service: Arc<dyn PreviewService>,
+    segment_service: Arc<dyn SegmentService>,
 }
 
-impl<PS, SS> RedoUseCase<PS, SS>
-where
-    PS: PreviewService,
-    SS: SegmentService,
-{
-    pub fn new(segment_service: SS, preview_service: PS) -> Self {
+impl RedoUseCase {
+    pub fn new(
+        segment_service: Arc<dyn SegmentService>,
+        preview_service: Arc<dyn PreviewService>,
+    ) -> Self {
         Self {
             segment_service,
             preview_service,

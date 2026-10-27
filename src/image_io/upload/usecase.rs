@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     image::{
         original::{
@@ -12,31 +14,19 @@ use crate::{
     session::{id::SessionId, repository::repository::SessionRepository, session::Session},
 };
 
-pub struct UploadUseCase<SR, IR, LD, PS>
-where
-    SR: SessionRepository,
-    IR: OriginalImageRepository,
-    LD: ImageLoader,
-    PS: PreviewService,
-{
-    session_repo: SR,
-    image_repo: IR,
-    loader: LD,
-    preview_service: PS,
+pub struct UploadUseCase {
+    session_repo: Arc<dyn SessionRepository>,
+    image_repo: Arc<dyn OriginalImageRepository>,
+    loader: Arc<dyn ImageLoader>,
+    preview_service: Arc<dyn PreviewService>,
 }
 
-impl<SR, IR, LD, PS> UploadUseCase<SR, IR, LD, PS>
-where
-    SR: SessionRepository,
-    IR: OriginalImageRepository,
-    LD: ImageLoader,
-    PS: PreviewService,
-{
+impl UploadUseCase {
     pub fn new(
-        session_repository: SR,
-        image_repository: IR,
-        image_loader: LD,
-        preview_service: PS,
+        session_repository: Arc<dyn SessionRepository>,
+        image_repository: Arc<dyn OriginalImageRepository>,
+        image_loader: Arc<dyn ImageLoader>,
+        preview_service: Arc<dyn PreviewService>,
     ) -> Self {
         Self {
             session_repo: session_repository,

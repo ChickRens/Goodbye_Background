@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     editing::{
         segmenter::segment_service::SegmentService,
@@ -6,21 +8,16 @@ use crate::{
     image::preview::service::PreviewService,
 };
 
-pub struct UndoUseCase<SS, PS>
-where
-    SS: SegmentService,
-    PS: PreviewService,
-{
-    segment_service: SS,
-    preview_service: PS,
+pub struct UndoUseCase {
+    segment_service: Arc<dyn SegmentService>,
+    preview_service: Arc<dyn PreviewService>,
 }
 
-impl<SS, PS> UndoUseCase<SS, PS>
-where
-    SS: SegmentService,
-    PS: PreviewService,
-{
-    pub fn new(segment_service: SS, preview_service: PS) -> Self {
+impl UndoUseCase {
+    pub fn new(
+        segment_service: Arc<dyn SegmentService>,
+        preview_service: Arc<dyn PreviewService>,
+    ) -> Self {
         Self {
             segment_service,
             preview_service,
