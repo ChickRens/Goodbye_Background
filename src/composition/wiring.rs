@@ -1,38 +1,35 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use crate::{
-    analytics::usage_tracking::recorder::PostgresUsageRecorder,
-    application::error::ApplicationError,
-    config::{MAX_HISTORY, TTL_SEC},
-    editing::{
+    analytics::usage_tracking::{recorder::{PostgresUsageRecorder, SQLiteUsageRecorder}, usage_recorder::UsageRecorder}, application::error::ApplicationError, config::{MAX_HISTORY, TTL_SEC}, editing::{
         prepare_segment::{input::PrepareSegmentInput, usecase::PrepareSegmentUseCase},
         redo::{input::RedoInput, output::RedoOutput, usecase::RedoUseCase},
         save::{input::SaveInput, output::SaveOutput, usecase::SaveUseCase},
         segment::{input::SegmentInput, output::SegmentOutput, usecase::SegmentUseCase},
         segmenter::{
-            prepare_service::SharedPrepareSegmentService, segment_service::SharedSegmentService,
-            shared_segmenter_sam2::SharedSAM2Segmenter,
+            prepare_service::{PrepareSegmentService, PrepareSegmentServiceImpl},
+            segment_service::{SegmentService, SegmentServiceImpl},
+            segmenter_sam2::Sam2Segmenter,
         },
-        session::repository::shared_repository_impl::SharedEditingSessionRepository,
+        session::repository::repository_impl::SAM2EditingSessionRepository,
         undo::{input::UndoInput, output::UndoOutput, usecase::UndoUseCase},
-    },
-    image::{
+    }, image::{
         completed::{
-            completed_service::SharedCompletedService,
-            generator::generator::SharedWebPCompletedImageGenerator,
-            storage::storage_impl::SharedCompletedImageRepository,
+            completed_service::{CompletedService, CompletedServiceImpl},
+            generator::generator::WebPCompletedImageGenerator,
+            storage::storage_impl::CompletedRepositoryInMemory,
         },
-        original::original_repository::shared_repository_impl::SharedOriginalImageRepository,
+        original::original_repository::repository_impl::OriginalImageRepositoryInMemory,
         preview::{
-            generator::shared_generator_impl::SharedPreviewGenerator,
-            service::SharedPreviewService, storage::storage_impl::SharedPreviewStorage,
+            generator::generator_impl::WebPPreviewImageGenerator,
+            service::{PreviewService, PreviewServiceImpl},
+            storage::storage_impl::PreviewStorageInMemory,
         },
         segmenter_input::{
-            generator::shared_generator_impl::SharedSAM2InputGenerator,
-            storage::shared_storage_impl::SharedSegmenterInputStorage,
+            generator::generator_impl::SAM2InputGenerator,
+            storage::storage_impl::SegmenterInputStorageInMemory,
         },
-    },
-    image_io::{
+    }, image_io::{
         get_completed::{
             input::GetCompletedInput, output::GetCompletedOutput, usecase::GetCompletedUseCase,
         },
@@ -43,131 +40,77 @@ use crate::{
             image_loader::loader_impl::FileImageLoader, input::UploadInput, output::UploadOutput,
             usecase::UploadUseCase,
         },
-    },
-    maintenance::deleting_expired_entries::{
-        clock::clock_impl::RealClock, usecase::DeleteExpiredEntriesUseCase,
-    },
-    session::repository::shared_repository_impl::SharedSessionRepository,
+    }, maintenance::deleting_expired_entries::{
+        clock::clock_impl::RealClock,
+        usecase::{
+            DeleteExpiredEntriesUseCase, ExpiringCompletedImageRepository,
+            ExpiringOriginalImageRepository, ExpiringPreviewStorage, ExpiringSegmenterInputStorage,
+            ExpiringSessionRepository,
+        },
+    }, session::repository::repository_impl::SessionRepositoryInMemory,
 };
 
 pub struct App {
-    upload_usecase: UploadUseCase<
-        SharedSessionRepository<RealClock>,
-        SharedOriginalImageRepository<RealClock>,
-        FileImageLoader,
-        SharedPreviewService<SharedPreviewGenerator, SharedPreviewStorage<RealClock>>,
-    >,
-    prepare_segment_usecase: PrepareSegmentUseCase<
-        SharedPrepareSegmentService<
-            SharedSAM2Segmenter,
-            SharedOriginalImageRepository<RealClock>,
-            SharedEditingSessionRepository<RealClock>,
-            SharedSAM2InputGenerator,
-            SharedSegmenterInputStorage<RealClock>,
-        >,
-    >,
-    segment_usecase: SegmentUseCase<
-        SharedSegmentService<
-            SharedSessionRepository<RealClock>,
-            SharedSAM2Segmenter,
-            SharedOriginalImageRepository<RealClock>,
-            SharedEditingSessionRepository<RealClock>,
-            SharedSegmenterInputStorage<RealClock>,
-        >,
-        SharedPreviewService<SharedPreviewGenerator, SharedPreviewStorage<RealClock>>,
-    >,
-    undo_usecase: UndoUseCase<
-        SharedSegmentService<
-            SharedSessionRepository<RealClock>,
-            SharedSAM2Segmenter,
-            SharedOriginalImageRepository<RealClock>,
-            SharedEditingSessionRepository<RealClock>,
-            SharedSegmenterInputStorage<RealClock>,
-        >,
-        SharedPreviewService<SharedPreviewGenerator, SharedPreviewStorage<RealClock>>,
-    >,
-    redo_usecase: RedoUseCase<
-        SharedPreviewService<SharedPreviewGenerator, SharedPreviewStorage<RealClock>>,
-        SharedSegmentService<
-            SharedSessionRepository<RealClock>,
-            SharedSAM2Segmenter,
-            SharedOriginalImageRepository<RealClock>,
-            SharedEditingSessionRepository<RealClock>,
-            SharedSegmenterInputStorage<RealClock>,
-        >,
-    >,
-    save_usecase: SaveUseCase<
-        SharedSegmentService<
-            SharedSessionRepository<RealClock>,
-            SharedSAM2Segmenter,
-            SharedOriginalImageRepository<RealClock>,
-            SharedEditingSessionRepository<RealClock>,
-            SharedSegmenterInputStorage<RealClock>,
-        >,
-        SharedCompletedService<
-            SharedWebPCompletedImageGenerator,
-            SharedCompletedImageRepository<RealClock>,
-        >,
-    >,
-    get_completed_usecase: GetCompletedUseCase<
-        SharedCompletedService<
-            SharedWebPCompletedImageGenerator,
-            SharedCompletedImageRepository<RealClock>,
-        >,
-    >,
-    get_preview_usecase: GetPreviewUseCase<
-        SharedPreviewService<SharedPreviewGenerator, SharedPreviewStorage<RealClock>>,
-    >,
-    delete_expired_usecase: DeleteExpiredEntriesUseCase<
-        SharedOriginalImageRepository<RealClock>,
-        SharedSessionRepository<RealClock>,
-        SharedCompletedImageRepository<RealClock>,
-        SharedPreviewStorage<RealClock>,
-        SharedSegmenterInputStorage<RealClock>,
-    >,
-    usage_recorder: PostgresUsageRecorder,
+    upload_usecase: UploadUseCase,
+    prepare_segment_usecase: PrepareSegmentUseCase,
+    segment_usecase: SegmentUseCase,
+    undo_usecase: UndoUseCase,
+    redo_usecase: RedoUseCase,
+    save_usecase: SaveUseCase,
+    get_completed_usecase: GetCompletedUseCase,
+    get_preview_usecase: GetPreviewUseCase,
+    delete_expired_usecase: DeleteExpiredEntriesUseCase,
+    usage_recorder: Arc<dyn UsageRecorder>,
 }
 
 impl App {
-    pub fn new(pool: sqlx::Pool<sqlx::Postgres>) -> Result<Self, ApplicationError> {
+    pub fn new(pool: sqlx::Pool<sqlx::Sqlite>) -> Result<Self, ApplicationError> {
         let clock = RealClock::new();
 
-        let session_repo = SharedSessionRepository::new(clock.clone());
-        let image_repo = SharedOriginalImageRepository::new(clock.clone());
+        let session_repo = Arc::new(SessionRepositoryInMemory::new(clock.clone()));
+        let image_repo = Arc::new(OriginalImageRepositoryInMemory::new(Arc::new(
+            clock.clone(),
+        )));
         let loader = FileImageLoader::new();
-        let segmenter = SharedSAM2Segmenter::new("models")
-            .expect("Failed to load SAM2 model during app initialize");
-        let editing_session_repo = SharedEditingSessionRepository::new(clock.clone());
-        let preview_storage = SharedPreviewStorage::new(clock.clone());
-        let preview_generator = SharedPreviewGenerator::new(600);
-        let input_storage = SharedSegmenterInputStorage::new(clock.clone());
-        let input_generator = SharedSAM2InputGenerator::new(1024, 1024);
-        let completed_image_generator = SharedWebPCompletedImageGenerator::new();
-        let completed_image_repo = SharedCompletedImageRepository::new(clock.clone());
+        let segmenter =
+            Sam2Segmenter::new("models").expect("Failed to load SAM2 model during app initialize");
+        let editing_session_repo = Arc::new(SAM2EditingSessionRepository::new(clock.clone()));
+        let preview_storage = Arc::new(PreviewStorageInMemory::new(clock.clone()));
+        let preview_generator = WebPPreviewImageGenerator::new(600);
+        let input_storage = Arc::new(SegmenterInputStorageInMemory::new(clock.clone()));
+        let input_generator = SAM2InputGenerator::new(1024, 1024);
+        let completed_image_generator = WebPCompletedImageGenerator::new();
+        let completed_image_repo = Arc::new(CompletedRepositoryInMemory::new(clock.clone()));
 
-        let preview_service = SharedPreviewService::new(preview_generator, preview_storage.clone());
-        let prepare_service = SharedPrepareSegmentService::new(
-            segmenter.clone(),
-            image_repo.clone(),
-            editing_session_repo.clone(),
-            input_generator,
-            input_storage.clone(),
-            MAX_HISTORY,
-        );
-        let segment_service = SharedSegmentService::new(
+        let preview_service: Arc<dyn PreviewService> = Arc::new(PreviewServiceImpl::new(
+            Arc::new(preview_generator),
+            preview_storage.clone(),
+        ));
+        let prepare_service: Arc<dyn PrepareSegmentService> =
+            Arc::new(PrepareSegmentServiceImpl::new(
+                Arc::new(segmenter.clone()),
+                image_repo.clone(),
+                editing_session_repo.clone(),
+                Arc::new(input_generator),
+                input_storage.clone(),
+                MAX_HISTORY,
+            ));
+        let segment_service: Arc<dyn SegmentService> = Arc::new(SegmentServiceImpl::new(
             session_repo.clone(),
-            segmenter.clone(),
+            Arc::new(segmenter.clone()),
             image_repo.clone(),
             editing_session_repo.clone(),
             input_storage.clone(),
-        );
-        let completed_service =
-            SharedCompletedService::new(completed_image_generator, completed_image_repo.clone());
+        ));
+        let completed_service: Arc<dyn CompletedService> = Arc::new(CompletedServiceImpl::new(
+            Arc::new(completed_image_generator),
+            completed_image_repo.clone(),
+        ));
 
         let upload_uc = UploadUseCase::new(
             session_repo.clone(),
             image_repo.clone(),
-            loader,
+            Arc::new(loader),
             preview_service.clone(),
         );
         let prepare_segment_uc = PrepareSegmentUseCase::new(prepare_service);
@@ -178,15 +121,16 @@ impl App {
         let get_completed_uc = GetCompletedUseCase::new(completed_service.clone());
         let get_image_uc = GetPreviewUseCase::new(preview_service.clone());
         let delete_expired_uc = DeleteExpiredEntriesUseCase::new(
-            image_repo.clone(),
-            session_repo.clone(),
-            completed_image_repo.clone(),
-            preview_storage.clone(),
-            input_storage.clone(),
+            image_repo.clone() as Arc<dyn ExpiringOriginalImageRepository>,
+            session_repo.clone() as Arc<dyn ExpiringSessionRepository>,
+            completed_image_repo.clone() as Arc<dyn ExpiringCompletedImageRepository>,
+            preview_storage.clone() as Arc<dyn ExpiringPreviewStorage>,
+            input_storage.clone() as Arc<dyn ExpiringSegmenterInputStorage>,
             TTL_SEC,
         );
 
-        let usage_recorder = PostgresUsageRecorder::new(pool);
+        let usage_recorder: Arc<dyn UsageRecorder> =
+            Arc::new(SQLiteUsageRecorder::new(pool));
 
         Ok(App {
             upload_usecase: upload_uc,
@@ -246,7 +190,7 @@ impl App {
         self.delete_expired_usecase.execute(now);
     }
 
-    pub fn usage_recorder(&self) -> &PostgresUsageRecorder {
-        &self.usage_recorder
+    pub fn usage_recorder(&self) -> &dyn UsageRecorder {
+        self.usage_recorder.as_ref()
     }
 }
