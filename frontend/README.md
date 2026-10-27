@@ -19,8 +19,11 @@ css/
   checker-colors.css   市松模様専用のグレー2色（tokens.cssには無いため別ファイル）
   style.css            アプリ本体(app.html)のレイアウト・コンポーネントのスタイル
   landing.css          機能紹介ページ(index.html)専用のスタイル
+  landing-additions.css landing.css の後に読み込む追加分（スキップボタン・使い方・文書ページ）。
+                       index.html / privacy.html の両方が読む
 js/
   app.js       アプリ本体のエントリーポイント。strip.jsとeditor.jsを束ねるだけ
+               （strip で選ばれた画像 → onSelect → editor.open、という一方向の配線）
   store.js     状態管理（pub/sub）
   api.js       バックエンドとの通信
   id.js        UI用ローカルIDの生成（リロードで消えてよい、画面内の区別用）
@@ -30,6 +33,7 @@ js/
   canvas.js    canvas描画（画像・市松模様・ポイントマーカー）
   toast.js     エラー等の通知カード
   intro.js     機能紹介ページ(index.html)のオープニング動画と背景動画ループ
+               （app.html では使わない。app.js とは無関係に index.html から単独で読み込む）
 assets/        画像・動画
   sample1.mp4 / sample2.mp4 / sample3.mp4 … 機能紹介ページ冒頭のオープニング・背景用の
     動画（各1秒・1:1。after1/2/3 にそれぞれ対応）
@@ -69,6 +73,8 @@ assets/        画像・動画
 ## 状態管理（js/store.js）
 
 セッションは `localId`（クライアント生成のID）をキーにしたMapで持つ。
+「いま開いている画像」は `store.activeLocalId` だけが持つ（strip.js が `setActive` で書き込み、
+描画にも使う）。editor.js は非同期の取り違え防止のため、別に `currentLocalId` を持つ。
 
 **なぜ `image_id` ではなく `localId` をキーにするか**: アップロード完了
 （＝サーバーが `image_id`/`session_id` を発行する）前から、ストリップに
@@ -207,9 +213,10 @@ canvas 1枚に以下を下から順に重ねて描画している。
   (明るいラベンダー)を乗せると読みにくい。そのため `tokens.css` に
   **カード専用のテキスト色 `--card-text` / `--card-text-muted`** を追加し、
   本文とコード表示にはそちらを使っている。
-- アイコンは `/assets/info.svg` `/assets/warning.svg` `/assets/danger.svg`
-  `/assets/success.svg`（先頭）、閉じるボタンは `/assets/X.svg`（末尾）を参照。
-  パスはルート相対（先頭に `/`）。拡張子は `.svg` 前提。
+- アイコンは `assets/info.svg` `assets/warning.svg` `assets/danger.svg`
+  `assets/success.svg`（先頭）、閉じるボタンは `assets/X.svg`（末尾）を参照。
+  パスは HTML ページ(`app.html`)基準の相対パス（先頭に `/` を付けない。付けるとサブパス
+  配信で壊れる）。拡張子は `.svg` 前提。
 - アイコンは `<img>` ではなく **CSSの`mask-image`（`background-color: currentColor`
   と組み合わせ）** で描画している。`<img src="....svg">` は外部リソースとして
   扱われ、SVG内部が `fill="currentColor"` に対応していてもページ側の文字色を
@@ -354,7 +361,7 @@ after側の画像枠には市松模様の背景（`checker-colors.css`と同じ�
 
 ## 検索エンジン対策（SEO / Bing・Edge検索）
 
-公開URL: `https://goodbye-background-560564917290.asia-northeast1.run.app/`
+公開URL: `https://chickren.goodbye-background.com/`（独自ドメイン。Cloud Run の `*.run.app` は使わない）
 （Edgeの検索はBing。Googleでも同じ設定が効く）
 
 - **`index.html`（紹介ページ）を検索の入口にする**: `<title>`・`description`・`canonical`・
@@ -373,10 +380,10 @@ after側の画像枠には市松模様の背景（`checker-colors.css`と同じ�
   1. Bing Webmaster Tools でサイトを登録し、所有権を確認する（HTMLのmetaタグか
      XMLファイルを `index.html` と同じ場所に置く方法が簡単）。
   2. 「サイトマップ」に `sitemap.xml` を送信し、「URL送信」でトップページを送信する。
-  3. 反映には数日〜数週間かかる。確認は、Bingで `site:goodbye-background-560564917290.asia-northeast1.run.app`
+  3. 反映には数日〜数週間かかる。確認は、Bingで `site:chickren.goodbye-background.com`
      を検索する（何も出なければ未登録）。
-- `*.run.app` は誰でも使える共通ドメインで評価が付きにくい。「Goodbye Background」の
-  完全一致での検索を最初の目標にし、長く運用するなら独自ドメインにするほうがよい。
+- 独自ドメインなので `*.run.app` のような共通ドメインの評価の付きにくさは無い。まずは
+  「Goodbye Background」の完全一致での検索に出ることを目標にする。
 
 ## 既知の未対応
 

@@ -1,0 +1,201 @@
+/*
+ * landing.css への追加分。index.html / privacy.html が landing.css の「後」に読み込む。
+ * 色は tokens.css の変数だけを使う（新しい色は足さない）。
+ */
+
+/* ---------- Opening skip button ---------- */
+/* .page はオープニング中 opacity:0 なので、.page の外(body直下)に置いてある。
+   .bg-stage(z-index:0) / .page(z-index:1) より前面に出す */
+.intro-skip {
+    position: fixed;
+    right: var(--landing-space-2);
+    bottom: calc(var(--landing-space-2) + env(safe-area-inset-bottom));
+    z-index: 20;
+    min-height: 44px; /* 親指で押せる大きさ */
+    padding: 0 var(--landing-space-3);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-dark) 70%, transparent);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    transition: border-color 0.15s ease;
+}
+
+.intro-skip:hover {
+    border-color: var(--primary);
+}
+
+.intro-skip[hidden] {
+    display: none;
+}
+
+/* ---------- Hero note (CTA直下の補足) ---------- */
+.hero-note {
+    margin: var(--hero-gap-s) 0 0;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    color: var(--text-muted);
+}
+
+.hero-note a {
+    color: var(--text-muted);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.hero-note a:hover {
+    color: var(--text);
+}
+
+/* ---------- Steps (使い方) ---------- */
+.steps {
+    max-width: var(--landing-max-width);
+    width: 100%;
+    margin: 0 auto;
+    padding: var(--landing-space-5) var(--landing-space-3) var(--landing-space-6);
+    border-top: 1px solid var(--border-muted);
+}
+
+.steps h2 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin: 0 0 var(--landing-space-3);
+}
+
+/* 内容が実際に「順番のある手順」なので、番号付きリストにしている */
+.steps-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--landing-space-4);
+    counter-reset: step;
+}
+
+.steps-list li {
+    counter-increment: step;
+    display: flex;
+    flex-direction: column;
+    gap: var(--landing-space-1);
+    padding-left: var(--landing-space-4);
+    position: relative;
+}
+
+.steps-list li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.steps-list strong {
+    font-size: 1rem;
+    line-height: 28px; /* 番号の丸と縦位置を揃える */
+}
+
+.steps-list span {
+    font-size: 0.92rem;
+    line-height: 1.7;
+    color: var(--text-muted);
+}
+
+@media (max-width: 760px) {
+    .steps-list {
+        grid-template-columns: 1fr;
+        gap: var(--landing-space-3);
+    }
+}
+
+/* ---------- Footer links ---------- */
+.site-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--landing-space-1) var(--landing-space-3);
+}
+
+.footer-links {
+    display: flex;
+    gap: var(--landing-space-3);
+}
+
+.footer-links a {
+    color: var(--text-muted);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.footer-links a:hover {
+    color: var(--text);
+}
+
+/* ---------- 文書ページ (privacy.html) ---------- */
+.doc {
+    flex: 1;
+    width: 100%;
+    max-width: 44rem; /* 日本語で1行が長くなりすぎない幅 */
+    margin: 0 auto;
+    padding: var(--landing-space-4) var(--landing-space-3) var(--landing-space-6);
+}
+
+.doc h1 {
+    font-size: 1.6rem;
+    line-height: 1.3;
+    margin: 0 0 var(--landing-space-2);
+}
+
+.doc h2 {
+    font-size: 1.1rem;
+    margin: var(--landing-space-4) 0 var(--landing-space-1);
+}
+
+.doc p,
+.doc li {
+    font-size: 0.95rem;
+    line-height: 1.85;
+    color: var(--text-muted);
+}
+
+.doc ul {
+    margin: 0;
+    padding-left: 1.4em;
+}
+
+.doc .doc-meta {
+    font-size: 0.8rem;
+    margin: 0 0 var(--landing-space-3);
+}
+
+/* 運営者が記入すべき箇所。公開前に必ず消すこと */
+.doc .todo {
+    color: var(--secondary);
+    font-weight: 600;
+}
+
+.doc a {
+    color: var(--primary);
+    text-underline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .intro-skip {
+        transition: none;
+    }
+}

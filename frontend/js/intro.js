@@ -2,9 +2,15 @@
  * 機能紹介ページ(index.html)のオープニング演出と背景動画ループ。
  *
  *   1. アクセス直後: sample1 → 2 → 3 を順に画面いっぱいに再生する
- *      （この間、ホーム画面のテキストはまだ隠している）
+ *      （この間、ホーム画面のテキストはまだ隠している。「スキップ」ボタンで飛ばせる）
  *   2. sample3 の再生が終わったら: ホーム画面を前面にフェードインし、
  *      背景は明るさを大きく落として sample1, 2, 3, 1, 2, 3... と循環再生を続ける
+ *
+ * オープニングを見せない(=最初からホーム画面を出す)条件:
+ *   - 「動きを減らす」設定 (prefers-reduced-motion)
+ *   - 同じタブで既に見た (sessionStorage 'gb:intro-seen')。index.html の <head> のスクリプトが
+ *     先に判定して .intro-pending を付けないので、ホーム画面が一瞬隠れるちらつきも無い
+ *   - 通信節約モード(Save-Data)・低速回線 → 動画自体を読み込まない
  *
  * 動画は 1:1。画面の短辺にぴったり合わせて表示し、足りない左右(または上下)は
  * 同じ動画を拡大してぼかしたものでうめる。
@@ -13,7 +19,7 @@
  *   - くっきり用(sharp)は切り替えの隙間を作らないよう全部 preload="auto" で先読みする。
  *   - ぼかし用(blur)は縁を埋めるだけの補助なので、最初の1本以外は
  *     preload="metadata" にして、再生が始まるまで本体のダウンロードを遅らせる。
- *     （動画3本ぶん × 2枚 = 6本を一斉に読み込むのをやめ、帯域を sharp に回す）
+ *   - タブが非表示の間は再生を止める（バッテリー・帯域の節約）。
  *
  * 背景の暗さは css/landing.css の --bg-dim で調整できる。
  */
@@ -35,14 +41,25 @@
     const INTRO_MAX_MS = 9000;
     // 連続でこの回数失敗したら背景ループを止める（読み込み失敗の無限ループ防止）
     const MAX_CONSECUTIVE_FAILURES = 3;
+    // オープニングを見たことの記録キー（タブを閉じるまで有効）
+    const SEEN_KEY = 'gb:intro-seen';
 
     const root = document.documentElement;
     const stage = document.getElementById('bg-stage');
+    const skipBtn = document.getElementById('intro-skip');
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     let introDone = false;
     let startTimer = null;
     let maxTimer = null;
+
+    function markSeen() {
+        try {
+            sessionStorage.setItem(SEEN_KEY, '1');
+        } catch {
+            /* 保存できなくても動作には影響しない（毎回見せるだけ） */
+        }
+    }
 
     // ホーム画面を前面に出し、背景を暗くする。何度呼んでも1回しか効かない。
     function finishIntro() {
@@ -51,13 +68,33 @@
         clearTimeout(startTimer);
         clearTimeout(maxTimer);
         root.classList.remove('intro-pending');
+        if (skipBtn) skipBtn.hidden = true;
         if (stage) stage.classList.add('is-dimmed');
+        markSeen();
+    }
+
+    // 通信節約モードや低速回線では、動画を読み込まない（6本ぶんの転送を避ける）。
+    // navigator.connection は Chromium 系のみ。無ければ判定できないので通常どおり再生する。
+    function isConstrainedNetwork() {
+        const c = navigator.connection;
+        if (!c) return false;
+        return c.saveData === true || /(^|-)2g$/.test(c.effectiveType || '') || c.effectiveType === '3g';
     }
 
     // 動画を使わない(できない)場合でも、ホーム画面は必ず表示する
-    if (!stage || reduceMotion) {
+    if (!stage || reduceMotion || isConstrainedNetwork()) {
         finishIntro();
         return;
+    }
+
+    // <head> のスクリプトが「見たことがある」と判定した場合は .intro-pending が付いていない。
+    // その場合はオープニングを飛ばし、背景ループだけ始める。
+    const skipOpening = !root.classList.contains('intro-pending');
+    if (skipOpening) {
+        finishIntro();
+    } else if (skipBtn) {
+        skipBtn.hidden = false;
+        skipBtn.addEventListener('click', finishIntro);
     }
 
     function createVideo(src, className, preload) {
@@ -152,9 +189,26 @@
         });
     });
 
+    // タブが裏に回っている間は再生を止め、戻ったら続きから再生する。
+    // 'ended' で次へ進む流れは、止めた位置から再開すれば壊れない。
+    document.addEventListener('visibilitychange', () => {
+        if (stopped || current < 0) return;
+        const slot = slots[current];
+        if (document.hidden) {
+            slot.blur.pause();
+            slot.sharp.pause();
+        } else {
+            slot.blur.play().catch(() => {});
+            slot.sharp.play().catch(() => {});
+        }
+    });
+
     // 最初の動画が始まらないまま待たされ続けないようにする
-    startTimer = setTimeout(finishIntro, START_TIMEOUT_MS);
-    maxTimer = setTimeout(finishIntro, INTRO_MAX_MS);
+    // （オープニングを飛ばす場合は既に finishIntro 済みなのでタイマーは不要）
+    if (!introDone) {
+        startTimer = setTimeout(finishIntro, START_TIMEOUT_MS);
+        maxTimer = setTimeout(finishIntro, INTRO_MAX_MS);
+    }
 
     showSlot(0);
 })();

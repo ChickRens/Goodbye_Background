@@ -36,7 +36,6 @@ export function initStrip({
   nextBtnEl,
   onSelect,
 }) {
-  let activeLocalId = null;
   const thumbs = new Map(); // localId -> { btn, dot }
 
   const uploadQueue = [];
@@ -83,9 +82,7 @@ export function initStrip({
     if (!session) return;
 
     if (session.status === 'error') {
-      // 失敗したアップロードは、クリックで一覧から取り除く
-      thumbs.get(localId)?.btn.remove();
-      thumbs.delete(localId);
+      // 失敗したアップロードは、クリックで一覧から取り除く（サムネイルのDOMは render が片付ける）
       store.removeSession(localId);
       return;
     }
@@ -106,7 +103,7 @@ export function initStrip({
         uploadImage(file)
           .then(({ sessionId, imageId }) => {
             store.updateSession(localId, { sessionId, imageId, status: 'ready' });
-            if (!activeLocalId) setActive(localId);
+            if (!store.getState().activeLocalId) setActive(localId);
           })
           .catch((err) => {
             store.updateSession(localId, { status: 'error', error: err.message });
@@ -137,9 +134,10 @@ export function initStrip({
     }
   }
 
+  // 「今どの画像を開いているか」は store.activeLocalId が唯一の持ち主。
+  // setActive が subscribe 経由で render を呼ぶので、ここで直接 render しない。
   function setActive(localId) {
-    activeLocalId = localId;
-    render(store.getState());
+    store.setActive(localId);
     onSelect(localId);
   }
 
@@ -183,7 +181,7 @@ export function initStrip({
 
       const name = session.file ? session.file.name : '画像';
       thumb.btn.disabled = session.status === 'uploading';
-      thumb.btn.classList.toggle('is-active', session.localId === activeLocalId);
+      thumb.btn.classList.toggle('is-active', session.localId === state.activeLocalId);
       thumb.btn.title = session.status === 'error' ? `${name}（アップロード失敗・クリックで削除）` : name;
       thumb.dot.className = `status-dot status-${session.status}`;
     }
