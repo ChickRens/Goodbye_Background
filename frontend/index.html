@@ -3,23 +3,32 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<link rel="icon" type="image/png" href="assets/goodbye-background-icon.png" />
-<link rel="apple-touch-icon" href="assets/goodbye-background-icon.png" />
 <title>Goodbye Background｜タップするだけの背景除去・画像切り抜きツール</title>
-<meta name="description" content="写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の画質のまま保存できる画像切り抜きツール。" />
-<link rel="canonical" href="https://goodbye-background-560564917290.asia-northeast1.run.app/" />
+<meta name="description" content="写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の解像度のまま保存できる画像切り抜きツール。" />
+<!-- 公開URLが変わったら、ここと og:url / JSON-LD の url / robots.txt / sitemap.xml の5か所を揃えること -->
+<link rel="canonical" href="https://chickren.goodbye-background.com/" />
 <meta name="robots" content="index, follow, max-image-preview:large" />
+<link rel="icon" href="/favicon.ico" sizes="48x48" />
+<link rel="icon" type="image/png" href="assets/favicon-48.png" sizes="48x48" />
+<link rel="icon" type="image/png" href="assets/favicon-192.png" sizes="192x192" />
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+
 
 <!-- SNS共有・検索結果のカード用 -->
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Goodbye Background" />
 <meta property="og:locale" content="ja_JP" />
 <meta property="og:title" content="Goodbye Background｜タップするだけの背景除去・画像切り抜きツール" />
-<meta property="og:description" content="写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の画質のまま保存できる画像切り抜きツール。" />
-<meta property="og:url" content="https://goodbye-background-560564917290.asia-northeast1.run.app/" />
-<meta name="twitter:card" content="summary" />
+<meta property="og:description" content="写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の解像度のまま保存できる画像切り抜きツール。" />
+<meta property="og:url" content="https://chickren.goodbye-background.com/" />
+<!-- TODO: assets/og.png (1200x630, 元画像→切り抜き結果を並べたもの) を用意すること。無い間は共有時に画像なしになる -->
+<meta property="og:image" content="https://chickren.goodbye-background.com/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Goodbye Background｜タップするだけの背景除去・画像切り抜きツール" />
-<meta name="twitter:description" content="写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の画質のまま保存できる画像切り抜きツール。" />
+<meta name="twitter:description" content="写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の解像度のまま保存できる画像切り抜きツール。" />
+<meta name="twitter:image" content="https://chickren.goodbye-background.com/assets/og.png" />
 
 <!-- 検索エンジンにアプリの種類を伝える構造化データ -->
 <script type="application/ld+json">
@@ -27,8 +36,8 @@
   "@context": "https://schema.org",
   "@type": "WebApplication",
   "name": "Goodbye Background",
-  "url": "https://goodbye-background-560564917290.asia-northeast1.run.app/",
-  "description": "写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の画質のまま保存できる画像切り抜きツール。",
+  "url": "https://chickren.goodbye-background.com/",
+  "description": "写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の解像度のまま保存できる画像切り抜きツール。",
   "applicationCategory": "MultimediaApplication",
   "operatingSystem": "Web",
   "inLanguage": "ja"
@@ -37,16 +46,29 @@
 <link rel="stylesheet" href="css/tokens.css" />
 <link rel="stylesheet" href="css/checker-colors.css" />
 <link rel="stylesheet" href="css/landing.css" />
+<link rel="stylesheet" href="css/landing-additions.css" />
 <script>
   // オープニング動画の再生が終わるまでホーム画面を隠す。
-  // JSが動かない環境や動きを減らす設定では付けないので、その場合は最初から表示される。
-  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    document.documentElement.classList.add('intro-pending');
-  }
+  // 次の場合は隠さない(=最初から表示する):
+  //   - 「動きを減らす」設定
+  //   - 同じタブでオープニングを既に見たことがある(2回目以降の訪問・ページ遷移からの戻り)
+  // JSが動かない環境でも .intro-pending は付かないので、最初から表示される。
+  (function () {
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var seen = false;
+    try { seen = sessionStorage.getItem('gb:intro-seen') === '1'; } catch (e) { /* 使えなければ毎回見せる */ }
+    if (!reduce && !seen) {
+      document.documentElement.classList.add('intro-pending');
+    }
+  })();
 </script>
 </head>
 <body>
 <div class="bg-stage" id="bg-stage" aria-hidden="true"></div>
+
+<!-- オープニング再生中だけ表示する。.page は透明になるので、.page の外に置く -->
+<button type="button" id="intro-skip" class="intro-skip" hidden>スキップ</button>
+
 <div class="page">
 
   <header class="site-header">
@@ -59,10 +81,13 @@
       <div class="hero-text">
         <h1>1枚の写真から、<br />切り抜き方はいくつでも。</h1>
         <p class="hero-lead">
-          見せたい部分をタップするだけ。同じ写真からでも、残したい対象ごとに
+          残したい部分をタップするだけ。同じ写真からでも、残したい対象ごとに
           何パターンでも切り抜きを作れます。
         </p>
         <a class="cta-primary" href="app.html">アプリを使ってみる</a>
+        <p class="hero-note">
+          アップロードした画像の扱いは<a href="privacy.html">プライバシーポリシー</a>をご覧ください。
+        </p>
       </div>
 
       <!-- 左: 元画像 -->
@@ -89,17 +114,17 @@
         <div class="showcase-afters">
           <figure class="showcase-after">
             <span class="showcase-frame showcase-frame-checkered">
-              <img src="assets/after1.png" alt="切り抜き結果のパターン1" />
+              <img src="assets/after1.png" alt="切り抜き結果1: 背景が透過された状態" />
             </span>
           </figure>
           <figure class="showcase-after">
             <span class="showcase-frame showcase-frame-checkered">
-              <img src="assets/after2.png" alt="切り抜き結果のパターン2" />
+              <img src="assets/after2.png" alt="切り抜き結果2: 別の対象だけを残した状態" />
             </span>
           </figure>
           <figure class="showcase-after">
             <span class="showcase-frame showcase-frame-checkered">
-              <img src="assets/after3.png" alt="切り抜き結果のパターン3" />
+              <img src="assets/after3.png" alt="切り抜き結果3: さらに別の対象だけを残した状態" />
             </span>
           </figure>
         </div>
@@ -109,17 +134,27 @@
 
     <section class="features">
       <div class="feature">
-        <h2>見たいところをタップするだけ</h2>
-        <p>残したい部分と消したい部分を、タップで指定するだけ。難しい操作は必要ありません。</p>
+        <h2>残したいところをタップするだけ</h2>
+        <p>残したい部分と消したい部分を、タップで指定するだけ。1回タップするたびに切り抜き結果が更新されます。</p>
       </div>
       <div class="feature">
         <h2>気に入るまで直せる</h2>
         <p>Undo/Redoでいつでもやり直せるので、思い通りの仕上がりになるまで気軽に調整できます。</p>
       </div>
       <div class="feature">
-        <h2>元の画質のまま保存</h2>
-        <p>切り抜いたあとも画質を落とさず、フル解像度のまま保存できます。</p>
+        <h2>元の解像度のまま保存</h2>
+        <p>編集中は軽いプレビューで操作し、保存するときに元の解像度で書き出します。</p>
       </div>
+    </section>
+
+    <section class="steps" aria-labelledby="steps-title">
+      <h2 id="steps-title">使い方は3ステップ</h2>
+      <ol class="steps-list">
+        <li><strong>画像を選ぶ</strong><span>複数枚をまとめて選べます。順番にアップロードされます。</span></li>
+        <li><strong>タップして指定</strong><span>残したい所と消したい所をタップ。結果はその場で確認できます。</span></li>
+        <li><strong>保存する</strong><span>仕上がりに満足したら、保存ボタンでダウンロードします。</span></li>
+      </ol>
+      <!-- TODO: 最大ファイルサイズ・対応形式が確定したら、ここに1行で明記する -->
     </section>
 
     <section class="closing">
@@ -130,6 +165,9 @@
 
   <footer class="site-footer">
     <span>Goodbye Background</span>
+    <nav class="footer-links" aria-label="フッター">
+      <a href="privacy.html">プライバシーポリシー</a>
+    </nav>
   </footer>
 
 </div>

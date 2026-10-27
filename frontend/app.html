@@ -3,8 +3,6 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<link rel="icon" type="image/png" href="assets/goodbye-background-icon.png" />
-<link rel="apple-touch-icon" href="assets/goodbye-background-icon.png" />
 <title>アプリ｜Goodbye Background</title>
 <!-- 編集画面は中身が動的で検索に出す価値が薄いので、検索結果には出さず、紹介ページ(index.html)に評価を集める。
      noindex を効かせるには検索ロボットがこのページを読めることが必要なので、robots.txt では禁止しない -->
@@ -12,12 +10,17 @@
 <link rel="stylesheet" href="css/tokens.css" />
 <link rel="stylesheet" href="css/checker-colors.css" />
 <link rel="stylesheet" href="css/style.css" />
+<link rel="icon" href="/favicon.ico" sizes="48x48" />
+<link rel="icon" type="image/png" href="assets/favicon-48.png" sizes="48x48" />
+<link rel="icon" type="image/png" href="assets/favicon-192.png" sizes="192x192" />
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
 </head>
 <body>
-<div id="toast-container" class="toast-container" aria-live="assertive" aria-atomic="true"></div>
+<!-- 読み上げの強さは各トーストの role で決まる（js/toast.js） -->
+<div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 <div id="app">
   <header class="app-header">
-    <h1>Goodbye Background</h1>
+    <h1><a href="index.html" style="color: inherit; text-decoration: none;">Goodbye Background</a></h1>
   </header>
 
   <input id="file-input" type="file" accept="image/*" multiple hidden />
@@ -40,14 +43,14 @@
 
   <section id="editor" class="editor" hidden>
     <div class="edit-canvas-wrap">
-      <canvas id="edit-canvas"></canvas>
+      <canvas id="edit-canvas" role="img" aria-label="切り抜き編集中の画像。タップした位置を残す／除外する対象として指定できます"></canvas>
     </div>
     <div class="edit-bottom-bar">
-      <p id="edit-status" class="edit-status"></p>
+      <p id="edit-status" class="edit-status" role="status" aria-live="polite"></p>
       <div class="edit-toolbar">
         <button id="mode-toggle" type="button" class="icon-btn" data-mode="positive">➕ 含める（タップで追加）</button>
-        <button id="undo-btn" type="button" class="icon-btn">↺ Undo</button>
-        <button id="redo-btn" type="button" class="icon-btn">↻ Redo</button>
+        <button id="undo-btn" type="button" class="icon-btn" title="元に戻す (Ctrl+Z)" disabled>↺ Undo</button>
+        <button id="redo-btn" type="button" class="icon-btn" title="やり直す (Ctrl+Shift+Z)" disabled>↻ Redo</button>
         <span class="spacer"></span>
         <button id="save-btn" type="button" class="primary-btn">保存</button>
       </div>
