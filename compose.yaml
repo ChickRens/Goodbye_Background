@@ -1,7 +1,8 @@
 services:
   goodbye-background:
     environment: 
-      DATABASE_URL: ${DATABASE_URL_POSTGRES}
+      DATABASE_URL_POSTGRES: ${DATABASE_URL_POSTGRES}
+      DATABASE_URL_SQLITE: ${DATABASE_URL_SQLITE}
     build:
       context: .
       dockerfile: DockerFile

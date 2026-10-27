@@ -25,4 +25,4 @@ COPY --from=builder /app/models ./models
 COPY --from=builder /app/frontend ./frontend
 EXPOSE 3000
 USER appuser
-CMD ["./Goodbye_Background"]
+CMD ["./Goodbye_Background", "--postgres"]
