@@ -7,7 +7,7 @@ use crate::image::{
     },
 };
 
-pub trait OriginalImageRepository {
+pub trait OriginalImageRepository: Send + Sync {
     fn save(&self, image: OriginalImage);
     fn get(&self, image_id: &ImageId) -> Result<Arc<OriginalImage>, OriginalImageRepositoryError>;
 }

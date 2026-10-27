@@ -5,7 +5,7 @@ use crate::image::{
     image::id::ImageId,
 };
 
-pub trait CompletedImageRepository {
+pub trait CompletedImageRepository: Send + Sync {
     fn save(&self, completed_image: CompletedImage);
     fn get(&self, image_id: ImageId) -> Result<Arc<CompletedImage>, CompletedImageStorageError>;
 }

@@ -19,7 +19,6 @@ use crate::{
     },
 };
 
-#[derive(Clone)]
 pub struct OriginalImageRepositoryInMemory {
     store: TtlStore<ImageId, OriginalImage>,
 }

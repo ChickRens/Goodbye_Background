@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use crate::image::{
     completed::{
@@ -9,26 +9,18 @@ use crate::image::{
     image::{id::ImageId, image::Image},
 };
 
-pub trait CompletedService {
+pub trait CompletedService: Send + Sync {
     fn generate_and_save(&self, image: &Image);
     fn get(&self, image_id: ImageId) -> Result<CompletedImage, CompletedImageStorageError>;
 }
 
-#[derive(Debug, Clone)]
-pub struct CompletedServiceImpl<CG, CR>
-where
-    CG: CompletedImageGenerator,
-    CR: CompletedImageRepository,
-{
-    generator: CG,
-    repository: CR,
+#[derive(Clone)]
+pub struct CompletedServiceImpl {
+    generator: Arc<dyn CompletedImageGenerator>,
+    repository: Arc<dyn CompletedImageRepository>,
 }
 
-impl<CG, CR> CompletedService for CompletedServiceImpl<CG, CR>
-where
-    CG: CompletedImageGenerator,
-    CR: CompletedImageRepository,
-{
+impl CompletedService for CompletedServiceImpl {
     fn generate_and_save(&self, image: &Image) {
         let start = Instant::now();
         let completed_image = self.generator.generate(image);
@@ -43,12 +35,11 @@ where
     }
 }
 
-impl<CG, CR> CompletedServiceImpl<CG, CR>
-where
-    CG: CompletedImageGenerator,
-    CR: CompletedImageRepository,
-{
-    pub fn new(completed_image_generator: CG, completed_image_repository: CR) -> Self {
+impl CompletedServiceImpl {
+    pub fn new(
+        completed_image_generator: Arc<dyn CompletedImageGenerator>,
+        completed_image_repository: Arc<dyn CompletedImageRepository>,
+    ) -> Self {
         Self {
             generator: completed_image_generator,
             repository: completed_image_repository,

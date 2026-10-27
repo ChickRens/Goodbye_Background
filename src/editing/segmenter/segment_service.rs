@@ -1,8 +1,12 @@
-use std::{ops::Deref, time::Instant};
+use std::{ops::Deref, sync::Arc, time::Instant};
 
 use crate::{
     editing::{
-        segmenter::{error::SegmentServiceError, segmenter::ImageSegmenter},
+        segmenter::{
+            error::SegmentServiceError,
+            sam2_data::{SAM2InferenceContext, SAM2StaticContext},
+            segmenter::ImageSegmenter,
+        },
         session::{repository::repository::EditingSessionRepository, session::EditingSession},
     },
     image::{
@@ -14,7 +18,7 @@ use crate::{
     session::{id::SessionId, repository::repository::SessionRepository},
 };
 
-pub trait SegmentService {
+pub trait SegmentService: Send + Sync {
     fn segment(&self, session_id: SessionId, point: Point) -> Result<Image, SegmentServiceError>;
     fn resegment(&self, session_id: SessionId) -> Result<Image, SegmentServiceError>;
     fn undo(&self, session_id: SessionId) -> Result<Image, SegmentServiceError>;
@@ -22,31 +26,25 @@ pub trait SegmentService {
 }
 
 #[derive(Clone)]
-pub struct SegmentServiceImpl<SR, IS, IR, ESR, SS>
-where
-    SR: SessionRepository,
-    IS: ImageSegmenter,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository,
-    SS: SegmenterInputImageStorage,
-{
-    session_repo: SR,
-    segmenter: IS,
-    image_repo: IR,
-    editing_session_repo: ESR,
-    input_storage: SS,
+pub struct SegmentServiceImpl {
+    session_repo: Arc<dyn SessionRepository>,
+    segmenter: Arc<
+        dyn ImageSegmenter<
+                StaticContext = SAM2StaticContext,
+                InferenceContext = SAM2InferenceContext,
+            >,
+    >,
+    image_repo: Arc<dyn OriginalImageRepository>,
+    editing_session_repo: Arc<
+        dyn EditingSessionRepository<
+                StaticContext = SAM2StaticContext,
+                InferenceContext = SAM2InferenceContext,
+            >,
+    >,
+    input_storage: Arc<dyn SegmenterInputImageStorage>,
 }
 
-impl<SR, IS, IR, ESR, SS, SC, IC> SegmentService for SegmentServiceImpl<SR, IS, IR, ESR, SS>
-where
-    SR: SessionRepository,
-    IS: ImageSegmenter<StaticContext = SC, InferenceContext = IC>,
-    SC: Clone,
-    IC: Clone,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository<StaticContext = SC, InferenceContext = IC>,
-    SS: SegmenterInputImageStorage,
-{
+impl SegmentService for SegmentServiceImpl {
     fn segment(&self, session_id: SessionId, point: Point) -> Result<Image, SegmentServiceError> {
         let service_start = Instant::now();
 
@@ -188,25 +186,23 @@ where
     }
 }
 
-impl<SR, IS, IR, ESR, SS> SegmentServiceImpl<SR, IS, IR, ESR, SS>
-where
-    SR: SessionRepository,
-    IS: ImageSegmenter,
-    IS::StaticContext: Clone,
-    IS::InferenceContext: Clone,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository<
-            StaticContext = IS::StaticContext,
-            InferenceContext = IS::InferenceContext,
-        >,
-    SS: SegmenterInputImageStorage,
-{
+impl SegmentServiceImpl {
     pub fn new(
-        session_repository: SR,
-        image_segmenter: IS,
-        image_repository: IR,
-        editing_session_repository: ESR,
-        segmenter_input_storage: SS,
+        session_repository: Arc<dyn SessionRepository>,
+        image_segmenter: Arc<
+            dyn ImageSegmenter<
+                    StaticContext = SAM2StaticContext,
+                    InferenceContext = SAM2InferenceContext,
+                >,
+        >,
+        image_repository: Arc<dyn OriginalImageRepository>,
+        editing_session_repository: Arc<
+            dyn EditingSessionRepository<
+                    StaticContext = SAM2StaticContext,
+                    InferenceContext = SAM2InferenceContext,
+                >,
+        >,
+        segmenter_input_storage: Arc<dyn SegmenterInputImageStorage>,
     ) -> Self {
         Self {
             session_repo: session_repository,

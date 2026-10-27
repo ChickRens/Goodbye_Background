@@ -3,6 +3,6 @@ use crate::image::{
     segmenter_input::segmenter_input_image::SegmenterInputImage,
 };
 
-pub trait SegmenterInputImageGenerator {
+pub trait SegmenterInputImageGenerator: Send + Sync {
     fn generate(&self, image: &OriginalImage) -> SegmenterInputImage;
 }

@@ -7,7 +7,7 @@ use crate::{
     session::id::SessionId,
 };
 
-pub trait EditingSessionRepository {
+pub trait EditingSessionRepository: Send + Sync {
     type StaticContext;
     type InferenceContext;
 

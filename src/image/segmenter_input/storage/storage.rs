@@ -7,7 +7,7 @@ use crate::image::{
     },
 };
 
-pub trait SegmenterInputImageStorage {
+pub trait SegmenterInputImageStorage: Send + Sync {
     fn save(&self, image: SegmenterInputImage);
     fn get(
         &self,

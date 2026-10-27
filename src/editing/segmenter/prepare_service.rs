@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use crate::editing::segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext};
 use crate::{
     editing::{
         segmenter::{error::PrepareServiceError, segmenter::ImageSegmenter},
@@ -18,7 +21,7 @@ use crate::{
     session::id::SessionId,
 };
 
-pub trait PrepareSegmentService {
+pub trait PrepareSegmentService: Send + Sync {
     fn prepare(
         &self,
         session_id: SessionId,
@@ -28,33 +31,26 @@ pub trait PrepareSegmentService {
 }
 
 #[derive(Clone)]
-pub struct PrepareSegmentServiceImpl<IS, IR, ESR, SG, SS>
-where
-    IS: ImageSegmenter,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository,
-    SG: SegmenterInputImageGenerator,
-    SS: SegmenterInputImageStorage,
-{
-    segmenter: IS,
-    image_repo: IR,
-    session_repo: ESR,
-    generator: SG,
-    storage: SS,
+pub struct PrepareSegmentServiceImpl {
+    segmenter: Arc<
+        dyn ImageSegmenter<
+                StaticContext = SAM2StaticContext,
+                InferenceContext = SAM2InferenceContext,
+            >,
+    >,
+    image_repo: Arc<dyn OriginalImageRepository>,
+    session_repo: Arc<
+        dyn EditingSessionRepository<
+                StaticContext = SAM2StaticContext,
+                InferenceContext = SAM2InferenceContext,
+            >,
+    >,
+    generator: Arc<dyn SegmenterInputImageGenerator>,
+    storage: Arc<dyn SegmenterInputImageStorage>,
     config_max_history: usize,
 }
 
-impl<IS, IR, ESR, SG, SS> PrepareSegmentService for PrepareSegmentServiceImpl<IS, IR, ESR, SG, SS>
-where
-    IS: ImageSegmenter,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository<
-            StaticContext = IS::StaticContext,
-            InferenceContext = IS::InferenceContext,
-        >,
-    SG: SegmenterInputImageGenerator,
-    SS: SegmenterInputImageStorage,
-{
+impl PrepareSegmentService for PrepareSegmentServiceImpl {
     fn prepare(
         &self,
         session_id: SessionId,
@@ -84,23 +80,23 @@ where
     }
 }
 
-impl<IS, IR, ESR, SG, SS> PrepareSegmentServiceImpl<IS, IR, ESR, SG, SS>
-where
-    IS: ImageSegmenter,
-    IR: OriginalImageRepository,
-    ESR: EditingSessionRepository<
-            StaticContext = IS::StaticContext,
-            InferenceContext = IS::InferenceContext,
-        >,
-    SG: SegmenterInputImageGenerator,
-    SS: SegmenterInputImageStorage,
-{
+impl PrepareSegmentServiceImpl {
     pub fn new(
-        image_segmenter: IS,
-        image_repository: IR,
-        editing_session_repository: ESR,
-        segmenter_input_generator: SG,
-        segmenter_input_storage: SS,
+        image_segmenter: Arc<
+            dyn ImageSegmenter<
+                    StaticContext = SAM2StaticContext,
+                    InferenceContext = SAM2InferenceContext,
+                >,
+        >,
+        image_repository: Arc<dyn OriginalImageRepository>,
+        editing_session_repository: Arc<
+            dyn EditingSessionRepository<
+                    StaticContext = SAM2StaticContext,
+                    InferenceContext = SAM2InferenceContext,
+                >,
+        >,
+        segmenter_input_generator: Arc<dyn SegmenterInputImageGenerator>,
+        segmenter_input_storage: Arc<dyn SegmenterInputImageStorage>,
         max_history: usize,
     ) -> Self {
         Self {

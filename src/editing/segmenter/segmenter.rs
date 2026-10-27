@@ -8,7 +8,7 @@ use crate::{
     point::point::Point,
 };
 
-pub trait ImageSegmenter {
+pub trait ImageSegmenter: Send + Sync {
     type StaticContext;
     type InferenceContext;
 

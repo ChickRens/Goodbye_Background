@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use crate::image::{
     image::{id::ImageId, image::Image},
@@ -9,27 +9,19 @@ use crate::image::{
     },
 };
 
-pub trait PreviewService {
+pub trait PreviewService: Send + Sync {
     fn generate_and_save_original(&self, image: &Image) -> f64;
     fn generate_and_save_segmented(&self, image: &Image);
     fn get(&self, image_id: ImageId) -> Result<PreviewImage, PreviewStorageError>;
 }
 
 #[derive(Clone)]
-pub struct PreviewServiceImpl<PG, PS>
-where
-    PG: PreviewImageGenerator,
-    PS: PreviewStorage,
-{
-    generator: PG,
-    storage: PS,
+pub struct PreviewServiceImpl {
+    generator: Arc<dyn PreviewImageGenerator>,
+    storage: Arc<dyn PreviewStorage>,
 }
 
-impl<PG, PS> PreviewService for PreviewServiceImpl<PG, PS>
-where
-    PG: PreviewImageGenerator,
-    PS: PreviewStorage,
-{
+impl PreviewService for PreviewServiceImpl {
     fn generate_and_save_original(&self, image: &Image) -> f64 {
         let start = Instant::now();
         let (preview, scale) = self.generator.generate(image);
@@ -55,12 +47,11 @@ where
     }
 }
 
-impl<PG, PS> PreviewServiceImpl<PG, PS>
-where
-    PG: PreviewImageGenerator,
-    PS: PreviewStorage,
-{
-    pub fn new(preview_generator: PG, preview_storage: PS) -> Self {
+impl PreviewServiceImpl {
+    pub fn new(
+        preview_generator: Arc<dyn PreviewImageGenerator>,
+        preview_storage: Arc<dyn PreviewStorage>,
+    ) -> Self {
         Self {
             generator: preview_generator,
             storage: preview_storage,
