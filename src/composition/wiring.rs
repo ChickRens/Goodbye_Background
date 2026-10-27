@@ -1,7 +1,10 @@
 use std::{sync::Arc, time::Instant};
 
 use crate::{
-    analytics::usage_tracking::{recorder::{PostgresUsageRecorder, SQLiteUsageRecorder}, usage_recorder::UsageRecorder}, application::error::ApplicationError, config::{MAX_HISTORY, TTL_SEC}, editing::{
+    analytics::usage_tracking::usage_recorder::UsageRecorder,
+    application::error::ApplicationError,
+    config::{MAX_HISTORY, TTL_SEC},
+    editing::{
         prepare_segment::{input::PrepareSegmentInput, usecase::PrepareSegmentUseCase},
         redo::{input::RedoInput, output::RedoOutput, usecase::RedoUseCase},
         save::{input::SaveInput, output::SaveOutput, usecase::SaveUseCase},
@@ -13,7 +16,8 @@ use crate::{
         },
         session::repository::repository_impl::SAM2EditingSessionRepository,
         undo::{input::UndoInput, output::UndoOutput, usecase::UndoUseCase},
-    }, image::{
+    },
+    image::{
         completed::{
             completed_service::{CompletedService, CompletedServiceImpl},
             generator::generator::WebPCompletedImageGenerator,
@@ -29,7 +33,8 @@ use crate::{
             generator::generator_impl::SAM2InputGenerator,
             storage::storage_impl::SegmenterInputStorageInMemory,
         },
-    }, image_io::{
+    },
+    image_io::{
         get_completed::{
             input::GetCompletedInput, output::GetCompletedOutput, usecase::GetCompletedUseCase,
         },
@@ -40,14 +45,16 @@ use crate::{
             image_loader::loader_impl::FileImageLoader, input::UploadInput, output::UploadOutput,
             usecase::UploadUseCase,
         },
-    }, maintenance::deleting_expired_entries::{
+    },
+    maintenance::deleting_expired_entries::{
         clock::clock_impl::RealClock,
         usecase::{
             DeleteExpiredEntriesUseCase, ExpiringCompletedImageRepository,
             ExpiringOriginalImageRepository, ExpiringPreviewStorage, ExpiringSegmenterInputStorage,
             ExpiringSessionRepository,
         },
-    }, session::repository::repository_impl::SessionRepositoryInMemory,
+    },
+    session::repository::repository_impl::SessionRepositoryInMemory,
 };
 
 pub struct App {
@@ -64,7 +71,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(pool: sqlx::Pool<sqlx::Sqlite>) -> Result<Self, ApplicationError> {
+    pub fn new(usage_recorder: Arc<dyn UsageRecorder>) -> Result<Self, ApplicationError> {
         let clock = RealClock::new();
 
         let session_repo = Arc::new(SessionRepositoryInMemory::new(clock.clone()));
@@ -128,9 +135,6 @@ impl App {
             input_storage.clone() as Arc<dyn ExpiringSegmenterInputStorage>,
             TTL_SEC,
         );
-
-        let usage_recorder: Arc<dyn UsageRecorder> =
-            Arc::new(SQLiteUsageRecorder::new(pool));
 
         Ok(App {
             upload_usecase: upload_uc,
