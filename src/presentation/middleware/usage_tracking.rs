@@ -11,7 +11,6 @@ use uuid::Uuid;
 use crate::{
     analytics::usage_tracking::{
         event::UsageEvent, id::UsageId, operation::UsageOperation, status::UsageStatus,
-        usage_recorder::UsageRecorder,
     },
     composition::wiring::App,
     presentation::middleware::extension::UsageStatusExt,
@@ -43,7 +42,7 @@ pub async fn track_usage(
     };
 
     let event = UsageEvent::new(id, operation, status, end);
-    app.usage_recorder().record(event).await;
+    app.usage_recorder().record(event);
 
     response
 }
