@@ -12,13 +12,17 @@ mod point;
 mod presentation;
 mod session;
 
-use std::{env, sync::Arc, time::Duration};
+use std::{env, process, sync::Arc, time::Duration};
 
 use presentation::router;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{postgres::PgPoolOptions, sqlite::SqlitePoolOptions};
 use tokio::net::TcpListener;
 
 use crate::{
+    analytics::usage_tracking::{
+        recorder::{PostgresUsageRecorder, SQLiteUsageRecorder},
+        usage_recorder::UsageRecorder,
+    },
     composition::wiring::App,
     config::CLEANUP_INTERVAL,
     maintenance::deleting_expired_entries::clock::{clock::AppClock, clock_impl::RealClock},
@@ -26,16 +30,40 @@ use crate::{
 
 #[tokio::main]
 async fn main() {
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let backend = match database_backend() {
+        Ok(backend) => backend,
+        Err(message) => {
+            eprintln!("{message}");
+            process::exit(2);
+        }
+    };
+    
+    let usage_recorder: Arc<dyn UsageRecorder> = match backend {
+        DatabaseBackend::Sqlite => {
+            let database_url = env::var("DATABASE_URL_SQLITE").expect("DATABASE_URL_SQLITE must be set");
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect(&database_url)
+                .await
+                .expect("Failed to connect to SQLite database");
+            sqlx::migrate!("./migrations")
+                .run(&pool)
+                .await
+                .expect("Failed to run SQLite migrations");
+            Arc::new(SQLiteUsageRecorder::new(pool))
+        }
+        DatabaseBackend::Postgres => {
+            let database_url = env::var("DATABASE_URL_POSTGRES").expect("DATABASE_URL_POSTGRES must be set");
+            let pool = PgPoolOptions::new()
+                .max_connections(1)
+                .connect(&database_url)
+                .await
+                .expect("Failed to connect to PostgreSQL database");
+            Arc::new(PostgresUsageRecorder::new(pool))
+        }
+    };
 
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&format!("{}", database_url))
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-
-    let app = Arc::new(App::new(pool).unwrap());
+    let app = Arc::new(App::new(usage_recorder).unwrap());
     let clock = RealClock::new();
 
     let app_for_gc = app.clone();
@@ -59,6 +87,21 @@ async fn main() {
     println!("Server running on 0.0.0.0:{port}");
 
     axum::serve(listener, router).await.unwrap();
+}
+
+enum DatabaseBackend {
+    Postgres,
+    Sqlite,
+}
+
+fn database_backend() -> Result<DatabaseBackend, String> {
+    let args: Vec<String> = env::args().skip(1).collect();
+    match args.as_slice() {
+        [] => Ok(DatabaseBackend::Sqlite),
+        [arg] if arg == "--sqlite" => Ok(DatabaseBackend::Sqlite),
+        [arg] if arg == "--postgres" => Ok(DatabaseBackend::Postgres),
+        _ => Err("Usage: cargo run -- [--sqlite | --postgres]".to_string()),
+    }
 }
 
 fn spawn_gc_task<F>(interval: Duration, task: F)
