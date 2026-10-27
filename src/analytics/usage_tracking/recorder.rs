@@ -11,7 +11,7 @@ pub struct SQLiteUsageRecorder {
 }
 
 impl UsageRecorder for SQLiteUsageRecorder {
-    async fn record(&self, event: UsageEvent) {
+    fn record(&self, event: UsageEvent) {
         if let Err(e) = self.sender.try_send(event) {
             eprintln!("{:?}", e);
         };
@@ -68,7 +68,7 @@ pub struct PostgresUsageRecorder {
 }
 
 impl UsageRecorder for PostgresUsageRecorder {
-    async fn record(&self, event: UsageEvent) {
+    fn record(&self, event: UsageEvent) {
         if let Err(e) = self.sender.try_send(event) {
             eprintln!("{:?}", e);
         };

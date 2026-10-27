@@ -1,5 +1,5 @@
 use crate::analytics::usage_tracking::event::UsageEvent;
 
-pub trait UsageRecorder {
-    async fn record(&self, event: UsageEvent);
+pub trait UsageRecorder: Send + Sync {
+    fn record(&self, event: UsageEvent);
 }
