@@ -65,6 +65,20 @@ button {
     z-index: 10;
 }
 
+.app-header-link {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    padding: 8px 2px;
+    white-space: nowrap;
+}
+
+.app-header-link:hover {
+    color: var(--text);
+}
+
 .app-header h1 {
     font-size: 1.05rem;
     font-weight: 600;
