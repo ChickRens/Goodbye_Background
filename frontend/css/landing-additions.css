@@ -122,6 +122,48 @@
     }
 }
 
+/* ---------- Header links (お問い合わせ) ---------- */
+.header-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--landing-space-2) var(--landing-space-3);
+}
+
+.header-link {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    padding: 8px 2px; /* 押しやすい高さを確保 */
+    white-space: nowrap;
+}
+
+.header-nav .header-cta {
+    white-space: nowrap;
+}
+
+.header-link:hover {
+    color: var(--text);
+}
+
+/* 狭い画面: ロゴは2行に折り返してよいが、リンク類は折り返さず小さめにして1行に収める */
+@media (max-width: 420px) {
+    .header-nav {
+        gap: var(--landing-space-1);
+        flex-shrink: 0;
+    }
+
+    .header-link,
+    .header-nav .header-cta {
+        font-size: 0.78rem;
+    }
+
+    .header-nav .header-cta {
+        padding: 8px 10px;
+    }
+}
+
 /* ---------- Footer links ---------- */
 .site-footer {
     display: flex;
