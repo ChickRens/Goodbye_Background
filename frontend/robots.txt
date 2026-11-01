@@ -1,5 +1,6 @@
 User-agent: *
 Allow: /
+Disallow: /auth/
 
 # app.html は noindex(meta)で検索から外している。noindex はロボットがページを読めて初めて効くので、ここでは禁止しない。
 Sitemap: https://chickren.goodbye-background.com/sitemap.xml

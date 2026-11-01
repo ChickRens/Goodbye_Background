@@ -1,6 +1,7 @@
 mod analytics;
 mod api;
 mod application;
+mod auth;
 mod common;
 mod composition;
 mod config;
@@ -11,6 +12,7 @@ mod maintenance;
 mod point;
 mod presentation;
 mod session;
+mod user;
 
 use std::{env, process, sync::Arc, time::Duration};
 
@@ -23,10 +25,24 @@ use crate::{
         recorder::{PostgresUsageRecorder, SQLiteUsageRecorder},
         usage_recorder::UsageRecorder,
     },
+    auth::login_session::repository::{
+        repository::LoginSessionRepository,
+        repository_impl::{PostgresLoginSessionRepository, SQLiteLoginSessionRepository},
+    },
     composition::wiring::App,
     config::CLEANUP_INTERVAL,
     maintenance::deleting_expired_entries::clock::{clock::AppClock, clock_impl::RealClock},
+    user::repository::{
+        repository::UserRepository,
+        repository_impl::{PostgresUserRepository, SQLiteUserRepository},
+    },
 };
+
+type Persistence = (
+    Arc<dyn UsageRecorder>,
+    Arc<dyn UserRepository>,
+    Arc<dyn LoginSessionRepository>,
+);
 
 #[tokio::main]
 async fn main() {
@@ -38,7 +54,7 @@ async fn main() {
         }
     };
     
-    let usage_recorder: Arc<dyn UsageRecorder> = match backend {
+    let (usage_recorder, user_repository, login_session_repository): Persistence = match backend {
         DatabaseBackend::Sqlite => {
             let database_url = env::var("DATABASE_URL_SQLITE").expect("DATABASE_URL_SQLITE must be set");
             let pool = SqlitePoolOptions::new()
@@ -50,7 +66,11 @@ async fn main() {
                 .run(&pool)
                 .await
                 .expect("Failed to run SQLite migrations");
-            Arc::new(SQLiteUsageRecorder::new(pool))
+            (
+                Arc::new(SQLiteUsageRecorder::new(pool.clone())),
+                Arc::new(SQLiteUserRepository::new(pool.clone())),
+                Arc::new(SQLiteLoginSessionRepository::new(pool)),
+            )
         }
         DatabaseBackend::Postgres => {
             let database_url = env::var("DATABASE_URL_POSTGRES").expect("DATABASE_URL_POSTGRES must be set");
@@ -59,11 +79,15 @@ async fn main() {
                 .connect(&database_url)
                 .await
                 .expect("Failed to connect to PostgreSQL database");
-            Arc::new(PostgresUsageRecorder::new(pool))
+            (
+                Arc::new(PostgresUsageRecorder::new(pool.clone())),
+                Arc::new(PostgresUserRepository::new(pool.clone())),
+                Arc::new(PostgresLoginSessionRepository::new(pool)),
+            )
         }
     };
 
-    let app = Arc::new(App::new(usage_recorder).unwrap());
+    let app = Arc::new(App::new(usage_recorder, user_repository, login_session_repository).unwrap());
     let clock = RealClock::new();
 
     let app_for_gc = app.clone();

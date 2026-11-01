@@ -1,4 +1,5 @@
 use crate::{
+    auth::error::AuthUseCaseError,
     editing::{
         prepare_segment::error::PrepareSegmentUseCaseError, redo::error::RedoUseCaseError,
         save::error::SaveUseCaseError, segment::error::SegmentUseCaseError,
@@ -21,5 +22,6 @@ parent_error!(
         SaveUseCase(SaveUseCaseError),
         GetCompletedUseCase(GetCompletedUseCaseError),
         PrepareSegmentUseCase(PrepareSegmentUseCaseError),
+        AuthUseCase(AuthUseCaseError),
     }
 );

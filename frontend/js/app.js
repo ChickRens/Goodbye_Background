@@ -1,8 +1,17 @@
 import { createStore } from './store.js';
 import { initStrip } from './strip.js';
 import { initEditor } from './editor.js';
+import { initAuth } from './auth.js';
 
 const store = createStore();
+
+initAuth({
+  store,
+  loginLinkEl: document.getElementById('login-link'),
+  userEl: document.getElementById('auth-user'),
+  userNameEl: document.getElementById('auth-user-name'),
+  logoutBtnEl: document.getElementById('logout-btn'),
+});
 
 const editor = initEditor({
   store,

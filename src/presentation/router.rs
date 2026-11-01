@@ -1,11 +1,18 @@
 use std::sync::Arc;
 
-use axum::{Router, extract::DefaultBodyLimit, middleware::from_fn_with_state, routing::post};
+use axum::{
+    Router,
+    extract::DefaultBodyLimit,
+    middleware::from_fn_with_state,
+    routing::{get, post},
+};
 use tower_http::services::ServeDir;
 
 use crate::{
     api::handler::{
-        get_completed::handler::get_completed_image, get_preview::handler::get_preview,
+        auth::handler::{google_callback, google_login, logout, me},
+        get_completed::handler::get_completed_image,
+        get_preview::handler::get_preview,
         redo::handler::redo, save::handler::save, segment::handler::segment, undo::handler::undo,
         upload::handler::upload,
     },
@@ -24,6 +31,11 @@ pub fn route(app: Arc<App>) -> Router {
         .route("/save", post(save))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(from_fn_with_state(app.clone(), track_usage))
+        // 画像編集の利用統計に混ざらないよう、track_usage の外に置く
+        .route("/auth/google/login", get(google_login))
+        .route("/auth/google/callback", get(google_callback))
+        .route("/auth/me", get(me))
+        .route("/auth/logout", post(logout))
         .fallback_service(ServeDir::new("frontend").append_index_html_on_directories(true))
         .with_state(app)
 }

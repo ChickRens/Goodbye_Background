@@ -79,6 +79,42 @@ button {
     color: var(--text);
 }
 
+.app-header-actions,
+.app-header-user {
+    display: flex;
+    flex-shrink: 0; /* 狭い画面では見出し側を折り返して、リンクをはみ出させない */
+    align-items: center;
+    gap: var(--space-3);
+}
+
+/* display:flex が hidden 属性の display:none を上書きしてしまうので明示する */
+.app-header-user[hidden] {
+    display: none;
+}
+
+.app-header-user-name {
+    max-width: 10em;
+    overflow: hidden;
+    font-size: 0.85rem;
+    color: var(--text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-header-logout {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+/* 狭い画面ではヘッダーに収まらないので、ログアウトの表示だけでログイン中を示す */
+@media (max-width: 480px) {
+    .app-header-user-name {
+        display: none;
+    }
+}
+
 .app-header h1 {
     font-size: 1.05rem;
     font-weight: 600;

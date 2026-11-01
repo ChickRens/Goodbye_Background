@@ -122,6 +122,30 @@ function postJson(path, body, timeoutMs) {
 }
 
 /**
+ * GET /auth/me
+ * response: { user: { email: string, display_name: string|null } | null }
+ *
+ * ログイン状態は HttpOnly Cookie で管理している（client-id とは無関係）。
+ * 未ログインでもエラーにはならず、user が null で返る。
+ */
+export async function fetchCurrentUser() {
+  const res = await request('/auth/me', { headers: buildHeaders() });
+  const data = await parseJsonOrThrow(res);
+  return data.user;
+}
+
+/**
+ * POST /auth/logout
+ * response: 204（ボディ無し）
+ */
+export async function logout() {
+  const res = await request('/auth/logout', { method: 'POST', headers: buildHeaders() });
+  if (!res.ok) {
+    await throwApiError(res);
+  }
+}
+
+/**
  * POST /upload
  * request : multipart/form-data, field "file"
  * response: { session_id: string, image_id: string }

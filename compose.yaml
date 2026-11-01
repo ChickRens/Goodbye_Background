@@ -3,6 +3,9 @@ services:
     environment: 
       DATABASE_URL_POSTGRES: ${DATABASE_URL_POSTGRES}
       DATABASE_URL_SQLITE: ${DATABASE_URL_SQLITE}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
     build:
       context: .
       dockerfile: DockerFile

@@ -3,6 +3,16 @@ use std::{sync::Arc, time::Instant};
 use crate::{
     analytics::usage_tracking::usage_recorder::UsageRecorder,
     application::error::ApplicationError,
+    auth::{
+        google::{
+            client::GoogleAuthClient,
+            client_impl::GoogleAuthClientImpl,
+            config::{GoogleLoginConfig, uses_secure_cookies},
+        },
+        login_session::repository::repository::LoginSessionRepository,
+        token::OpaqueToken,
+        usecase::{AuthUseCase, LoginStart},
+    },
     config::{MAX_HISTORY, TTL_SEC},
     editing::{
         prepare_segment::{input::PrepareSegmentInput, usecase::PrepareSegmentUseCase},
@@ -55,6 +65,7 @@ use crate::{
         },
     },
     session::repository::repository_impl::SessionRepositoryInMemory,
+    user::{repository::repository::UserRepository, user::User},
 };
 
 pub struct App {
@@ -68,11 +79,26 @@ pub struct App {
     get_preview_usecase: GetPreviewUseCase,
     delete_expired_usecase: DeleteExpiredEntriesUseCase,
     usage_recorder: Arc<dyn UsageRecorder>,
+    auth_usecase: AuthUseCase,
+    secure_cookies: bool,
 }
 
 impl App {
-    pub fn new(usage_recorder: Arc<dyn UsageRecorder>) -> Result<Self, ApplicationError> {
+    pub fn new(
+        usage_recorder: Arc<dyn UsageRecorder>,
+        user_repository: Arc<dyn UserRepository>,
+        login_session_repository: Arc<dyn LoginSessionRepository>,
+    ) -> Result<Self, ApplicationError> {
         let clock = RealClock::new();
+
+        let google_client = GoogleLoginConfig::from_env()
+            .map(|config| Arc::new(GoogleAuthClientImpl::new(config)) as Arc<dyn GoogleAuthClient>);
+        if google_client.is_none() {
+            eprintln!(
+                "Google login is disabled: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and PUBLIC_BASE_URL"
+            );
+        }
+        let auth_uc = AuthUseCase::new(google_client, user_repository, login_session_repository);
 
         let session_repo = Arc::new(SessionRepositoryInMemory::new(clock.clone()));
         let image_repo = Arc::new(OriginalImageRepositoryInMemory::new(Arc::new(
@@ -147,6 +173,8 @@ impl App {
             get_preview_usecase: get_image_uc,
             delete_expired_usecase: delete_expired_uc,
             usage_recorder,
+            auth_usecase: auth_uc,
+            secure_cookies: uses_secure_cookies(),
         })
     }
 
@@ -188,6 +216,29 @@ impl App {
         input: GetPreviewInput,
     ) -> Result<GetPreviewOutput, ApplicationError> {
         Ok(self.get_preview_usecase.execute(input)?)
+    }
+
+    pub fn start_login(&self) -> Result<LoginStart, ApplicationError> {
+        Ok(self.auth_usecase.start_login()?)
+    }
+
+    pub async fn complete_login(&self, code: &str) -> Result<OpaqueToken, ApplicationError> {
+        Ok(self.auth_usecase.complete_login(code).await?)
+    }
+
+    pub async fn current_user(
+        &self,
+        token: &OpaqueToken,
+    ) -> Result<Option<User>, ApplicationError> {
+        Ok(self.auth_usecase.current_user(token).await?)
+    }
+
+    pub async fn logout(&self, token: &OpaqueToken) -> Result<(), ApplicationError> {
+        Ok(self.auth_usecase.logout(token).await?)
+    }
+
+    pub fn uses_secure_cookies(&self) -> bool {
+        self.secure_cookies
     }
 
     pub fn cleanup(&self, now: Instant) {
