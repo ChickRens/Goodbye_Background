@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::user::{
-    google_identity::GoogleIdentity, repository::error::UserRepositoryError, user::User,
+    google_identity::GoogleIdentity, id::UserId, repository::error::UserRepositoryError, user::User,
 };
 
 #[async_trait]
@@ -11,4 +11,6 @@ pub trait UserRepository: Send + Sync {
         &self,
         identity: &GoogleIdentity,
     ) -> Result<User, UserRepositoryError>;
+
+    async fn delete(&self, id: &UserId) -> Result<(), UserRepositoryError>;
 }

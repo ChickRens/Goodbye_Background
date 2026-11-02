@@ -125,6 +125,18 @@ pub async fn logout(
     ))
 }
 
+pub async fn delete_account(
+    State(app): State<Arc<App>>,
+    jar: CookieJar,
+) -> Result<impl IntoResponse, AppError> {
+    app.delete_account(session_token(&jar).as_ref()).await?;
+
+    Ok((
+        jar.remove(removal_cookie(SESSION_COOKIE, "/")),
+        StatusCode::NO_CONTENT,
+    ))
+}
+
 fn session_token(jar: &CookieJar) -> Option<OpaqueToken> {
     jar.get(SESSION_COOKIE)
         .map(|cookie| OpaqueToken::from_value(cookie.value().to_string()))

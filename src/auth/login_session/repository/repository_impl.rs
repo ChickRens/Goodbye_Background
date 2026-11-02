@@ -145,6 +145,39 @@ mod login_session_repository_tests {
         assert_eq!(sessions.find_user(&hash, 99).await.unwrap(), None);
     }
 
+    /// 退会したユーザーのセッションだけが消えることを確かめ、消えたはずのセッションのhashを返す。
+    /// find_user はusersとJOINするので、行が残っていてもNoneになる。連鎖削除の確認は呼び出し側で行数を見る。
+    async fn delete_one_of_two_users(
+        users: &dyn UserRepository,
+        sessions: &dyn LoginSessionRepository,
+        sub: &str,
+    ) -> String {
+        let deleted = GoogleIdentity::new(format!("{sub}-a"), "a@example.com".to_string(), None);
+        let kept = GoogleIdentity::new(format!("{sub}-b"), "b@example.com".to_string(), None);
+        let deleted = users.upsert_by_google_identity(&deleted).await.unwrap();
+        let kept = users.upsert_by_google_identity(&kept).await.unwrap();
+
+        let deleted_hash = format!("{sub}-a-hash");
+        let kept_hash = format!("{sub}-b-hash");
+        sessions
+            .create(&deleted_hash, deleted.id(), 100)
+            .await
+            .unwrap();
+        sessions.create(&kept_hash, kept.id(), 100).await.unwrap();
+
+        users.delete(deleted.id()).await.unwrap();
+
+        assert_eq!(sessions.find_user(&deleted_hash, 99).await.unwrap(), None);
+        assert_eq!(
+            sessions.find_user(&kept_hash, 99).await.unwrap(),
+            Some(kept)
+        );
+
+        deleted_hash
+    }
+
+    const COUNT_SESSIONS: &str = "SELECT COUNT(*) FROM login_sessions WHERE token_hash = $1";
+
     #[tokio::test]
     async fn test_sqlite_session_lifecycle() {
         let pool = SqlitePoolOptions::new()
@@ -156,10 +189,23 @@ mod login_session_repository_tests {
 
         assert_session_lifecycle(
             &SQLiteUserRepository::new(pool.clone()),
-            &SQLiteLoginSessionRepository::new(pool),
+            &SQLiteLoginSessionRepository::new(pool.clone()),
             "sub",
         )
         .await;
+
+        let deleted_hash = delete_one_of_two_users(
+            &SQLiteUserRepository::new(pool.clone()),
+            &SQLiteLoginSessionRepository::new(pool.clone()),
+            "delete",
+        )
+        .await;
+        let remaining: i64 = sqlx::query_scalar(COUNT_SESSIONS)
+            .bind(deleted_hash)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(remaining, 0);
     }
 
     // 本物のPostgreSQLが必要なので、次のように明示したときだけ動かす:
@@ -177,9 +223,22 @@ mod login_session_repository_tests {
 
         assert_session_lifecycle(
             &PostgresUserRepository::new(pool.clone()),
-            &PostgresLoginSessionRepository::new(pool),
+            &PostgresLoginSessionRepository::new(pool.clone()),
             &uuid::Uuid::new_v4().to_string(),
         )
         .await;
+
+        let deleted_hash = delete_one_of_two_users(
+            &PostgresUserRepository::new(pool.clone()),
+            &PostgresLoginSessionRepository::new(pool.clone()),
+            &uuid::Uuid::new_v4().to_string(),
+        )
+        .await;
+        let remaining: i64 = sqlx::query_scalar(COUNT_SESSIONS)
+            .bind(deleted_hash)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(remaining, 0);
     }
 }

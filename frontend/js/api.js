@@ -24,12 +24,13 @@ function buildHeaders(extra = {}) {
  *
  * バックエンドのエラーレスポンスは { code } だけで message を持たないため、
  * 文言はフロント側で持つ。対応は presentation/errors/app_error.rs の
- *   InvalidInput → 400 / NotFound → 404 / Conflict → 409 / Internal → 500
+ *   InvalidInput → 400 / Unauthorized → 401 / NotFound → 404 / Conflict → 409 / Internal → 500
  * に合わせている。413/429 はサーバー前段（Cloud Run 等）が返し得るもの。
  * Network / Timeout は fetch 自体が失敗した場合（HTTPステータスは無い）。
  */
 const ERROR_MESSAGES = {
   BadRequest: '入力内容に問題があります。内容を確認してもう一度お試しください。',
+  Unauthorized: 'ログインの有効期限が切れています。もう一度ログインしてください。',
   NotFound: '対象が見つかりません。時間が経って期限切れになった可能性があります。',
   Conflict: '処理が競合しました。少し待ってからもう一度お試しください。',
   PayloadTooLarge: '画像のサイズが大きすぎます。小さい画像でお試しください。',
@@ -43,6 +44,7 @@ const ERROR_MESSAGES = {
 function describeStatus(status) {
   let kind;
   if (status === 400) kind = 'BadRequest';
+  else if (status === 401) kind = 'Unauthorized';
   else if (status === 404) kind = 'NotFound';
   else if (status === 409) kind = 'Conflict';
   else if (status === 413) kind = 'PayloadTooLarge';
@@ -140,6 +142,19 @@ export async function fetchCurrentUser() {
  */
 export async function logout() {
   const res = await request('/auth/logout', { method: 'POST', headers: buildHeaders() });
+  if (!res.ok) {
+    await throwApiError(res);
+  }
+}
+
+/**
+ * DELETE /auth/account
+ * response: 204（ボディ無し）。ログインしていなければ 401。
+ *
+ * 退会。アカウントは取り消せずに削除される。
+ */
+export async function deleteAccount() {
+  const res = await request('/auth/account', { method: 'DELETE', headers: buildHeaders() });
   if (!res.ok) {
     await throwApiError(res);
   }

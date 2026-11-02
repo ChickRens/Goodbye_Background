@@ -8,6 +8,7 @@ pub trait Cause {
 
 pub enum ErrorType {
     InvalidInput,
+    Unauthorized,
     Conflict,
     NotFound,
     Internal,

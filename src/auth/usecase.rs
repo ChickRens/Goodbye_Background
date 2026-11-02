@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     auth::{
-        error::AuthUseCaseError,
+        error::{AuthUseCaseError, LoginRequiredError},
         google::{client::GoogleAuthClient, error::GoogleLoginConfigError},
         login_session::repository::repository::LoginSessionRepository,
         token::OpaqueToken,
@@ -85,6 +85,20 @@ impl AuthUseCase {
         Ok(self.login_session_repository.delete(&token.hash()).await?)
     }
 
+    /// 退会。ユーザーを消すと、他の端末の分も含めてログインセッションが連鎖削除される。
+    pub async fn delete_account(
+        &self,
+        token: Option<&OpaqueToken>,
+    ) -> Result<(), AuthUseCaseError> {
+        let token = token.ok_or(LoginRequiredError::LoginRequired)?;
+        let user = self
+            .current_user(token)
+            .await?
+            .ok_or(LoginRequiredError::LoginRequired)?;
+
+        Ok(self.user_repository.delete(user.id()).await?)
+    }
+
     fn google_client(&self) -> Result<&Arc<dyn GoogleAuthClient>, AuthUseCaseError> {
         self.google_client
             .as_ref()
@@ -108,7 +122,7 @@ mod auth_usecase_tests {
 
     use crate::{
         auth::{
-            error::AuthUseCaseError,
+            error::{AuthUseCaseError, LoginRequiredError},
             google::{
                 client::GoogleAuthClient,
                 error::{GoogleAuthError, GoogleLoginConfigError},
@@ -183,6 +197,38 @@ mod auth_usecase_tests {
         let second_user = usecase.current_user(&second).await.unwrap().unwrap();
         assert_eq!(first_user.id(), second_user.id());
         assert_eq!(second_user.email(), "new@example.com");
+    }
+
+    #[tokio::test]
+    async fn test_delete_account_ends_every_session() {
+        let usecase = usecase(Some(Arc::new(FakeGoogleClient { verified: true }))).await;
+        let this_device = usecase.complete_login("first").await.unwrap();
+        let other_device = usecase.complete_login("first").await.unwrap();
+        let deleted_user = usecase.current_user(&this_device).await.unwrap().unwrap();
+
+        usecase.delete_account(Some(&this_device)).await.unwrap();
+
+        assert_eq!(usecase.current_user(&this_device).await.unwrap(), None);
+        assert_eq!(usecase.current_user(&other_device).await.unwrap(), None);
+
+        // 同じGoogleアカウントで再度ログインすると、別のユーザーとして作り直される
+        let token = usecase.complete_login("first").await.unwrap();
+        let new_user = usecase.current_user(&token).await.unwrap().unwrap();
+        assert_ne!(new_user.id(), deleted_user.id());
+    }
+
+    #[tokio::test]
+    async fn test_delete_account_requires_valid_session() {
+        let usecase = usecase(Some(Arc::new(FakeGoogleClient { verified: true }))).await;
+
+        for token in [None, Some(&OpaqueToken::generate())] {
+            assert!(matches!(
+                usecase.delete_account(token).await,
+                Err(AuthUseCaseError::LoginRequired(
+                    LoginRequiredError::LoginRequired
+                ))
+            ));
+        }
     }
 
     #[tokio::test]

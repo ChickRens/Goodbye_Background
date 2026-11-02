@@ -32,7 +32,7 @@ js/
   editor.js    単一の大きな編集画面（ポイント編集・undo/redo・保存）
   canvas.js    canvas描画（画像・市松模様・ポイントマーカー）
   toast.js     エラー等の通知カード
-  auth.js      ヘッダーのログイン表示（Googleログイン・ログアウト）
+  auth.js      ヘッダーのログイン表示とアカウントメニュー（ログアウト・退会）
   intro.js     機能紹介ページ(index.html)のオープニング動画と背景動画ループ
                （app.html では使わない。app.js とは無関係に index.html から単独で読み込む）
 assets/        画像・動画
@@ -152,12 +152,15 @@ assets/        画像・動画
 | GET | `/auth/google/callback` | Googleからの戻り先。成功なら `app.html`、失敗なら `app.html?login=failed` へ |
 | GET | `/auth/me` | `{ user: { email, display_name } \| null }` |
 | POST | `/auth/logout` | 204（ボディ無し） |
+| DELETE | `/auth/account` | 退会。204（ボディ無し）。未ログインなら 401（`LOGIN_REQUIRED`） |
 
 - ログイン状態は HttpOnly Cookie `gb_session`（有効期間30日）で持つ。JSからは読めないので、
   表示には `/auth/me` の結果を使う。
 - `client-id` は匿名の利用統計用で、アカウントとは結びつけない。課金など本人確認が必要な
   処理の判定に `client-id` を使わないこと（値はブラウザ側で自由に書き換えられる）。
 - ログインは画面遷移を伴い、メモリ上の編集中データは失われるので、画像があるときは確認を出す。
+- 退会するとユーザーを削除し、他の端末の分も含めて全セッションが無効になる。画面遷移はしないので、
+  編集中の画像は残る。同じGoogleアカウントで再度ログインすると新しいユーザーとして作られる。
 
 補足:
 

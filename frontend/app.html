@@ -24,10 +24,14 @@
     <div class="app-header-actions">
       <a class="app-header-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
       <a id="login-link" class="app-header-link" href="auth/google/login" rel="nofollow">ログイン</a>
-      <div id="auth-user" class="app-header-user" hidden>
-        <span id="auth-user-name" class="app-header-user-name"></span>
-        <button id="logout-btn" type="button" class="app-header-link app-header-logout">ログアウト</button>
-      </div>
+      <details id="auth-user" class="app-header-account" hidden>
+        <summary class="app-header-link">アカウント</summary>
+        <div class="app-header-menu">
+          <p id="auth-user-name" class="app-header-user-name"></p>
+          <button id="logout-btn" type="button" class="app-header-menu-item">ログアウト</button>
+          <button id="delete-account-btn" type="button" class="app-header-menu-item app-header-menu-danger">退会する</button>
+        </div>
+      </details>
     </div>
   </header>
 

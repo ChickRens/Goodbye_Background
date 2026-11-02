@@ -11,6 +11,7 @@ initAuth({
   userEl: document.getElementById('auth-user'),
   userNameEl: document.getElementById('auth-user-name'),
   logoutBtnEl: document.getElementById('logout-btn'),
+  deleteAccountBtnEl: document.getElementById('delete-account-btn'),
 });
 
 const editor = initEditor({

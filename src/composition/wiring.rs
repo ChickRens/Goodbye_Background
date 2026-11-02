@@ -237,6 +237,13 @@ impl App {
         Ok(self.auth_usecase.logout(token).await?)
     }
 
+    pub async fn delete_account(
+        &self,
+        token: Option<&OpaqueToken>,
+    ) -> Result<(), ApplicationError> {
+        Ok(self.auth_usecase.delete_account(token).await?)
+    }
+
     pub fn uses_secure_cookies(&self) -> bool {
         self.secure_cookies
     }

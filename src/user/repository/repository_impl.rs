@@ -56,6 +56,16 @@ macro_rules! impl_user_repository {
 
                 user_from_row(row).map_err(|err| UserRepositoryError::Database(err.to_string()))
             }
+
+            async fn delete(&self, id: &UserId) -> Result<(), UserRepositoryError> {
+                sqlx::query("DELETE FROM users WHERE id = $1")
+                    .bind(id.value().to_string())
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|err| UserRepositoryError::Database(err.to_string()))?;
+
+                Ok(())
+            }
         }
     };
 }
