@@ -1,3 +1,5 @@
+This file is the spec. Keep it in sync with the implementation (last synced: 2026-11).
+
 Flow
 
 user: Send Image
@@ -22,7 +24,8 @@ serv: If exist next history, Send next Mask & Add next Point
 ...
 
 user: Save Image
-serv: Delete Session after 10 min
+serv: Send full-resolution cropped Image
+     (Session is NOT deleted on save. It expires like any other data: 10 min after last access)
 
 
 Rule
@@ -31,9 +34,12 @@ Session:
     PNG Image
     Mask history
 
-    Life span is 30 min
-    If update, reset life span
-    If save Image, Delete Session after 10 min
+    Life span is 10 min from the last access   (src/config.rs: TTL_SEC)
+    Every read/update resets the life span
+    Expired data is removed by GC every 60 sec  (src/config.rs: CLEANUP_INTERVAL)
+      -> data lives at most about 11 min after the last access
+    Saving is just another access (no special deletion after save)
+    All data is in memory: restarting the server deletes everything
 
 History:
     Point array
@@ -45,11 +51,12 @@ History:
     If Redo or Undo, Re-Generate Mask from Points
 
 Image:
-    Allowed Extension:
-        JPEG,JPG,PNG,TIFF,HEIC,HEIF,BMP
+    Allowed Format (detected from content, not from extension):
+        JPEG,PNG,WebP,GIF,BMP,TIFF (and other formats decodable by the `image` crate)
+        HEIC/HEIF are NOT supported
     
     Size:
-        2<=x<=3000, 2<=y<=3000
+        2<=x<=8000, 2<=y<=8000   (src/image/image/size.rs: MAX_DIMENSION)
 
     apply:
         Using Mask Extract Image 

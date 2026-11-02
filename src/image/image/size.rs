@@ -12,7 +12,7 @@ pub struct ImageSize {
 
 impl ImageSize {
     // 許容範囲: 2〜8000px（縦横それぞれ）。
-    // 注意: rule.txt には 3000px までと書かれているが、実装は 8000px。
+    // 変えたら rule.txt も更新すること。
     const MIN_DIMENSION: u16 = 2;
     const MAX_DIMENSION: u16 = 8000;
 

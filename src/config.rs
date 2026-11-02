@@ -4,7 +4,7 @@
 //! - `CLEANUP_INTERVAL`: 期限切れエントリ削除(GC)タスクの実行間隔
 //! - `TTL_SEC`: 全インメモリストアの有効期限。「最後にアクセスされてから」この時間が経つと GC で消える
 //!
-//! 注意: `rule.txt` には「セッション寿命30分」と書かれているが、実装は 10 分（`TTL_SEC`）。
+//! `TTL_SEC` / `CLEANUP_INTERVAL` を変えたら `rule.txt` と `frontend/privacy.html`（保存期間の記載）も更新すること。
 
 use std::time::Duration;
 
