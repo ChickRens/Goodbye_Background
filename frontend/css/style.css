@@ -10,13 +10,13 @@
     --space-5: 24px;
     --space-6: 32px;
 
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 16px;
+    /* 角はほぼ立てる（紙・定規・カッターの道具感に合わせる） */
+    --radius-sm: 2px;
+    --radius-md: 3px;
+    --radius-lg: 4px;
 
     --touch-target: 44px;
 
-    --font-ui: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic", sans-serif;
     --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 
@@ -32,7 +32,7 @@ body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: var(--font-ui);
+    font-family: var(--font-body);
     -webkit-tap-highlight-color: transparent;
 }
 
@@ -76,12 +76,13 @@ button {
 }
 
 .app-header-link:hover {
-    color: var(--text);
+    color: var(--primary);
 }
 
 .app-header h1 {
+    font-family: var(--font-display);
     font-size: 1.05rem;
-    font-weight: 600;
+    font-weight: 400;
     margin: 0;
     letter-spacing: 0.01em;
 }
@@ -120,7 +121,7 @@ button {
 
 .primary-btn {
     background: var(--primary);
-    color: var(--bg-dark);
+    color: var(--card-text);
     border-color: var(--primary);
     font-weight: 700;
 }
@@ -139,25 +140,21 @@ button {
 /* ---------- Dropzone (画像が1枚も無い間だけ表示する大きい入口) ---------- */
 .dropzone {
     margin: var(--space-4) var(--space-4) 0;
-    border: 1.5px dashed var(--border);
+    /* 黄色の破線 = 切り取り線。ここに写真を置く、という目印 */
+    border: 2px dashed var(--primary);
     border-radius: var(--radius-lg);
     padding: var(--space-6) var(--space-4);
     text-align: center;
-    color: var(--text-muted);
+    color: var(--text);
+    line-height: 1.8;
     cursor: pointer;
-    background: var(--bg-light);
+    background: var(--bg-dark);
     transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
-.dropzone:hover {
-    border-color: var(--primary);
-    color: var(--text);
-}
-
+.dropzone:hover,
 .dropzone.is-dragover {
-    border-color: var(--primary);
     background: var(--bg-light);
-    color: var(--text);
 }
 
 /* ---------- Strip (画像が1枚でもあれば表示する小さい一覧) ---------- */
@@ -302,17 +299,25 @@ button {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-dark);
     padding: var(--space-3);
     overflow: hidden;
+    /* 編集中の画像はカッティングマットの上に置く（landing.css の方眼と同じ寸法） */
+    background-color: var(--bg);
+    background-image:
+        linear-gradient(var(--grid-major) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+        linear-gradient(var(--grid-minor) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px);
+    background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+    background-position: -1px -1px;
 }
 
 #edit-canvas {
     max-width: 100%;
     max-height: 100%;
     touch-action: none; /* スマホでのスクロール/ズーム誤爆を防ぐ */
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border-muted);
+    border-radius: 0;
+    box-shadow: 6px 6px 0 var(--bg-dark);
     cursor: crosshair;
 }
 
@@ -329,7 +334,6 @@ button {
     color: var(--text-muted);
     min-height: 1.2em;
     margin: 0 0 4px;
-    font-family: var(--font-mono);
 }
 
 .edit-toolbar {

@@ -13,7 +13,7 @@
     --landing-space-6: 96px;
     --landing-max-width: 1080px;
     /* ホーム画面の背景動画の明るさ。1で元の明るさ、0で真っ黒 */
-    --bg-dim: 0.15;
+    --bg-dim: 0.35;
 
     /* Heroの縦方向の余白。画面の高さ(svh)に応じて伸び縮みするので、
        低いノートPCでも詰まりすぎず、高い画面では余白が広がる。
@@ -29,7 +29,8 @@
     --hero-max-width: 1280px;
     /* 左右の画像パネルの内側の余白 */
     --panel-pad-x: 16px;
-    --font-ui: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic", sans-serif;
+    /* 方眼1マスの大きさ。5マスごとに太い罫線が入る */
+    --cell: 24px;
 }
 
 * {
@@ -42,9 +43,10 @@ html, body {
 }
 
 body {
-    background: var(--bg-dark);
+    background: var(--bg);
     color: var(--text);
-    font-family: var(--font-ui);
+    font-family: var(--font-body);
+    line-height: 1.7;
     -webkit-tap-highlight-color: transparent;
 }
 
@@ -64,6 +66,20 @@ a {
     flex-direction: column;
     min-height: 100vh;
     transition: opacity 0.9s ease 0.15s;
+
+    /* カッティングマット。少しだけ透かして、後ろの動画がうっすら見えるようにする */
+    background-color: color-mix(in srgb, var(--bg) 84%, transparent);
+    background-image:
+        linear-gradient(var(--grid-major) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+        linear-gradient(var(--grid-minor) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px);
+    background-size:
+        calc(var(--cell) * 5) calc(var(--cell) * 5),
+        calc(var(--cell) * 5) calc(var(--cell) * 5),
+        var(--cell) var(--cell),
+        var(--cell) var(--cell);
+    background-position: -1px -1px;
 }
 
 /* ---------- Opening video / 背景動画 ---------- */
@@ -131,6 +147,7 @@ a {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: var(--landing-space-2);
     padding: var(--hero-gap-m) var(--landing-space-3);
     max-width: var(--hero-max-width);
     width: 100%;
@@ -138,25 +155,47 @@ a {
 }
 
 .wordmark {
-    font-size: 1.05rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    color: var(--paper);
+    line-height: 1.25;
 }
 
 .header-cta {
     text-decoration: none;
     font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--text-muted);
+    font-weight: 700;
+    color: var(--paper);
     padding: 8px 14px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    transition: border-color 0.15s ease, color 0.15s ease;
+    border: 1px solid var(--paper);
+    border-radius: 3px;
+    background: var(--bg-dark);
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .header-cta:hover {
+    background: var(--primary);
     border-color: var(--primary);
-    color: var(--text);
+    color: var(--card-text);
+}
+
+/* 定規の目盛り。ヘッダーの下に1本だけ引く、このページの「道具感」の要。
+   1マス(--cell)ごとに短い目盛り、5マスごとに長い目盛り */
+.ruler {
+    height: 14px;
+    max-width: var(--hero-max-width);
+    width: calc(100% - var(--landing-space-3) * 2);
+    margin: 0 auto;
+    border-top: 1px solid var(--paper);
+    opacity: 0.7;
+    background-image:
+        linear-gradient(90deg, var(--paper) 1px, transparent 1px),
+        linear-gradient(90deg, var(--paper) 1px, transparent 1px);
+    background-size: calc(var(--cell) * 5) 12px, var(--cell) 6px;
+    background-repeat: repeat-x;
+    background-position: 0 0, 0 0;
 }
 
 /* ---------- Hero ---------- */
@@ -166,23 +205,22 @@ a {
     max-width: var(--hero-max-width);
     width: 100%;
     margin: 0 auto;
-    padding: var(--hero-gap-m) var(--landing-space-3) var(--hero-gap-l);
+    padding: var(--hero-gap-l) var(--landing-space-3) var(--hero-gap-l);
     display: grid;
     grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr) minmax(0, 0.9fr);
     grid-template-areas: "before text after";
     align-items: center;
     column-gap: clamp(20px, 3vw, 48px);
-    text-align: center;
 
-    /* ファーストビュー(ヘッダーを除いた高さ)の中で、3カラムを縦方向の中央に置く */
-    min-height: calc(100vh - 88px);
-    min-height: calc(100svh - 88px);
+    /* ファーストビュー(ヘッダーと定規を除いた高さ)の中で、3カラムを縦方向の中央に置く */
+    min-height: calc(100vh - 102px);
+    min-height: calc(100svh - 102px);
 
     /* 右カラムに縦に並べる結果3枚の幅。3枚(4:3)を縦に積むと高さは 幅×2.25 + 余白 になるので、
        画面が低いほど細くして、右パネル全体がファーストビューに収まるようにする。
-       (100svh - 260px) は「ヘッダー・パネルの余白・キャプション」が使う高さの目安 */
-    --after-w: clamp(120px, calc((100vh - 260px) / 2.25), 280px);
-    --after-w: clamp(120px, calc((100svh - 260px) / 2.25), 280px);
+       (100svh - 280px) は「ヘッダー・定規・余白・キャプション」が使う高さの目安 */
+    --after-w: clamp(120px, calc((100vh - 280px) / 2.25), 260px);
+    --after-w: clamp(120px, calc((100svh - 280px) / 2.25), 260px);
 }
 
 .hero-text {
@@ -192,56 +230,60 @@ a {
     container-type: inline-size;
 }
 
+/* 見出しは太いゴシック1書体だけで組む。紙から切り出した文字のような、詰まった黒い塊にする */
 .hero-text h1 {
-    /* 「切り抜き方はいくつでも。」(12文字)が列の幅に1行で収まる大きさ。
-       cqi 非対応ブラウザ向けの vw 版を先に置いている */
-    font-size: clamp(1.5rem, 2.2vw, 2.4rem);
-    font-size: clamp(1.35rem, 8cqi, 2.4rem);
-    line-height: 1.22;
-    font-weight: 700;
-    letter-spacing: -0.015em;
-    margin: 0 0 var(--hero-gap-s);
-    /* 中央揃えのとき、行末に「も。」だけが残るような折り返しを避ける */
-    text-wrap: balance;
+    font-family: var(--font-display);
+    font-weight: 400;
+    /* 2行目(12文字 + 半字下げ)が列の幅に1行で収まる大きさ。cqi 非対応ブラウザ向けに vw 版を先に置く */
+    font-size: clamp(1.3rem, 2.3vw, 2.8rem);
+    font-size: clamp(1.3rem, 7.4cqi, 2.9rem);
+    line-height: 1.28;
+    letter-spacing: 0.01em;
+    color: var(--paper);
+    margin: 0 0 var(--hero-gap-m);
+}
+
+/* 2行目だけ半字下げて、切り抜いた紙片を少しずらして貼ったように見せる */
+.hero-text h1 .line-2 {
+    display: inline-block;
+    margin-left: 0.5em;
+}
+
+/* 行の途中で折り返して「も。」だけが次の行に残るのを防ぐ */
+.hero-text h1 span {
+    white-space: nowrap;
 }
 
 .hero-lead {
-    font-size: 1rem;
-    line-height: 1.65;
+    font-size: 1.02rem;
+    line-height: 1.85;
     color: var(--text-muted);
-    max-width: 36em;
-    margin: 0 auto var(--hero-gap-m);
-    text-wrap: balance;
+    max-width: 30em;
+    margin: 0 0 var(--hero-gap-l);
 }
 
 .cta-primary {
     display: inline-block;
     text-decoration: none;
     background: var(--primary);
-    color: var(--bg-dark);
+    color: var(--card-text);
     font-weight: 700;
     font-size: 1rem;
-    padding: 12px 26px;
-    border-radius: var(--radius-md, 10px);
-    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    padding: 14px 28px;
+    border-radius: 3px;
+    /* 影はぼかさず、真下にずらしたマット色の板で出す（紙を1枚重ねた厚み） */
+    box-shadow: 4px 4px 0 var(--bg-dark);
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
 .cta-primary:hover {
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0 var(--bg-dark);
 }
 
 .cta-primary:active {
-    transform: scale(0.98);
-}
-
-/* 左右の画像を囲む暗いパネル。背景動画の手が画像と重なって見えるのを抑え、
-   画像を「ひとまとまり」に見せる。パネルの色は --bg-dark を半透明にしたもの */
-.hero-visual {
-    padding: var(--hero-gap-m) var(--panel-pad-x) var(--hero-gap-s);
-    border: 1px solid var(--border-muted);
-    border-radius: 18px;
-    background: var(--bg-dark);
-    background: color-mix(in srgb, var(--bg-dark) 74%, transparent);
+    transform: translate(3px, 3px);
+    box-shadow: 1px 1px 0 var(--bg-dark);
 }
 
 .hero-visual-before { grid-area: before; }
@@ -255,15 +297,18 @@ a {
 
 .showcase-frame {
     display: block;
-    border-radius: 14px;
     overflow: hidden;
-    border: 1px solid var(--border-muted);
-    background: var(--bg);
+    background: var(--bg-dark);
     aspect-ratio: 4 / 5;
 }
 
+/* 元の写真: 白フチのプリントをマットの上に少し傾けて置いた状態 */
 .showcase-before .showcase-frame {
     aspect-ratio: 4 / 5;
+    border: 8px solid var(--paper);
+    border-bottom-width: 28px;
+    box-shadow: 6px 6px 0 color-mix(in srgb, var(--bg-dark) 80%, transparent);
+    transform: rotate(-2deg);
 }
 
 .showcase-frame img {
@@ -281,6 +326,7 @@ a {
     transform-origin: left bottom;
 }
 
+/* 切り抜き結果: 透過部分の市松模様と、その周りの黄色い破線（=切り取り線） */
 .showcase-frame-checkered {
     background-image:
         linear-gradient(45deg, var(--checker-dark) 25%, transparent 25%),
@@ -292,11 +338,22 @@ a {
     background-color: var(--checker-light);
 }
 
+.showcase-after .showcase-frame {
+    aspect-ratio: 4 / 3;
+    outline: 2px dashed var(--primary);
+    outline-offset: 4px;
+}
+
+/* 元の写真の白フチ（下の太い部分）に手書きのメモのように置く */
 .showcase-before figcaption {
-    text-align: center;
-    margin-top: var(--landing-space-1);
+    position: relative;
+    margin-top: -26px;
+    padding-left: 14px;
     font-size: 0.8rem;
-    color: var(--text-muted);
+    font-weight: 700;
+    color: var(--card-text);
+    transform: rotate(-2deg);
+    transform-origin: left top;
 }
 
 /* 分岐の線（縦に積むときだけ表示）。中央の1点から、下の3枚それぞれの真上へ伸ばす。
@@ -305,19 +362,22 @@ a {
 .showcase-branch {
     grid-area: branch;
     display: none; /* 3カラムでは元画像と結果の間にテキストが入るので線は引かない */
-    height: clamp(20px, 3.6vh, 32px);
-    height: clamp(20px, 3.6svh, 32px);
+    height: clamp(24px, 4vh, 40px);
+    height: clamp(24px, 4svh, 40px);
 }
 
 .showcase-branch svg {
     display: block;
     width: 100%;
     height: 100%;
+    overflow: visible;
 }
 
+/* 切り取り線と同じ破線にする */
 .showcase-branch line {
-    stroke: var(--border);
-    stroke-width: 1;
+    stroke: var(--primary);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 4;
     vector-effect: non-scaling-stroke;
 }
 
@@ -325,45 +385,54 @@ a {
 .showcase-afters {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--hero-gap-s);
+    gap: calc(var(--hero-gap-s) + 10px);
     width: min(100%, var(--after-w));
     margin-inline: auto;
-}
-
-.showcase-after .showcase-frame {
-    aspect-ratio: 4 / 3;
+    padding: 6px;
 }
 
 .showcase-caption {
-    text-align: center;
     color: var(--text-muted);
     font-size: 0.8rem;
+    text-align: center;
     margin: var(--hero-gap-s) 0 0;
 }
 
 /* ---------- Features ---------- */
+/* カードにはせず、マットの上に罫線で区切った2列の表として並べる */
 .features {
     max-width: var(--landing-max-width);
     width: 100%;
     margin: 0 auto;
-    padding: var(--landing-space-6) var(--landing-space-3);
+    padding: var(--landing-space-5) var(--landing-space-3);
+}
+
+.feature {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--landing-space-4);
-    border-top: 1px solid var(--border-muted);
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: var(--landing-space-1) var(--landing-space-4);
+    padding: var(--landing-space-3) 0;
+    border-top: 1px solid var(--paper);
+}
+
+.feature:last-child {
+    border-bottom: 1px solid var(--paper);
 }
 
 .feature h2 {
-    font-size: 1.05rem;
-    font-weight: 700;
-    margin: 0 0 var(--landing-space-1);
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 1.25rem;
+    line-height: 1.5;
+    margin: 0;
 }
 
 .feature p {
-    font-size: 0.92rem;
-    line-height: 1.7;
+    font-size: 0.98rem;
+    line-height: 1.85;
     color: var(--text-muted);
     margin: 0;
+    max-width: 34em;
 }
 
 /* ---------- Closing CTA ---------- */
@@ -371,22 +440,28 @@ a {
     max-width: var(--landing-max-width);
     width: 100%;
     margin: 0 auto;
-    padding: var(--landing-space-6) var(--landing-space-3) var(--landing-space-5);
-    text-align: center;
+    padding: var(--landing-space-5) var(--landing-space-3) var(--landing-space-6);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--landing-space-3);
 }
 
 .closing h2 {
-    font-size: 1.4rem;
-    font-weight: 700;
-    margin: 0 0 var(--landing-space-3);
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(1.3rem, 3vw, 1.9rem);
+    line-height: 1.4;
+    margin: 0;
 }
 
 /* ---------- Footer ---------- */
 .site-footer {
     padding: var(--landing-space-3);
-    text-align: center;
     font-size: 0.8rem;
     color: var(--text-muted);
+    background: var(--bg-dark);
 }
 
 /* ---------- Responsive ---------- */
@@ -405,17 +480,22 @@ a {
         padding-top: var(--hero-gap-l);
     }
 
-    .hero-visual-before {
-        width: min(190px, 56%);
-        margin-top: var(--hero-gap-l);
+    .hero-text {
+        max-width: 34rem;
     }
 
-    /* 線は、結果パネルの「内側」の幅(=3枚が並ぶ幅)に合わせて引く */
+    .hero-visual-before {
+        width: min(200px, 58%);
+        margin-top: calc(var(--hero-gap-l) + 12px);
+    }
+
+    /* 線は、結果3枚が並ぶ幅に合わせて引く */
     .showcase-branch {
         display: block;
         width: min(100%, 520px);
-        padding-inline: calc(var(--panel-pad-x) + 1px);
+        padding-inline: 6px;
         box-sizing: border-box;
+        margin-top: 10px;
     }
 
     .hero-visual-after {
@@ -428,12 +508,15 @@ a {
         gap: 3%;
         width: 100%;
     }
+
+    .showcase-after .showcase-frame {
+        outline-offset: 3px;
+    }
 }
 
 @media (max-width: 760px) {
-    .features {
+    .feature {
         grid-template-columns: 1fr;
-        gap: var(--landing-space-3);
     }
 }
 

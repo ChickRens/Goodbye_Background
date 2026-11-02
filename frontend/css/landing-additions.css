@@ -13,10 +13,10 @@
     z-index: 20;
     min-height: 44px; /* 親指で押せる大きさ */
     padding: 0 var(--landing-space-3);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg-dark) 70%, transparent);
-    color: var(--text);
+    border: 1px solid var(--paper);
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--bg-dark) 80%, transparent);
+    color: var(--paper);
     font: inherit;
     font-size: 0.85rem;
     font-weight: 600;
@@ -28,6 +28,7 @@
 
 .intro-skip:hover {
     border-color: var(--primary);
+    color: var(--primary);
 }
 
 .intro-skip[hidden] {
@@ -49,33 +50,34 @@
 }
 
 .hero-note a:hover {
-    color: var(--text);
+    color: var(--primary);
 }
 
 /* ---------- Steps (使い方) ---------- */
+/* 内容が実際に「順番のある手順」なので番号付きリストにしている。
+   番号は定規の目盛りの数字に見立て、1本の横線(定規の縁)の上に並べる */
 .steps {
     max-width: var(--landing-max-width);
     width: 100%;
     margin: 0 auto;
-    padding: var(--landing-space-5) var(--landing-space-3) var(--landing-space-6);
-    border-top: 1px solid var(--border-muted);
+    padding: var(--landing-space-4) var(--landing-space-3) var(--landing-space-4);
 }
 
 .steps h2 {
-    font-size: 1.2rem;
-    font-weight: 700;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 1.25rem;
     margin: 0 0 var(--landing-space-3);
 }
 
-/* 内容が実際に「順番のある手順」なので、番号付きリストにしている */
 .steps-list {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--landing-space-4);
     counter-reset: step;
+    border-top: 2px solid var(--primary);
 }
 
 .steps-list li {
@@ -83,42 +85,52 @@
     display: flex;
     flex-direction: column;
     gap: var(--landing-space-1);
-    padding-left: var(--landing-space-4);
+    padding: var(--landing-space-2) var(--landing-space-3) 0 0;
     position: relative;
 }
 
+/* 目盛り: 縁から下へ伸びる短い線と、その横の数字 */
 .steps-list li::before {
     content: counter(step);
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 28px;
-    height: 28px;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.85rem;
-    font-weight: 700;
+    display: block;
+    font-family: var(--font-display);
+    font-size: 2.4rem;
+    line-height: 1;
     color: var(--primary);
+    padding-left: 10px;
+    border-left: 2px solid var(--primary);
+    margin-top: calc(var(--landing-space-2) * -1);
+    padding-top: var(--landing-space-2);
+    margin-bottom: var(--landing-space-1);
 }
 
 .steps-list strong {
-    font-size: 1rem;
-    line-height: 28px; /* 番号の丸と縦位置を揃える */
+    font-size: 1.05rem;
 }
 
 .steps-list span {
-    font-size: 0.92rem;
-    line-height: 1.7;
+    font-size: 0.95rem;
+    line-height: 1.8;
     color: var(--text-muted);
 }
 
 @media (max-width: 760px) {
     .steps-list {
         grid-template-columns: 1fr;
+        border-top: 0;
+        border-left: 2px solid var(--primary);
         gap: var(--landing-space-3);
+    }
+
+    .steps-list li {
+        padding: 0 0 0 var(--landing-space-2);
+    }
+
+    .steps-list li::before {
+        border-left: 0;
+        padding: 0;
+        margin: 0 0 4px;
+        font-size: 2rem;
     }
 }
 
@@ -144,7 +156,7 @@
 }
 
 .header-link:hover {
-    color: var(--text);
+    color: var(--primary);
 }
 
 /* 狭い画面: ロゴは2行に折り返してよいが、リンク類は折り返さず小さめにして1行に収める */
@@ -185,19 +197,25 @@
 }
 
 .footer-links a:hover {
-    color: var(--text);
+    color: var(--primary);
 }
 
 /* ---------- 文書ページ (privacy.html) ---------- */
 .doc {
     flex: 1;
-    width: 100%;
+    /* 文書は方眼の上だと読みにくいので、マットに置いた1枚の紙として組む */
+    background: var(--paper);
+    color: var(--card-text);
+    box-shadow: 6px 6px 0 var(--bg-dark);
+    width: calc(100% - var(--landing-space-2) * 2);
     max-width: 44rem; /* 日本語で1行が長くなりすぎない幅 */
-    margin: 0 auto;
+    margin: var(--landing-space-3) auto var(--landing-space-5);
     padding: var(--landing-space-4) var(--landing-space-3) var(--landing-space-6);
 }
 
 .doc h1 {
+    font-family: var(--font-display);
+    font-weight: 400;
     font-size: 1.6rem;
     line-height: 1.3;
     margin: 0 0 var(--landing-space-2);
@@ -211,8 +229,8 @@
 .doc p,
 .doc li {
     font-size: 0.95rem;
-    line-height: 1.85;
-    color: var(--text-muted);
+    line-height: 1.9;
+    color: var(--card-text-muted);
 }
 
 .doc ul {
@@ -227,12 +245,13 @@
 
 /* 運営者が記入すべき箇所。公開前に必ず消すこと */
 .doc .todo {
-    color: var(--secondary);
+    color: #9a3412;
     font-weight: 600;
 }
 
 .doc a {
-    color: var(--primary);
+    color: var(--bg);
+    font-weight: 700;
     text-underline-offset: 3px;
 }
 

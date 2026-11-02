@@ -1,25 +1,39 @@
+/*
+ * メインのカラーパレット。
+ * 題材（写真の切り抜き）の道具から取っている:
+ *   - 背景 = 工作用カッティングマットの緑と、その方眼の罫線
+ *   - アクセント = カッターナイフの黄色
+ * 変数名はアプリ本体(style.css)・紹介ページ(landing*.css)の両方が参照しているので変えないこと。
+ */
 :root {
-    --hue: 233;
+    /* マット */
+    --bg-dark: #123326;      /* ヘッダー・下部バーなど一段濃い面 */
+    --bg: #1d4a3a;           /* マット本体 */
+    --bg-light: #245845;     /* ボタン・サムネイルの面 */
+    --grid-minor: #275a46;   /* 方眼の細い罫線 */
+    --grid-major: #3d7660;   /* 5マスごとの太い罫線・定規の目盛り */
 
-    /* hsl (fallback color) */
-    --bg-dark: hsl(var(--hue) 79% 3%);
-    --bg: hsl(var(--hue) 59% 7%);
-    --bg-light: hsl(var(--hue) 40% 11%);
-    --text: hsl(var(--hue) 100% 100%);
-    --text-muted: hsl(var(--hue) 55% 77%);
-    --highlight: hsl(var(--hue) 25% 45%);
-    --border: hsl(var(--hue) 31% 34%);
-    --border-muted: hsl(var(--hue) 41% 24%);
-    --primary: hsl(var(--hue) 74% 78%);
-    --secondary: hsl(48 45% 58%);
-    --danger: hsl(9 42% 65%);
-    --warning: hsl(51 29% 53%);
-    --success: hsl(148 27% 56%);
-    --info: hsl(217 46% 66%);
+    /* 紙と文字 */
+    --paper: #edf0ea;
+    --text: #edf0ea;
+    --text-muted: #a9c2b5;
 
-    /* --danger/--warning/--success/--info は中間〜明るめの明度(53-66%)なので、
-       --text(白)や--text-muted(明るいラベンダー)を乗せると読みにくい。
-       これらの背景の上で使う専用のテキスト色。 */
-    --card-text: hsl(var(--hue) 60% 10%);
-    --card-text-muted: hsl(var(--hue) 35% 24%);
+    --highlight: #7fae97;
+    --border: #4c866c;
+    --border-muted: #2e6550;
+
+    /* カッターの黄。CTA・選択中・フォーカスリング */
+    --primary: #f0be2c;
+    --secondary: #e9d27a;
+    --danger: #ec8a74;
+    --warning: #e2b25a;
+    --success: #9ee0b8;
+    --info: #8fc0e6;
+
+    /* --danger/--warning/--success/--info/--primary の上に乗せる文字色 */
+    --card-text: #10291f;
+    --card-text-muted: #2c4a3c;
+
+    --font-display: "Dela Gothic One", "Hiragino Sans", "Yu Gothic", sans-serif;
+    --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
 }

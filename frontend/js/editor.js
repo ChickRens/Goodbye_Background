@@ -157,7 +157,7 @@ export function initEditor({ store, elements }) {
 
   function applyMode(mode) {
     modeToggleBtn.dataset.mode = mode;
-    modeToggleBtn.textContent = mode === 'positive' ? '➕ 含める（タップで追加）' : '➖ 除外する（タップで追加）';
+    modeToggleBtn.textContent = mode === 'positive' ? '＋ 含める（タップで追加）' : '− 除外する（タップで追加）';
     controller.setPointMode(mode);
   }
 

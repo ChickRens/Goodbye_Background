@@ -15,7 +15,7 @@
 index.html   機能紹介ページ
 app.html     アプリ本体
 css/
-  tokens.css           メインのカラーパレット（ユーザー指定）
+  tokens.css           メインのカラーパレットと書体（カッティングマットの緑 + カッターの黄）
   checker-colors.css   市松模様専用のグレー2色（tokens.cssには無いため別ファイル）
   style.css            アプリ本体(app.html)のレイアウト・コンポーネントのスタイル
   landing.css          機能紹介ページ(index.html)専用のスタイル
@@ -210,7 +210,7 @@ canvas 1枚に以下を下から順に重ねて描画している。
   `tokens.css` の `--info` / `--warning` / `--danger` / `--success` を
   **カード背景全体**の塗りに使う。
 - これらの背景は明度53〜66%程度の中間色なので、`--text`(白)や`--text-muted`
-  (明るいラベンダー)を乗せると読みにくい。そのため `tokens.css` に
+  (明るい緑がかった灰色)を乗せると読みにくい。そのため `tokens.css` に
   **カード専用のテキスト色 `--card-text` / `--card-text-muted`** を追加し、
   本文とコード表示にはそちらを使っている。
 - アイコンは `assets/info.svg` `assets/warning.svg` `assets/danger.svg`
@@ -295,7 +295,7 @@ sample3 の再生が終わったらホーム画面を前面にフェードイン
   同じ動画を `object-fit: cover` で拡大してぼかしたもの（`.bg-video-blur`）を敷く。
   ぼかすと縁が透けるので `scale(1.2)` で少し大きめにして隠している。
   1本の動画につき `<video>` を2枚（くっきり用・ぼかし用）持つ構成。
-- **背景の暗さ**: `landing.css` の `--bg-dim`（既定 0.09。1で元の明るさ、0で真っ黒）。
+- **背景の暗さ**: `landing.css` の `--bg-dim`（既定 0.35。1で元の明るさ、0で真っ黒。その上に方眼のマットを84%の不透明度で重ねている）。
   `.bg-stage` 全体に `filter: brightness()` をかけており、オープニング（3本の再生）が終わった
   時点で1.2秒かけて切り替わる。
 - **切り替えに隙間を作らない**: 3本とも最初から読み込んで重ねて置き、次の動画を

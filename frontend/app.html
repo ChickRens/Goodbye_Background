@@ -7,6 +7,9 @@
 <!-- 編集画面は中身が動的で検索に出す価値が薄いので、検索結果には出さず、紹介ページ(index.html)に評価を集める。
      noindex を効かせるには検索ロボットがこのページを読めることが必要なので、robots.txt では禁止しない -->
 <meta name="robots" content="noindex, follow" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&amp;family=Zen+Kaku+Gothic+New:wght@400;700&amp;display=swap" />
 <link rel="stylesheet" href="css/tokens.css" />
 <link rel="stylesheet" href="css/checker-colors.css" />
 <link rel="stylesheet" href="css/style.css" />
@@ -49,7 +52,7 @@
     <div class="edit-bottom-bar">
       <p id="edit-status" class="edit-status" role="status" aria-live="polite"></p>
       <div class="edit-toolbar">
-        <button id="mode-toggle" type="button" class="icon-btn" data-mode="positive">➕ 含める（タップで追加）</button>
+        <button id="mode-toggle" type="button" class="icon-btn" data-mode="positive">＋ 含める（タップで追加）</button>
         <button id="undo-btn" type="button" class="icon-btn" title="元に戻す (Ctrl+Z)" disabled>↺ Undo</button>
         <button id="redo-btn" type="button" class="icon-btn" title="やり直す (Ctrl+Shift+Z)" disabled>↻ Redo</button>
         <span class="spacer"></span>
