@@ -137,7 +137,7 @@ AppError::into_response                   … ステータス = ErrorType, ボ�
 | Conflict | 409 |
 | Internal | 500 |
 
-- クライアントには `code` だけ返し、詳細（`cause`）は `eprintln!` でサーバーログへ
+- クライアントには `code` だけ返し、詳細（`cause`）は `tracing` でサーバーログへ（5xx は error、4xx は warn）
 - `spawn_blocking` 内の panic は `BLOCKING_TASK_FAILED`（500）になる
 - axum 自身のエラー（JSON パース失敗 422、ボディ 10MB 超過 413）は `AppError` を通らない
   → 利用ログ上は「成功」として記録される
@@ -232,13 +232,20 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 8. **保存時の WebP エンコード**: quality 95 のまま `method` を 4 → 2 に変更（オーナー判断: 速度とサイズの中間）。
    4000x3000 で 2.55s → 1.86s、ファイルは 1.12MB → 1.44MB（増え方は画像次第で +30〜50%）。
 
+### ✅ 修正済み（ブランチ `claude/affectionate-hawking-w7hz32`）
+9. 仕様（`rule.txt`）と実装の差 → **実装を正として `rule.txt` を更新**（最大 8000px、最後のアクセスから 10 分、
+   保存後の特別扱い無し、HEIC/HEIF 非対応）。3000px に絞るとスマホ写真（4000px 級）の大半が弾かれるため。
+   あわせて `frontend/privacy.html` の「15分間保持」も「最後の操作から約10分」に修正（実装と違っていた）。
+10. `frontend/README.md` の `/get-preview` を `image/webp` に修正。
+11. `image_pe.bin` も `model_dir` から読むように修正。
+13. `RedoUseCaseError::SegmenterInputStorage`（死んだ variant）を削除。
+15. ログを `tracing` に移行（`RUST_LOG` でレベル指定、既定 `info`）。リクエストごとの座標・処理時間は
+    `debug`/`trace` に落としたので、既定では出ない。
+17. `desktop.ini` を削除し `.gitignore` に追加。
+- CI（`.github/workflows/ci.yml`）を追加: `cargo fmt --check` / `cargo clippy` / `cargo test`。
+  あわせて全体に `cargo fmt` を適用し、clippy の deny lint（`/upload` の「1回しか回らない while」）を `if let` に直した。
+
 ### 🟡 小
-9. 仕様（`rule.txt`）と実装の差: 最大 3000px ↔ 8000px、寿命 30 分 ↔ 10 分、保存後 10 分で削除 ↔ 特別扱い無し。
-10. `frontend/README.md` の API 表で `/get-preview` が `image/png` となっているが実際は `image/webp`。
-11. `Sam2Segmenter::new(model_dir)` なのに `image_pe.bin` だけ `"models/image_pe.bin"` 固定。
 12. `image/completed/generator/` の trait/実装ファイル名が他と逆。
-13. `RedoUseCaseError::SegmenterInputStorage` は生成されない死んだ variant。
 14. `App::new` は `Result` を返すが、失敗は全て `expect` で panic する。
-15. ログが `println!` / `eprintln!`（リクエストごとに座標や処理時間が出る）。`tracing` への移行を推奨。
 16. `SQLiteUsageRecorder` と `PostgresUsageRecorder` がプレースホルダ以外同一の重複コード。
-17. `desktop.ini`（OneDrive の設定ファイル）がコミットされている。

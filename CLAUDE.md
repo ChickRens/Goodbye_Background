@@ -17,9 +17,14 @@ SAM2（Segment Anything 2.1, hiera_small）で画像の背景を消す Web ア�
 DATABASE_URL_SQLITE=sqlite://database/usage.db?mode=rwc cargo run            # SQLite（デフォルト）
 DATABASE_URL_POSTGRES=postgres://... cargo run -- --postgres                  # PostgreSQL
 
-# テスト / 型チェック
+# ログレベル（tracing。既定 info。debug で処理時間・クリック座標、trace で SAM2 への座標変換も出る）
+RUST_LOG=debug DATABASE_URL_SQLITE=sqlite://database/usage.db?mode=rwc cargo run
+
+# テスト / 型チェック / CI と同じチェック（.github/workflows/ci.yml）
 cargo test
 cargo check --all-targets
+cargo fmt --all --check
+cargo clippy --all-targets
 
 # ネットワーク制限下（ort-sys が ONNX Runtime バイナリを DL できない）で型チェックだけしたい場合
 ORT_SKIP_DOWNLOAD=1 cargo check --all-targets
@@ -33,9 +38,11 @@ docker compose up --build
   → `scripts/` の Python（SAM2 公式リポジトリを `SAM2/` に置いて実行）で生成する
 - `cargo test` は ONNX Runtime のリンクが必要。テストは models/ 無しでも動く（Sam2Segmenter::new を呼ばない）。
   ort-sys のダウンロードが通らない環境では、PyPI の `onnxruntime==1.24.2` の wheel から
-  `libonnxruntime.so.1.24.2` を取り出し、`ORT_LIB_LOCATION=<dir> ORT_PREFER_DYNAMIC_LINK=1
-  LD_LIBRARY_PATH=<dir> cargo test` で動的リンクできる
-- 現状 `cargo check` で 15 件の既存警告（未使用関数・ライフタイム省略など）が出るのが正常
+  `libonnxruntime.so.1.24.2` を取り出し、同じディレクトリに `libonnxruntime.so` と `libonnxruntime.so.1`
+  のシンボリックリンクを作った上で `ORT_LIB_LOCATION=<dir> ORT_PREFER_DYNAMIC_LINK=1
+  LD_LIBRARY_PATH=<dir> cargo test` で動的リンクできる（`.so.1` が無いとテスト実行時にロードできない）
+- 現状 `cargo check` で 15 件の既存警告（未使用関数・ライフタイム省略など）が出るのが正常。
+  clippy も warning が多数出るが、CI は deny レベル（error）でのみ落ちる設定
 
 ## ディレクトリ構成（src/）
 
@@ -73,6 +80,9 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 - **新しい API ルートを追加したら**: `presentation/router.rs`、`analytics/usage_tracking/operation.rs`、
   `analytics/usage_tracking/recorder.rs`（2箇所の文字列変換）、`frontend/js/api.js` を更新
 - **ストアの値は不変**: `get` で `Arc<V>` を取り、clone して変更し、`save/insert` で丸ごと置き換える
+- **ログは `tracing`**（`println!` / `eprintln!` は使わない）。レベルの使い分けは `main.rs` の `init_tracing` 参照。
+  クリック座標などリクエストごとのデータは `debug` 以下にする
+- **PR を出す前に `cargo fmt --all`** を実行する（CI でフォーマット差分があると落ちる）
 - テストは各ファイル末尾の `#[cfg(test)] mod xxx_test`。時刻が絡むものは `FakeClock` を使う
 - 既存コメント・ドキュメントは日本語。追記も日本語で揃える
 
@@ -104,7 +114,9 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）
 
-- 🟡 rule.txt（3000px / 30分 / 保存後10分で削除）と実装（8000px / 10分 / 保存後の特別扱い無し）が不一致
-- 🟡 `frontend/README.md` は `/get-preview` が `image/png` を返すと書いているが、実際は `image/webp`
-- 🟡 `image_pe.bin` のパスだけ `model_dir` を無視してハードコード
-- 🟡 ログが全て `println!`（ポイント座標などリクエストごとに大量に出る）
+- 🟡 `mask_smoother` の `confidence` ブレンドが確率入力では実質効いていない
+- 🟡 sigmoid 化したマスクのエッジの見た目を実モデルで未検証（大きい画像で柔らかすぎる可能性）
+- 🟡 clippy の warning が多数（CI に `-D warnings` を付けられない）
+- 🟡 `SQLiteUsageRecorder` と `PostgresUsageRecorder` の重複、`App::new` の `expect`
+- 仕様（`rule.txt`）は実装に合わせてある。`TTL_SEC` / `MAX_DIMENSION` を変えたら `rule.txt` と
+  `frontend/privacy.html`（保存期間の記載）も更新すること
