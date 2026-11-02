@@ -113,7 +113,7 @@ assets/        画像・動画
 | メソッド | パス | リクエスト | レスポンス |
 |---|---|---|---|
 | POST | `/upload` | `multipart/form-data`, フィールド名 `file` | `{ session_id, image_id }` |
-| POST | `/get-preview` | `{ image_id }` | `image/png` バイナリ |
+| POST | `/get-preview` | `{ image_id }` | `image/webp` バイナリ |
 | POST | `/segment` | `{ session_id, x, y, is_foreground }` | `{ image_id }` |
 | POST | `/undo` | `{ session_id }` | `{ image_id }` |
 | POST | `/redo` | `{ session_id }` | `{ image_id }` |

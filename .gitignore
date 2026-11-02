@@ -7,3 +7,5 @@
 /database
 /.rustc_info.json
 /frontend/assets
+# OneDrive / Windows のフォルダ設定ファイル
+desktop.ini

@@ -86,8 +86,7 @@ impl Sam2Segmenter {
                 model_dir
             ))?)),
             image_pe: {
-                // 注意: ここだけ `model_dir` 引数を使わずパスがハードコードされている。
-                let bin_file = read("models/image_pe.bin")
+                let bin_file = read(format!("{}/image_pe.bin", model_dir))
                     .map_err(|e| SegmenterModelError::ModelLoadError(e.to_string()))?;
                 let data: &[f32] = bytemuck::cast_slice(&bin_file);
                 Array4::from_shape_vec((1, 256, 64, 64), data.to_vec())
