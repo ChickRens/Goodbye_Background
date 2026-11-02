@@ -43,7 +43,7 @@ axum Router (presentation/router.rs)
 | `SAM2EditingSessionRepository` | SessionId | 特徴量 + ポイント履歴 + マスク履歴 | 約16MB + 256KB×履歴数 | ✅ |
 | `EditingSessionLocks` | SessionId | `Mutex<()>`（セッション単位のロック） | 数十B | ✅ |
 | `PreviewStorageInMemory`（2系統） | ImageId | 長辺600px WebP | 数十KB | ✅ |
-| `CompletedRepositoryInMemory` | ImageId | 元サイズ WebP q95 | 数百KB〜数MB | ✅ |
+| `CompletedRepositoryInMemory` | ImageId | 元サイズ WebP q95 / method 2 | 数百KB〜数MB | ✅ |
 
 ---
 
@@ -108,7 +108,7 @@ handler ── {session_id, x, y, is_foreground} → Point(プレビュー座標
 
 ### 4.4 `/save` → `/get-completed`
 - `resegment`: 履歴を変えずに現在のポイントで推論し、`segment_high_quality`（resize → sigmoid → ガイデッドフィルタで平滑化 → apply）
-- `CompletedService` が元サイズのまま WebP(q95) にして保存。返した image_id で `/get-completed` から取得
+- `CompletedService` が元サイズのまま WebP(q95, method 2) にして保存。返した image_id で `/get-completed` から取得
 - 0 点で保存した場合は元画像をそのまま WebP 化（返す image_id は元画像と同じ）
 
 ### 4.5 `/get-preview`
@@ -225,11 +225,12 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
      （旧実装との画素差は平均 0.023 / 最大 1 階調）
    - ガイデッドフィルタの積分画像4枚を並列作成、ガイド画像生成の clone を廃止: 731ms → 390ms
 
-### 🟠 中（未対応）
-7. **推論の直列化**: ONNX セッションが Mutex 1本なので、同時利用者が増えると待ち時間が線形に伸びる。
-   セッションのプール化（メモリ増）か、ort の intra-op スレッド数調整か、設計判断が必要。
-8. **保存時の WebP エンコードが遅い**（12MP・q95 で約2.6秒。保存処理の大半）。`method` を下げると速くなるが
-   ファイルが大きくなる（計測: method=4→0 で 2.55s→0.87s、1.12MB→1.74MB）。速度とサイズのどちらを取るか要判断。
+### 🟠 判断済み
+7. **推論の直列化（意図的に維持）**: ONNX セッションが Mutex 1本なので、同時利用者が増えると待ち時間が線形に伸びる。
+   セッションのプール化はメモリが増えるため、利用者が少ないうちは行わない（オーナー判断）。
+   利用者が増えて待ちが問題になったら再検討する。
+8. **保存時の WebP エンコード**: quality 95 のまま `method` を 4 → 2 に変更（オーナー判断: 速度とサイズの中間）。
+   4000x3000 で 2.55s → 1.86s、ファイルは 1.12MB → 1.44MB（増え方は画像次第で +30〜50%）。
 
 ### 🟡 小
 9. 仕様（`rule.txt`）と実装の差: 最大 3000px ↔ 8000px、寿命 30 分 ↔ 10 分、保存後 10 分で削除 ↔ 特別扱い無し。

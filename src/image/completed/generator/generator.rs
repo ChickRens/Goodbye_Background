@@ -1,8 +1,19 @@
-//! `CompletedImageGenerator` の実装: 生 RGBA を WebP(quality 95, 非可逆) にエンコードする。
+//! `CompletedImageGenerator` の実装: 生 RGBA を WebP(quality 95, 非可逆, method 2) にエンコードする。
+//!
+//! `method`（0〜6）は圧縮の頑張り度で、画質（quality）とは別。小さいほど速いがファイルが大きくなる。
+//! 4000x3000 での計測（2026-11）:
+//!
+//! | method | 時間 | サイズ |
+//! |---|---|---|
+//! | 4（libwebp の既定。以前の設定） | 2.55s | 1.12MB |
+//! | **2（採用）** | 1.86s | 1.44MB |
+//! | 0 | 0.87s | 1.74MB |
+//!
+//! 速度とサイズの中間として 2 を採用した（オーナー判断）。
 //!
 //! 注意: ファイル名と中身が他モジュールと逆（このファイルが実装側）。
 
-use webp::Encoder;
+use webp::{Encoder, WebPConfig};
 
 use crate::image::{
     completed::{
@@ -24,7 +35,14 @@ impl CompletedImageGenerator for WebPCompletedImageGenerator {
             size.height() as u32,
         );
 
-        let webp = encoder.encode(95.0).to_vec();
+        let mut config = WebPConfig::new().expect("WebPConfig init failed");
+        config.quality = 95.0;
+        config.method = 2;
+
+        let webp = encoder
+            .encode_advanced(&config)
+            .expect("WebP encode failed")
+            .to_vec();
         CompletedImage::new(Image::new(
             ImageData::new(webp),
             *image.image_id(),

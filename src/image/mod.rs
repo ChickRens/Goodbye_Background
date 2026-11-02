@@ -5,7 +5,7 @@
 //! | `original` | アップロードされた元画像 | 元のまま | 生 RGBA |
 //! | `segmenter_input` | SAM2 に入れる画像 | 1024x1024 固定（アスペクト比無視で引き伸ばし） | 生 RGBA |
 //! | `preview` | 画面表示用（元画像 / 切り抜き結果） | 長辺 600px | WebP |
-//! | `completed` | 保存（ダウンロード）用の最終結果 | 元のまま | WebP (quality 95) |
+//! | `completed` | 保存（ダウンロード）用の最終結果 | 元のまま | WebP (quality 95, method 2) |
 //!
 //! 共通の器は `image::image::Image`（バイト列 + ImageId + サイズ）。
 
