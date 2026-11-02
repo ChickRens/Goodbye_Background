@@ -2,10 +2,8 @@
 //!
 //! alpha = clamp(mask * 255, 0, 255)。マスクは元画像と同じ解像度に揃えてから渡すこと。
 //!
-//! 注意: この式はマスクが「0〜1 の確率」である前提。しかし SAM2 の mask decoder の出力は
-//! **ロジット**（sigmoid 前。scripts/export.py の MaskDecoderWrapper は sigmoid を掛けていない）。
-//! そのためロジット 0〜1 の極めて狭い範囲以外は alpha が 0 か 255 に張り付き、
-//! 実質「ロジット > 0 で二値化」に近い挙動になっている。意図的でなければ sigmoid を挟むべき。
+//! 入力マスクは 0〜1 の確率であること。SAM2 の mask decoder の出力はロジットなので、
+//! 呼び出し側（`Sam2Segmenter::_generate_image_*`）で `SAM2MaskActivation::sigmoid` を通してから渡している。
 
 use ndarray::{ArrayView4, s};
 use rayon::prelude::*;

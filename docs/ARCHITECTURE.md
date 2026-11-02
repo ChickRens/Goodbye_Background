@@ -40,7 +40,7 @@ axum Router (presentation/router.rs)
 | `SessionRepositoryInMemory` | SessionId | Session（→元画像 ImageId） | 数十B | ✅ |
 | `OriginalImageRepositoryInMemory` | ImageId | 元画像 生RGBA | 幅×高×4 B（4000x3000 で 48MB） | ✅ |
 | `SegmenterInputStorageInMemory` | ImageId（元画像と同じ） | 1024x1024 生RGBA | 4MB | ✅ |
-| `SAM2EditingSessionRepository` | SessionId | 特徴量 + ポイント履歴 + マスク履歴 | 約16MB + 256KB×履歴数 | ❌ **登録漏れ** |
+| `SAM2EditingSessionRepository` | SessionId | 特徴量 + ポイント履歴 + マスク履歴 | 約16MB + 256KB×履歴数 | ✅ |
 | `PreviewStorageInMemory`（2系統） | ImageId | 長辺600px WebP | 数十KB | ✅ |
 | `CompletedRepositoryInMemory` | ImageId | 元サイズ WebP q95 | 数百KB〜数MB | ✅ |
 
@@ -53,7 +53,7 @@ axum Router (presentation/router.rs)
 | プレビュー座標 | フロントがクリック位置として送る `x, y`（u16） | — |
 | 元画像座標 | `PointHistory` に保存される値 | プレビュー ÷ `point_scale` |
 | SAM2 座標 (1024x1024, f32) | prompt encoder への入力 | 元画像 × (1024 / 元の幅or高さ)（縦横別） |
-| マスク座標 (256x256) | mask decoder の出力 | `mask_resizer` で元画像サイズへバイリニア補間 |
+| マスク座標 (256x256) | mask decoder の出力（ロジット） | `mask_resizer` で元画像サイズへバイリニア補間 → sigmoid で確率化 |
 
 - `point_scale` = `600 / max(元画像の幅, 高さ)`。`WebPPreviewImageGenerator::generate` が返し、
   `UploadOutput` → `PrepareSegmentInput` → `CommonEditingSession.point_scale` と受け渡される
@@ -91,7 +91,7 @@ handler ── {session_id, x, y, is_foreground} → Point(プレビュー座標
       3. points_with(point)   既存点 + 新点(÷scale で元画像座標に)
       4. Sam2Segmenter::segment_fast
            _inference: 座標を1024系に → prompt encoder(点, 前回マスク) → mask decoder → Mask(256², ロジット)
-           _generate_image_fast: resize → apply(アルファ書き込み)
+           _generate_image_fast: resize → sigmoid(ロジット→確率) → apply(アルファ書き込み)
       5. apply_edit(point, 新マスク) で両履歴に追加 → 編集セッション保存
       6. 新しい ImageId を振った RGBA Image を返す
     PreviewService::generate_and_save_segmented   600px WebP にしてプレビューストアへ
@@ -105,7 +105,7 @@ handler ── {session_id, x, y, is_foreground} → Point(プレビュー座標
 - できないときは `UNDO_FAILED` / `REDO_FAILED`（400）
 
 ### 4.4 `/save` → `/get-completed`
-- `resegment`: 履歴を変えずに現在のポイントで推論し、`segment_high_quality`（ガイデッドフィルタで平滑化）
+- `resegment`: 履歴を変えずに現在のポイントで推論し、`segment_high_quality`（resize → sigmoid → ガイデッドフィルタで平滑化 → apply）
 - `CompletedService` が元サイズのまま WebP(q95) にして保存。返した image_id で `/get-completed` から取得
 - 0 点で保存した場合は元画像をそのまま WebP 化（返す image_id は元画像と同じ）
 
@@ -184,22 +184,21 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 
 ## 8. 既知の問題と根拠
 
-コメント追加時点（2026-11）でコードを読んで判明したもの。修正はしていない。
+コメント追加時点（2026-11）でコードを読んで判明したもの。
 
-### 🔴 重大
-1. **編集セッションのメモリリーク**
-   `composition/wiring.rs` で `DeleteExpiredEntriesUseCase::new` に `editing_session_repo` を渡していない。
-   `SAM2EditingSessionRepository` は `DeleteExpiredRepository` を実装しているのに呼ばれないので、
-   アップロードのたびに約16MB（特徴量）+ マスク履歴が永久に残る。
-   → `ExpiringEditingSessionRepository` を追加して GC 対象に含める。
-
-2. **マスクのロジットを確率として扱っている**
-   `scripts/export.py` の `MaskDecoderWrapper` は sigmoid を掛けずに `mask_decoder` の出力をそのまま返す
-   （SAM2 の仕様上ロジット。閾値は 0）。一方 `mask_applier.rs` は `alpha = clamp(mask*255)`、
-   `mask_smoother.rs` は `(p - 0.5).abs()` など 0〜1 前提の式を使っている。
-   結果としてアルファはほぼ「ロジット > 0 で二値化」になり、平滑化のブレンド係数は発散している。
-   → resize 後（または applier の直前）に sigmoid を適用し、テストも確率前提で書き直す。
-   ※ ただし prompt encoder に渡す「前回マスク」はロジットのままである必要がある。
+### ✅ 修正済み（ブランチ `claude/fix-critical-issues`）
+1. **編集セッションのメモリリーク**: `SAM2EditingSessionRepository` を `DeleteExpiredEntriesUseCase` に
+   `Arc<dyn DeleteExpiredRepository>` として渡し、GC 対象にした。テスト:
+   `delete_expired_entries_usecase_test::execute_removes_expired_editing_sessions`
+2. **マスクのロジットを確率として扱っていた件**: `editing/segmenter/mask_activation.rs` を追加し、
+   リサイズ後・平滑化/適用前に sigmoid を掛けるようにした。履歴に保存する前回マスクはロジットのまま。
+   テスト: `sam2_test::generate_image_fast_converts_mask_logits_to_alpha`,
+   `sam2_test::generate_image_high_quality_treats_zero_logit_as_half_transparent`,
+   `mask_activation_test::sigmoid_maps_logits_to_probabilities`
+   - 見た目の変化: 以前はほぼ二値（ロジット > 0 で不透明）だったが、境界が sigmoid に沿った半透明の
+     グラデーションになる。境界の幅は「マスク 1px = 元画像の 長辺/256 px」に比例して広がるので、
+     大きい画像ではエッジが柔らかくなりすぎる可能性がある（実モデルでの見た目は未検証）
+   - 残課題: `mask_smoother` の `confidence` ブレンドは確率入力では実質効いていない（同ファイルのコメント参照）
 
 ### 🟠 中
 3. **同一セッションの並行更新**: `SegmentServiceImpl` は「取得 → clone → 変更 → 保存」をロック無しで行う。

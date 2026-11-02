@@ -31,7 +31,10 @@ docker compose up --build
 - `models/` は git 管理外。起動には以下が必要（無いと `App::new` で panic）:
   `sam2.1_hiera_small_{image_encoder,prompt_encoder,mask_decoder}.onnx`, `image_pe.bin`
   → `scripts/` の Python（SAM2 公式リポジトリを `SAM2/` に置いて実行）で生成する
-- `cargo test` は ONNX Runtime のリンクが必要。テストは models/ 無しでも動く（Sam2Segmenter::new を呼ばない）
+- `cargo test` は ONNX Runtime のリンクが必要。テストは models/ 無しでも動く（Sam2Segmenter::new を呼ばない）。
+  ort-sys のダウンロードが通らない環境では、PyPI の `onnxruntime==1.24.2` の wheel から
+  `libonnxruntime.so.1.24.2` を取り出し、`ORT_LIB_LOCATION=<dir> ORT_PREFER_DYNAMIC_LINK=1
+  LD_LIBRARY_PATH=<dir> cargo test` で動的リンクできる
 - 現状 `cargo check` で 15 件の既存警告（未使用関数・ライフタイム省略など）が出るのが正常
 
 ## ディレクトリ構成（src/）
@@ -84,11 +87,12 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 5. **`ImageSize::new(height, width)`** — 高さが先
 6. **TTL は「最後にアクセスしてから 10 分」**（`get` するたびに延長）。サーバー再起動で全データ消失
 7. **SAM2 の ONNX セッションは Mutex 1本** → 全ユーザーの推論が直列化される
+8. **マスクはロジット**: mask decoder の出力・履歴に保存する前回マスクはロジットのまま。
+   画像に適用する直前（リサイズ後）にだけ `SAM2MaskActivation::sigmoid` で確率にする
+9. **ストアを追加したら GC に登録**: `wiring.rs` の `DeleteExpiredEntriesUseCase::new` に渡さないとリークする
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）
 
-- 🔴 `SAM2EditingSessionRepository` が GC 対象に登録されておらず、1セッション約16MBがリークし続ける
-- 🔴 mask decoder の出力はロジットなのに、mask_applier / mask_smoother は 0〜1 の確率として扱っている
 - 🟠 同一セッションへの並行リクエストで lost update が起きる（サーバー側にロックが無い）
 - 🟠 Postgres モードではマイグレーションが実行されない。SQLite 用マイグレーションが Postgres 専用型
   （BIGSERIAL / TIMESTAMPTZ）を使っており、SQLite では `id` が自動採番されない
