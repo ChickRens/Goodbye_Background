@@ -15,15 +15,15 @@
 //! | redo | 1つ進める | fast | しない |
 //! | resegment | 変更なし（save 用） | high_quality | しない |
 //!
-//! 注意（並行性）: 同じセッションに対する同時リクエストはロックされていない。
-//! 「取得 → clone → 変更 → 保存」の間に別リクエストが入ると後勝ちで更新が消える。
-//! フロントは `session.busy` で1セッション1リクエストに直列化している前提。
+//! 並行性: 「取得 → clone → 変更 → 保存」は `EditingSessionLocks` でセッション単位に直列化している
+//! （ロック無しだと同時リクエストで後勝ちになり、片方のポイントが消える）。
+//! ロック順は「セッションロック → ONNX セッションの Mutex」の一方向のみ（逆順で取らないこと）。
 //!
 //! 注意（undo/redo の推論入力）: undo/redo 後の推論では、「戻った時点のマスク」を
 //! prompt encoder に入れて再推論している。segment 時の推論（1つ前のマスクを入力）とは
 //! 入力が異なるため、同じポイント列でも segment 直後と redo 後で結果が微妙に変わり得る。
 
-use std::{ops::Deref, sync::Arc, time::Instant};
+use std::{ops::Deref, sync::Arc, sync::PoisonError, time::Instant};
 
 use crate::{
     editing::{
@@ -32,7 +32,10 @@ use crate::{
             sam2_data::{SAM2InferenceContext, SAM2StaticContext},
             segmenter::ImageSegmenter,
         },
-        session::{repository::repository::EditingSessionRepository, session::EditingSession},
+        session::{
+            lock::EditingSessionLocks, repository::repository::EditingSessionRepository,
+            session::EditingSession,
+        },
     },
     image::{
         image::{id::ImageId, image::Image},
@@ -67,10 +70,15 @@ pub struct SegmentServiceImpl {
             >,
     >,
     input_storage: Arc<dyn SegmenterInputImageStorage>,
+    session_locks: Arc<EditingSessionLocks>,
 }
 
 impl SegmentService for SegmentServiceImpl {
     fn segment(&self, session_id: SessionId, point: Point) -> Result<Image, SegmentServiceError> {
+        // 取得 → 変更 → 保存の間、同じセッションへの他の操作を待たせる（lost update 防止）。
+        // poison されていても守っているのは `()` なので続行してよい（実データは毎回ストアから読む）。
+        let lock = self.session_locks.lock_for(session_id);
+        let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let service_start = Instant::now();
 
         println!("Input Point: {:?}", point);
@@ -115,6 +123,10 @@ impl SegmentService for SegmentServiceImpl {
     }
 
     fn undo(&self, session_id: SessionId) -> Result<Image, SegmentServiceError> {
+        // 取得 → 変更 → 保存の間、同じセッションへの他の操作を待たせる（lost update 防止）。
+        // poison されていても守っているのは `()` なので続行してよい（実データは毎回ストアから読む）。
+        let lock = self.session_locks.lock_for(session_id);
+        let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let session = self.session_repo.get(&session_id)?;
         let image_id = *session.image_id();
 
@@ -158,6 +170,10 @@ impl SegmentService for SegmentServiceImpl {
     }
 
     fn resegment(&self, session_id: SessionId) -> Result<Image, SegmentServiceError> {
+        // 取得 → 変更 → 保存の間、同じセッションへの他の操作を待たせる（lost update 防止）。
+        // poison されていても守っているのは `()` なので続行してよい（実データは毎回ストアから読む）。
+        let lock = self.session_locks.lock_for(session_id);
+        let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let session = self.session_repo.get(&session_id)?;
         let image_id = *session.image_id();
         let guard = self.image_repo.get(&image_id)?;
@@ -185,6 +201,10 @@ impl SegmentService for SegmentServiceImpl {
     }
 
     fn redo(&self, session_id: SessionId) -> Result<Image, SegmentServiceError> {
+        // 取得 → 変更 → 保存の間、同じセッションへの他の操作を待たせる（lost update 防止）。
+        // poison されていても守っているのは `()` なので続行してよい（実データは毎回ストアから読む）。
+        let lock = self.session_locks.lock_for(session_id);
+        let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let session = self.session_repo.get(&session_id)?;
         let image_id = *session.image_id();
 
@@ -233,6 +253,7 @@ impl SegmentServiceImpl {
                 >,
         >,
         segmenter_input_storage: Arc<dyn SegmenterInputImageStorage>,
+        session_locks: Arc<EditingSessionLocks>,
     ) -> Self {
         Self {
             session_repo: session_repository,
@@ -240,6 +261,178 @@ impl SegmentServiceImpl {
             image_repo: image_repository,
             editing_session_repo: editing_session_repository,
             input_storage: segmenter_input_storage,
+            session_locks,
         }
+    }
+}
+
+#[cfg(test)]
+mod segment_service_test {
+    use std::{sync::Arc, thread, time::Duration, time::Instant};
+
+    use super::{SegmentService, SegmentServiceImpl};
+    use crate::{
+        editing::{
+            segmenter::{
+                error::{SegmenterLoadingError, SegmenterRuntimeError},
+                sam2_data::{SAM2InferenceContext, SAM2StaticContext},
+                segmented_image::SegmentedImage,
+                segmenter::ImageSegmenter,
+            },
+            session::{
+                inference_context_history::InferenceContextHistory,
+                lock::EditingSessionLocks,
+                repository::{
+                    repository::EditingSessionRepository,
+                    repository_impl::SAM2EditingSessionRepository,
+                },
+                session::{CommonEditingSession, EditingSession},
+            },
+        },
+        image::{
+            image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize},
+            original::{
+                original_image::OriginalImage,
+                original_repository::{
+                    repository::OriginalImageRepository,
+                    repository_impl::OriginalImageRepositoryInMemory,
+                },
+            },
+            segmenter_input::{
+                segmenter_input_image::SegmenterInputImage,
+                storage::{
+                    storage::SegmenterInputImageStorage,
+                    storage_impl::SegmenterInputStorageInMemory,
+                },
+            },
+        },
+        maintenance::deleting_expired_entries::clock::clock_impl::FakeClock,
+        point::{
+            coordinate::Coordinate,
+            point::{Point, PointLabel},
+            point_history::PointHistory,
+        },
+        session::{
+            id::SessionId,
+            repository::{repository::SessionRepository, repository_impl::SessionRepositoryInMemory},
+            session::Session,
+        },
+    };
+
+    /// 推論に時間がかかるふりをするだけの偽セグメンタ（ONNX モデル不要）。
+    struct SlowFakeSegmenter;
+
+    impl ImageSegmenter for SlowFakeSegmenter {
+        type StaticContext = SAM2StaticContext;
+        type InferenceContext = SAM2InferenceContext;
+
+        fn prepare_inference_context(
+            &self,
+            _image: &SegmenterInputImage,
+        ) -> Result<SAM2InferenceContext, SegmenterLoadingError> {
+            Ok(SAM2InferenceContext::default())
+        }
+
+        fn prepare_static_context(
+            &self,
+            _image: &SegmenterInputImage,
+        ) -> Result<SAM2StaticContext, SegmenterLoadingError> {
+            Ok(SAM2StaticContext::default())
+        }
+
+        fn segment_fast(
+            &self,
+            _input_image: &SegmenterInputImage,
+            original_image: &OriginalImage,
+            _static_context: &SAM2StaticContext,
+            _inference_context: &SAM2InferenceContext,
+            _input_points: &[Point],
+        ) -> Result<(SAM2InferenceContext, SegmentedImage), SegmenterRuntimeError> {
+            thread::sleep(Duration::from_millis(200));
+            let image = original_image.image();
+            Ok((
+                SAM2InferenceContext::default(),
+                SegmentedImage::new(image.image_data().clone(), image.image_size().clone()),
+            ))
+        }
+
+        fn segment_high_quality(
+            &self,
+            input_image: &SegmenterInputImage,
+            original_image: &OriginalImage,
+            static_context: &SAM2StaticContext,
+            inference_context: &SAM2InferenceContext,
+            input_points: &[Point],
+        ) -> Result<(SAM2InferenceContext, SegmentedImage), SegmenterRuntimeError> {
+            self.segment_fast(
+                input_image,
+                original_image,
+                static_context,
+                inference_context,
+                input_points,
+            )
+        }
+    }
+
+    fn make_service_with_session() -> (
+        SegmentServiceImpl,
+        Arc<SAM2EditingSessionRepository>,
+        SessionId,
+    ) {
+        let clock = FakeClock::new(Instant::now());
+        let session_repo = Arc::new(SessionRepositoryInMemory::new(clock.clone()));
+        let image_repo = Arc::new(OriginalImageRepositoryInMemory::new(Arc::new(clock.clone())));
+        let input_storage = Arc::new(SegmenterInputStorageInMemory::new(clock.clone()));
+        let editing_session_repo = Arc::new(SAM2EditingSessionRepository::new(clock.clone()));
+
+        let image_id = ImageId::new();
+        let image = Image::new(
+            ImageData::new(vec![255; 2 * 2 * 4]),
+            image_id,
+            ImageSize::new(2, 2).unwrap(),
+        );
+        image_repo.save(OriginalImage::new(image.clone()));
+        input_storage.save(SegmenterInputImage::new(image));
+
+        let session_id = SessionId::new();
+        session_repo.save(Session::new(session_id, image_id));
+        editing_session_repo.save(
+            &session_id,
+            CommonEditingSession::new(
+                PointHistory::new(10),
+                SAM2StaticContext::default(),
+                InferenceContextHistory::new(10, SAM2InferenceContext::default()),
+                1.0,
+            ),
+        );
+
+        let service = SegmentServiceImpl::new(
+            session_repo,
+            Arc::new(SlowFakeSegmenter),
+            image_repo,
+            editing_session_repo.clone(),
+            input_storage,
+            Arc::new(EditingSessionLocks::new(clock)),
+        );
+        (service, editing_session_repo, session_id)
+    }
+
+    // 同じセッションへの segment が同時に来ても、両方のポイントが履歴に残ること（lost update しない）。
+    #[test]
+    fn concurrent_segments_on_same_session_keep_all_points() {
+        let (service, editing_session_repo, session_id) = make_service_with_session();
+
+        thread::scope(|scope| {
+            for x in [0, 1] {
+                let service = &service;
+                scope.spawn(move || {
+                    let point = Point::new(Coordinate::new(x, 0), PointLabel::FOREGROUND);
+                    service.segment(session_id, point).unwrap();
+                });
+            }
+        });
+
+        let session = editing_session_repo.get(&session_id).unwrap();
+        assert_eq!(session.points().len(), 2);
     }
 }

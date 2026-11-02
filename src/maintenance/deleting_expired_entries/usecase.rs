@@ -64,6 +64,7 @@ pub struct DeleteExpiredEntriesUseCase {
     preview_storage: Arc<dyn ExpiringPreviewStorage>,
     segmenter_input_storage: Arc<dyn ExpiringSegmenterInputStorage>,
     editing_session_repo: Arc<dyn DeleteExpiredRepository>,
+    editing_session_locks: Arc<dyn DeleteExpiredRepository>,
     ttl: Duration,
 }
 
@@ -75,6 +76,7 @@ impl DeleteExpiredEntriesUseCase {
         preview_storage: Arc<dyn ExpiringPreviewStorage>,
         segmenter_input_storage: Arc<dyn ExpiringSegmenterInputStorage>,
         editing_session_repository: Arc<dyn DeleteExpiredRepository>,
+        editing_session_locks: Arc<dyn DeleteExpiredRepository>,
         ttl: Duration,
     ) -> Self {
         Self {
@@ -84,6 +86,7 @@ impl DeleteExpiredEntriesUseCase {
             preview_storage,
             segmenter_input_storage,
             editing_session_repo: editing_session_repository,
+            editing_session_locks,
             ttl,
         }
     }
@@ -95,6 +98,7 @@ impl DeleteExpiredEntriesUseCase {
         self.preview_storage.delete_expired(now, self.ttl);
         self.segmenter_input_storage.delete_expired(now, self.ttl);
         self.editing_session_repo.delete_expired(now, self.ttl);
+        self.editing_session_locks.delete_expired(now, self.ttl);
     }
 }
 
@@ -111,6 +115,7 @@ mod delete_expired_entries_usecase_test {
             segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext},
             session::{
                 inference_context_history::InferenceContextHistory,
+                lock::EditingSessionLocks,
                 repository::{
                     repository::EditingSessionRepository,
                     repository_impl::SAM2EditingSessionRepository,
@@ -141,6 +146,7 @@ mod delete_expired_entries_usecase_test {
             Arc::new(PreviewStorageInMemory::new(clock.clone())),
             Arc::new(SegmenterInputStorageInMemory::new(clock.clone())),
             editing_session_repo.clone(),
+            Arc::new(EditingSessionLocks::new(clock.clone())),
             Duration::from_secs(10),
         );
 

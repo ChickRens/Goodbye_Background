@@ -21,7 +21,9 @@ use crate::{
             segment_service::{SegmentService, SegmentServiceImpl},
             segmenter_sam2::Sam2Segmenter,
         },
-        session::repository::repository_impl::SAM2EditingSessionRepository,
+        session::{
+            lock::EditingSessionLocks, repository::repository_impl::SAM2EditingSessionRepository,
+        },
         undo::{input::UndoInput, output::UndoOutput, usecase::UndoUseCase},
     },
     image::{
@@ -106,6 +108,8 @@ impl App {
         // プレビューは長辺 600px。フロントのクリック座標はこの解像度基準で送られてくる。
         let preview_generator = WebPPreviewImageGenerator::new(600);
         let input_storage = Arc::new(SegmenterInputStorageInMemory::new(clock.clone()));
+        // 同一セッションへの segment/undo/redo/save を直列化するロック表（GC 対象）。
+        let session_locks = Arc::new(EditingSessionLocks::new(clock.clone()));
         // SAM2 の image encoder は 1024x1024 固定入力。
         let input_generator = SAM2InputGenerator::new(1024, 1024);
         let completed_image_generator = WebPCompletedImageGenerator::new();
@@ -131,6 +135,7 @@ impl App {
             image_repo.clone(),
             editing_session_repo.clone(),
             input_storage.clone(),
+            session_locks.clone(),
         ));
         let completed_service: Arc<dyn CompletedService> = Arc::new(CompletedServiceImpl::new(
             Arc::new(completed_image_generator),
@@ -159,6 +164,7 @@ impl App {
             preview_storage.clone() as Arc<dyn ExpiringPreviewStorage>,
             input_storage.clone() as Arc<dyn ExpiringSegmenterInputStorage>,
             editing_session_repo.clone() as Arc<dyn DeleteExpiredRepository>,
+            session_locks.clone() as Arc<dyn DeleteExpiredRepository>,
             TTL_SEC,
         );
 
