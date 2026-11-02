@@ -90,19 +90,20 @@ handler ── {session_id, x, y, is_foreground} → Point(プレビュー座標
       1. Session → 元画像 ImageId
       2. 元画像 / 入力画像 / 編集セッション を取得、編集セッションを clone
       3. points_with(point)   既存点 + 新点(÷scale で元画像座標に)
-      4. Sam2Segmenter::segment_fast
-           _inference: 座標を1024系に → prompt encoder(点, 前回マスク) → mask decoder → Mask(256², ロジット)
-           _generate_image_fast: resize → sigmoid(ロジット→確率) → apply(アルファ書き込み)
+      4. 元画像をプレビュー解像度（長辺600px）に縮小（resize_to_preview）
+         Sam2Segmenter::segment_fast
+           _inference: 座標を1024系に（元画像サイズ基準）→ prompt encoder(点, 前回マスク) → mask decoder → Mask(256², ロジット)
+           _generate_image_fast: プレビューサイズへ resize → sigmoid(ロジット→確率) → apply(アルファ書き込み)
       5. apply_edit(point, 新マスク) で両履歴に追加 → 編集セッション保存
-      6. 新しい ImageId を振った RGBA Image を返す
-    PreviewService::generate_and_save_segmented   600px WebP にしてプレビューストアへ
+      6. 新しい ImageId を振った RGBA Image（プレビュー解像度）を返す
+    PreviewService::generate_and_save_segmented   WebP にしてプレビューストアへ（既にプレビューサイズなのでリサイズは実質無し）
 ← { image_id(新しいプレビュー) }
 ```
 
 ### 4.3 `/undo` `/redo`
 - 編集セッションの両履歴を1つ戻す/進める → 保存 → その時点のポイント列 + その時点のマスクで再推論（fast）
 - 新しいマスクは履歴に **保存しない**
-- undo でポイントが 0 になったら推論せず元画像（アルファ不変）を返す
+- undo でポイントが 0 になったら推論せず元画像（プレビュー解像度、アルファ不変）を返す
 - できないときは `UNDO_FAILED` / `REDO_FAILED`（400）
 
 ### 4.4 `/save` → `/get-completed`
@@ -215,17 +216,28 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 5. **巨大画像の u16 回り込み**: `ImageSize::from_u32` を追加し、u32 のまま範囲チェックするようにした。
    テスト: `image_loader_tests::test_{width,height}_over_u16_max_is_rejected`
 
+6. **推論まわりの高速化**（4000x3000 画像・4コアで計測。ONNX 推論本体はモデルが無く未計測）
+   - segment/undo/redo の後処理をプレビュー解像度で行うようにした: 約198ms → 約21ms
+     テスト: `segment_service_test::segment_cuts_out_at_preview_resolution`,
+     `preview_image_generator_test::resize_to_preview_returns_raw_rgba_with_preview_size`
+   - プレビュー生成で元画像（約48MB）を clone していたのを借用に: 66ms → 12ms
+   - SAM2 入力のリサイズを `image::imageops`（シングルスレッド）→ `fast_image_resize`（SIMD+並列）: 339ms → 63ms
+     （旧実装との画素差は平均 0.023 / 最大 1 階調）
+   - ガイデッドフィルタの積分画像4枚を並列作成、ガイド画像生成の clone を廃止: 731ms → 390ms
+
 ### 🟠 中（未対応）
-6. **推論の直列化**: ONNX セッションが Mutex 1本なので、同時利用者が増えると待ち時間が線形に伸びる。
+7. **推論の直列化**: ONNX セッションが Mutex 1本なので、同時利用者が増えると待ち時間が線形に伸びる。
    セッションのプール化（メモリ増）か、ort の intra-op スレッド数調整か、設計判断が必要。
+8. **保存時の WebP エンコードが遅い**（12MP・q95 で約2.6秒。保存処理の大半）。`method` を下げると速くなるが
+   ファイルが大きくなる（計測: method=4→0 で 2.55s→0.87s、1.12MB→1.74MB）。速度とサイズのどちらを取るか要判断。
 
 ### 🟡 小
-7. 仕様（`rule.txt`）と実装の差: 最大 3000px ↔ 8000px、寿命 30 分 ↔ 10 分、保存後 10 分で削除 ↔ 特別扱い無し。
-8. `frontend/README.md` の API 表で `/get-preview` が `image/png` となっているが実際は `image/webp`。
-9. `Sam2Segmenter::new(model_dir)` なのに `image_pe.bin` だけ `"models/image_pe.bin"` 固定。
-10. `image/completed/generator/` の trait/実装ファイル名が他と逆。
-11. `RedoUseCaseError::SegmenterInputStorage` は生成されない死んだ variant。
-12. `App::new` は `Result` を返すが、失敗は全て `expect` で panic する。
-13. ログが `println!` / `eprintln!`（リクエストごとに座標や処理時間が出る）。`tracing` への移行を推奨。
-14. `SQLiteUsageRecorder` と `PostgresUsageRecorder` がプレースホルダ以外同一の重複コード。
-15. `desktop.ini`（OneDrive の設定ファイル）がコミットされている。
+9. 仕様（`rule.txt`）と実装の差: 最大 3000px ↔ 8000px、寿命 30 分 ↔ 10 分、保存後 10 分で削除 ↔ 特別扱い無し。
+10. `frontend/README.md` の API 表で `/get-preview` が `image/png` となっているが実際は `image/webp`。
+11. `Sam2Segmenter::new(model_dir)` なのに `image_pe.bin` だけ `"models/image_pe.bin"` 固定。
+12. `image/completed/generator/` の trait/実装ファイル名が他と逆。
+13. `RedoUseCaseError::SegmenterInputStorage` は生成されない死んだ variant。
+14. `App::new` は `Result` を返すが、失敗は全て `expect` で panic する。
+15. ログが `println!` / `eprintln!`（リクエストごとに座標や処理時間が出る）。`tracing` への移行を推奨。
+16. `SQLiteUsageRecorder` と `PostgresUsageRecorder` がプレースホルダ以外同一の重複コード。
+17. `desktop.ini`（OneDrive の設定ファイル）がコミットされている。

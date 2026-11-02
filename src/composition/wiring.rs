@@ -106,7 +106,7 @@ impl App {
         let editing_session_repo = Arc::new(SAM2EditingSessionRepository::new(clock.clone()));
         let preview_storage = Arc::new(PreviewStorageInMemory::new(clock.clone()));
         // プレビューは長辺 600px。フロントのクリック座標はこの解像度基準で送られてくる。
-        let preview_generator = WebPPreviewImageGenerator::new(600);
+        let preview_generator = Arc::new(WebPPreviewImageGenerator::new(600));
         let input_storage = Arc::new(SegmenterInputStorageInMemory::new(clock.clone()));
         // 同一セッションへの segment/undo/redo/save を直列化するロック表（GC 対象）。
         let session_locks = Arc::new(EditingSessionLocks::new(clock.clone()));
@@ -117,7 +117,7 @@ impl App {
 
         // ---- サービス（複数ユースケースで共有するドメインロジック） ----
         let preview_service: Arc<dyn PreviewService> = Arc::new(PreviewServiceImpl::new(
-            Arc::new(preview_generator),
+            preview_generator.clone(),
             preview_storage.clone(),
         ));
         let prepare_service: Arc<dyn PrepareSegmentService> =
@@ -136,6 +136,7 @@ impl App {
             editing_session_repo.clone(),
             input_storage.clone(),
             session_locks.clone(),
+            preview_generator.clone(),
         ));
         let completed_service: Arc<dyn CompletedService> = Arc::new(CompletedServiceImpl::new(
             Arc::new(completed_image_generator),

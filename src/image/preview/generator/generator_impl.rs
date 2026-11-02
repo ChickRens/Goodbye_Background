@@ -5,11 +5,13 @@
 //! - WebP は quality 75, method 0（最速）, アルファ品質 50
 //!
 //! 元画像が 600px より小さい場合は **拡大** される（scale > 1）。
+//!
+//! `resize_to_preview` はエンコードせずに同じサイズの生 RGBA を返す。segment/undo/redo は
+//! これで縮小した元画像を切り抜くので、フル解像度で処理するより桁違いに速い。
 
 use std::time::Instant;
 
 use fast_image_resize as fr;
-use image::RgbaImage;
 use webp::{Encoder, WebPConfig};
 
 use crate::image::{
@@ -24,37 +26,17 @@ pub struct WebPPreviewImageGenerator {
 
 impl PreviewImageGenerator for WebPPreviewImageGenerator {
     fn generate(&self, image: &Image) -> (PreviewImage, f64) {
-        let source_size = image.image_size();
-        // scale = プレビュー / 元画像。フロントのクリック座標 ÷ scale = 元画像座標。
-        let scale = self.long_side / source_size.height().max(source_size.width()) as f64;
-        let width = ((source_size.width() as f64 * scale).round() as u16).max(2);
-        let height = ((source_size.height() as f64 * scale).round() as u16).max(2);
-        let preview_size = ImageSize::new(height, width).expect("preview size is invalid");
-
-        let rgba_image = RgbaImage::from_raw(
-            source_size.width() as u32,
-            source_size.height() as u32,
-            image.image_data().image().clone(),
-        )
-        .expect("image data is not valid RGBA data");
+        let start = Instant::now();
+        let (preview_size, scale) = self.preview_size_and_scale(image.image_size());
+        let resized = self.resize_rgba(image, &preview_size);
+        println!("Resize in PreviewGenerator: {:?}", start.elapsed());
 
         let start = Instant::now();
-
-        let mut dst_image =
-            fr::images::Image::new(width as u32, height as u32, fr::PixelType::U8x4);
-        let options = fr::ResizeOptions::new().resize_alg(fr::ResizeAlg::Nearest);
-
-        let mut resizer = fr::Resizer::new();
-        resizer
-            .resize(&rgba_image, &mut dst_image, &options)
-            .expect("Resize Failed in PreviewGenerator");
-
-        let end = start.elapsed();
-        println!("Resize in PreviewGenerator: {:?}", end);
-
-        let start = Instant::now();
-        let dst_vec = dst_image.into_vec();
-        let encoder = Encoder::from_rgba(&dst_vec, width as u32, height as u32);
+        let encoder = Encoder::from_rgba(
+            &resized,
+            preview_size.width() as u32,
+            preview_size.height() as u32,
+        );
 
         let mut config = WebPConfig::new().unwrap();
         config.quality = 75.0;
@@ -71,8 +53,7 @@ impl PreviewImageGenerator for WebPPreviewImageGenerator {
             .encode_advanced(&config)
             .expect("Encode Failed")
             .to_vec();
-        let end = start.elapsed();
-        println!("Encode in PreviewGenerator: {:?}", end);
+        println!("Encode in PreviewGenerator: {:?}", start.elapsed());
 
         (
             PreviewImage::new(Image::new(
@@ -82,6 +63,52 @@ impl PreviewImageGenerator for WebPPreviewImageGenerator {
             )),
             scale,
         )
+    }
+
+    fn resize_to_preview(&self, image: &Image) -> Image {
+        let (preview_size, _) = self.preview_size_and_scale(image.image_size());
+        let resized = self.resize_rgba(image, &preview_size);
+        Image::new(ImageData::new(resized), *image.image_id(), preview_size)
+    }
+}
+
+impl WebPPreviewImageGenerator {
+    /// プレビューのサイズと倍率を求める。scale = プレビュー / 元画像。
+    /// フロントのクリック座標 ÷ scale = 元画像座標。
+    fn preview_size_and_scale(&self, source_size: &ImageSize) -> (ImageSize, f64) {
+        let scale = self.long_side / source_size.height().max(source_size.width()) as f64;
+        let width = ((source_size.width() as f64 * scale).round() as u16).max(2);
+        let height = ((source_size.height() as f64 * scale).round() as u16).max(2);
+        let preview_size = ImageSize::new(height, width).expect("preview size is invalid");
+        (preview_size, scale)
+    }
+
+    /// 生 RGBA を Nearest でリサイズする。元データは借用するだけでコピーしない
+    /// （以前は 4000x3000 で約 48MB を毎回 clone していた）。同じサイズならそのまま複製して返す。
+    fn resize_rgba(&self, image: &Image, target: &ImageSize) -> Vec<u8> {
+        let source_size = image.image_size();
+        let source_data = image.image_data().image();
+        if source_size == target {
+            return source_data.clone();
+        }
+
+        let source = fr::images::ImageRef::new(
+            source_size.width() as u32,
+            source_size.height() as u32,
+            source_data,
+            fr::PixelType::U8x4,
+        )
+        .expect("image data is not valid RGBA data");
+        let mut destination = fr::images::Image::new(
+            target.width() as u32,
+            target.height() as u32,
+            fr::PixelType::U8x4,
+        );
+        let options = fr::ResizeOptions::new().resize_alg(fr::ResizeAlg::Nearest);
+        fr::Resizer::new()
+            .resize(&source, &mut destination, &options)
+            .expect("Resize Failed in PreviewGenerator");
+        destination.into_vec()
     }
 }
 
@@ -113,6 +140,21 @@ mod preview_image_generator_test {
         assert_eq!(&bytes[8..12], b"WEBP");
         assert_eq!(preview_image_id, *original.image_id());
         assert_eq!(preview_size, ImageSize::new(4, 4).unwrap());
+    }
+
+    // エンコードせず、generate と同じプレビューサイズの生 RGBA を返すこと（クリック時の切り抜き用）。
+    #[test]
+    fn resize_to_preview_returns_raw_rgba_with_preview_size() {
+        let size = ImageSize::new(4, 8).unwrap();
+        let image_id = ImageId::new();
+        let rgba = [10u8, 20, 30, 255].repeat(4 * 8);
+        let original = Image::new(ImageData::new(rgba), image_id, size);
+
+        let resized = WebPPreviewImageGenerator::new(4).resize_to_preview(&original);
+
+        assert_eq!(resized.image_size(), &ImageSize::new(2, 4).unwrap());
+        assert_eq!(resized.image_id(), &image_id);
+        assert_eq!(resized.image_data().image(), &[10u8, 20, 30, 255].repeat(2 * 4));
     }
 }
 

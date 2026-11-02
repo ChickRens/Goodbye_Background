@@ -93,12 +93,16 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 9. **ストアを追加したら GC に登録**: `wiring.rs` の `DeleteExpiredEntriesUseCase::new` に渡さないとリークする
 10. **編集セッションを変更する処理は `EditingSessionLocks` で囲む**: 取得→変更→保存の間にロックを持つ。
     ロック順は「セッションロック → ONNX の Mutex」のみ
-11. **マイグレーションは DB ごと**: `migrations/sqlite/` と `migrations/postgres/` の両方に追加する。
+11. **segment/undo/redo の切り抜きはプレビュー解像度**: `PreviewImageGenerator::resize_to_preview` で
+    縮小した元画像を `segment_fast` の `output_image` に渡す。フル解像度で処理するのは save（resegment）だけ。
+    座標変換には `original_image` のサイズを使うので、2つを取り違えないこと
+12. **マイグレーションは DB ごと**: `migrations/sqlite/` と `migrations/postgres/` の両方に追加する。
     適用済みのファイルは絶対に書き換えない（sqlx のチェックサム不一致で起動しなくなる）
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）
 
 - 🟠 SAM2 の ONNX セッションが Mutex 1本なので、同時利用者が増えると推論待ちが線形に伸びる
+- 🟠 保存時の WebP エンコード（q95）が 12MP で約2.6秒。`method` を下げると速いがファイルが大きくなる（要判断）
 - 🟡 rule.txt（3000px / 30分 / 保存後10分で削除）と実装（8000px / 10分 / 保存後の特別扱い無し）が不一致
 - 🟡 `frontend/README.md` は `/get-preview` が `image/png` を返すと書いているが、実際は `image/webp`
 - 🟡 `image_pe.bin` のパスだけ `model_dir` を無視してハードコード

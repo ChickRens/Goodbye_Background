@@ -49,7 +49,7 @@ use crate::{
         segmenter::ImageSegmenter,
     },
     image::{
-        image::{raw_data::ImageData, size::ImageSize},
+        image::{image::Image, raw_data::ImageData, size::ImageSize},
         original::original_image::OriginalImage,
         segmenter_input::segmenter_input_image::SegmenterInputImage,
     },
@@ -407,16 +407,17 @@ impl Sam2Segmenter {
         Ok(mask)
     }
 
-    /// マスク → 切り抜き画像（高速版）: 元画像サイズにリサイズ → sigmoid で確率化 → アルファに適用。
+    /// マスク → 切り抜き画像（高速版）: `output_image` のサイズにリサイズ → sigmoid で確率化 → アルファに適用。
+    /// `output_image` は通常プレビュー解像度なので、フル解像度で処理するより大幅に速い。
     fn _generate_image_fast(
         mask: &Mask,
-        original_image: &OriginalImage,
+        output_image: &Image,
     ) -> Result<SegmentedImage, SegmenterRuntimeError> {
         let start = Instant::now();
         let resized_mask = SAM2MaskResizer::resize_mask(
             &mask.view(),
-            original_image.image().image_size().height() as usize,
-            original_image.image().image_size().width() as usize,
+            output_image.image_size().height() as usize,
+            output_image.image_size().width() as usize,
         );
         // mask decoder の出力はロジットなので、アルファにする前に確率へ変換する。
         let resized_mask = SAM2MaskActivation::sigmoid(resized_mask);
@@ -424,13 +425,13 @@ impl Sam2Segmenter {
         println!("resize image in generate image: {:?}", end);
 
         let start = Instant::now();
-        let applied_image = SAM2MaskApplier::apply(&original_image.image(), resized_mask.view());
+        let applied_image = SAM2MaskApplier::apply(output_image, resized_mask.view());
         let end = start.elapsed();
         println!("apply image in generate image: {:?}", end);
 
         Ok(SegmentedImage::new(
             ImageData::new(applied_image),
-            original_image.image().image_size().clone(),
+            output_image.image_size().clone(),
         ))
     }
 
@@ -480,6 +481,7 @@ impl ImageSegmenter for Sam2Segmenter {
         static_context: &Self::StaticContext,
         inference_context: &Self::InferenceContext,
         input_scaled_points: &[Point],
+        output_image: &Image,
     ) -> Result<(Self::InferenceContext, SegmentedImage), SegmenterRuntimeError> {
         let start = Instant::now();
         let mask = self._inference(
@@ -492,7 +494,7 @@ impl ImageSegmenter for Sam2Segmenter {
         println!("SAM2 inference: {:?}", end);
 
         let start = Instant::now();
-        let segmented = Self::_generate_image_fast(&mask, original_image)?;
+        let segmented = Self::_generate_image_fast(&mask, output_image)?;
         let end = start.elapsed();
         println!("SAM2 generate image: {:?}", end);
 
@@ -617,7 +619,8 @@ mod sam2_test {
         let mask =
             Mask::new(Array4::from_shape_vec((1, 1, 2, 2), vec![20.0, -20.0, 0.0, 20.0]).unwrap());
 
-        let segmented = Sam2Segmenter::_generate_image_fast(&mask, &original_image).unwrap();
+        let segmented =
+            Sam2Segmenter::_generate_image_fast(&mask, original_image.image()).unwrap();
         let (result_image, result_size) = segmented.into_image_and_size();
 
         assert_eq!(&result_size, original_image.image().image_size());

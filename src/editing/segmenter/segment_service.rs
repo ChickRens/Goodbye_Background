@@ -6,6 +6,8 @@
 //! 3. 編集セッションを clone して変更し、ストアに丸ごと保存し直す
 //! 4. SAM2 で推論し、元画像サイズの「アルファ付き RGBA」を作る
 //! 5. 新しい ImageId を振った `Image` を返す（プレビュー生成・保存はユースケース側の仕事）
+//!    segment/undo/redo の結果は **プレビュー解像度**（表示にしか使わないため）、
+//!    resegment（save 用）の結果だけが元画像の解像度
 //!
 //! 各操作の違い:
 //! | 操作 | 履歴の変更 | 推論 | 新マスクを履歴に保存 |
@@ -23,7 +25,7 @@
 //! prompt encoder に入れて再推論している。segment 時の推論（1つ前のマスクを入力）とは
 //! 入力が異なるため、同じポイント列でも segment 直後と redo 後で結果が微妙に変わり得る。
 
-use std::{ops::Deref, sync::Arc, sync::PoisonError, time::Instant};
+use std::{sync::Arc, sync::PoisonError, time::Instant};
 
 use crate::{
     editing::{
@@ -40,6 +42,7 @@ use crate::{
     image::{
         image::{id::ImageId, image::Image},
         original::original_repository::repository::OriginalImageRepository,
+        preview::generator::generator::PreviewImageGenerator,
         segmenter_input::storage::storage::SegmenterInputImageStorage,
     },
     point::point::Point,
@@ -71,6 +74,8 @@ pub struct SegmentServiceImpl {
     >,
     input_storage: Arc<dyn SegmenterInputImageStorage>,
     session_locks: Arc<EditingSessionLocks>,
+    /// segment/undo/redo の切り抜きをプレビュー解像度で行うために、元画像を縮小する。
+    preview_generator: Arc<dyn PreviewImageGenerator>,
 }
 
 impl SegmentService for SegmentServiceImpl {
@@ -98,6 +103,9 @@ impl SegmentService for SegmentServiceImpl {
         let input_points = session.points_with(point.clone());
         println!("Scaled Points: {:?}", input_points);
 
+        // 表示用なのでプレビュー解像度で切り抜く（フル解像度だと 12MP 画像で約 200ms かかっていた）。
+        let output_image = self.preview_generator.resize_to_preview(original_image.image());
+
         let start = Instant::now();
         let (new_context, segmented_image) = self.segmenter.segment_fast(
             &input_image,
@@ -105,6 +113,7 @@ impl SegmentService for SegmentServiceImpl {
             static_context,
             inference_context,
             &input_points,
+            &output_image,
         )?;
         let end = start.elapsed();
         println!("Segment: {:?}", end);
@@ -130,8 +139,9 @@ impl SegmentService for SegmentServiceImpl {
         let session = self.session_repo.get(&session_id)?;
         let image_id = *session.image_id();
 
-        let guard = self.image_repo.get(&image_id)?;
-        let original_image = guard.deref().clone();
+        let original_image = self.image_repo.get(&image_id)?;
+        // 表示用なのでプレビュー解像度で切り抜く。
+        let output_image = self.preview_generator.resize_to_preview(original_image.image());
 
         let input_image = self.input_storage.get(image_id)?;
 
@@ -141,15 +151,11 @@ impl SegmentService for SegmentServiceImpl {
         self.editing_session_repo.save(&session_id, session.clone());
         let input_points = session.points();
 
-        // 全部 undo して 0 点になった = 何も切り抜いていない状態なので、元画像をそのまま返す。
+        // 全部 undo して 0 点になった = 何も切り抜いていない状態なので、元画像（プレビュー解像度）を返す。
         // （SAM2 は 0 点では推論できない）。ID は新規発行。
         if input_points.is_empty() {
-            let image = original_image.into_image();
-            let (data, _, size) = image.into_data();
-            let id = ImageId::new();
-
-            let original_image = Image::new(data, id, size);
-            return Ok(original_image);
+            let (data, _, size) = output_image.into_data();
+            return Ok(Image::new(data, ImageId::new(), size));
         }
 
         let static_context = session.static_context();
@@ -161,6 +167,7 @@ impl SegmentService for SegmentServiceImpl {
             static_context,
             inference_context,
             &input_points,
+            &output_image,
         )?;
 
         let (segmented_image_data, size) = segmented_image.into_image_and_size();
@@ -176,8 +183,7 @@ impl SegmentService for SegmentServiceImpl {
         let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let session = self.session_repo.get(&session_id)?;
         let image_id = *session.image_id();
-        let guard = self.image_repo.get(&image_id)?;
-        let original_image = guard.deref().clone();
+        let original_image = self.image_repo.get(&image_id)?;
 
         let input_image = self.input_storage.get(image_id)?;
         let session = self.editing_session_repo.get(&session_id)?;
@@ -185,7 +191,7 @@ impl SegmentService for SegmentServiceImpl {
 
         // 0 点で保存 = 元画像をそのまま保存。この場合だけ返す ImageId が元画像と同じになる。
         if input_points.is_empty() {
-            return Ok(original_image.into_image());
+            return Ok(original_image.image().clone());
         }
 
         let (_, segmented_image) = self.segmenter.segment_high_quality(
@@ -209,6 +215,8 @@ impl SegmentService for SegmentServiceImpl {
         let image_id = *session.image_id();
 
         let original_image = self.image_repo.get(&image_id)?;
+        // 表示用なのでプレビュー解像度で切り抜く。
+        let output_image = self.preview_generator.resize_to_preview(original_image.image());
 
         let input_image = self.input_storage.get(image_id)?;
 
@@ -227,6 +235,7 @@ impl SegmentService for SegmentServiceImpl {
             static_context,
             inference_context,
             &input_points,
+            &output_image,
         )?;
 
         let (segmented_image_data, size) = segmented_image.into_image_and_size();
@@ -254,6 +263,7 @@ impl SegmentServiceImpl {
         >,
         segmenter_input_storage: Arc<dyn SegmenterInputImageStorage>,
         session_locks: Arc<EditingSessionLocks>,
+        preview_generator: Arc<dyn PreviewImageGenerator>,
     ) -> Self {
         Self {
             session_repo: session_repository,
@@ -262,6 +272,7 @@ impl SegmentServiceImpl {
             editing_session_repo: editing_session_repository,
             input_storage: segmenter_input_storage,
             session_locks,
+            preview_generator,
         }
     }
 }
@@ -291,6 +302,7 @@ mod segment_service_test {
         },
         image::{
             image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize},
+            preview::generator::generator_impl::WebPPreviewImageGenerator,
             original::{
                 original_image::OriginalImage,
                 original_repository::{
@@ -343,16 +355,19 @@ mod segment_service_test {
         fn segment_fast(
             &self,
             _input_image: &SegmenterInputImage,
-            original_image: &OriginalImage,
+            _original_image: &OriginalImage,
             _static_context: &SAM2StaticContext,
             _inference_context: &SAM2InferenceContext,
             _input_points: &[Point],
+            output_image: &Image,
         ) -> Result<(SAM2InferenceContext, SegmentedImage), SegmenterRuntimeError> {
             thread::sleep(Duration::from_millis(200));
-            let image = original_image.image();
             Ok((
                 SAM2InferenceContext::default(),
-                SegmentedImage::new(image.image_data().clone(), image.image_size().clone()),
+                SegmentedImage::new(
+                    output_image.image_data().clone(),
+                    output_image.image_size().clone(),
+                ),
             ))
         }
 
@@ -370,6 +385,7 @@ mod segment_service_test {
                 static_context,
                 inference_context,
                 input_points,
+                original_image.image(),
             )
         }
     }
@@ -387,9 +403,9 @@ mod segment_service_test {
 
         let image_id = ImageId::new();
         let image = Image::new(
-            ImageData::new(vec![255; 2 * 2 * 4]),
+            ImageData::new(vec![255; 8 * 8 * 4]),
             image_id,
-            ImageSize::new(2, 2).unwrap(),
+            ImageSize::new(8, 8).unwrap(),
         );
         image_repo.save(OriginalImage::new(image.clone()));
         input_storage.save(SegmenterInputImage::new(image));
@@ -413,6 +429,7 @@ mod segment_service_test {
             editing_session_repo.clone(),
             input_storage,
             Arc::new(EditingSessionLocks::new(clock)),
+            Arc::new(WebPPreviewImageGenerator::new(4)),
         );
         (service, editing_session_repo, session_id)
     }
@@ -434,5 +451,16 @@ mod segment_service_test {
 
         let session = editing_session_repo.get(&session_id).unwrap();
         assert_eq!(session.points().len(), 2);
+    }
+
+    // segment の結果は表示用なので、元画像（8x8）ではなくプレビュー解像度（長辺4 → 4x4）で作ること。
+    #[test]
+    fn segment_cuts_out_at_preview_resolution() {
+        let (service, _, session_id) = make_service_with_session();
+        let point = Point::new(Coordinate::new(1, 1), PointLabel::FOREGROUND);
+
+        let image = service.segment(session_id, point).unwrap();
+
+        assert_eq!(image.image_size(), &ImageSize::new(4, 4).unwrap());
     }
 }

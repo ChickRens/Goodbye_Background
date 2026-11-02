@@ -12,10 +12,6 @@ impl OriginalImage {
         Self { image }
     }
 
-    pub fn into_image(self) -> Image {
-        self.image
-    }
-
     pub fn image(&self) -> &Image {
         &self.image
     }
