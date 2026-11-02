@@ -26,6 +26,14 @@ impl ImageSize {
         }
     }
 
+    /// デコーダが返す u32 のサイズから作る。u16 に収まらない値は範囲外（Long*）として弾く。
+    /// （`as u16` で先にキャストすると 70000 → 4464 のように回り込んで検証をすり抜けるため）
+    pub fn from_u32(height: u32, width: u32) -> Result<Self, ImageSizeError> {
+        let height = u16::try_from(height).unwrap_or(u16::MAX);
+        let width = u16::try_from(width).unwrap_or(u16::MAX);
+        Self::new(height, width)
+    }
+
     pub fn height(&self) -> u16 {
         self.height
     }
