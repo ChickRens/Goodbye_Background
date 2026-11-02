@@ -54,7 +54,7 @@ axum Router (presentation/router.rs)
 | プレビュー座標 | フロントがクリック位置として送る `x, y`（u16） | — |
 | 元画像座標 | `PointHistory` に保存される値 | プレビュー ÷ `point_scale` |
 | SAM2 座標 (1024x1024, f32) | prompt encoder への入力 | 元画像 × (1024 / 元の幅or高さ)（縦横別） |
-| マスク座標 (256x256) | mask decoder の出力（ロジット） | `mask_resizer` で元画像サイズへバイリニア補間 → sigmoid で確率化 |
+| マスク座標 (256x256) | mask decoder の出力（ロジット） | `mask_resizer` で出力サイズへバイリニア補間（ロジットのまま） |
 
 - `point_scale` = `600 / max(元画像の幅, 高さ)`。`WebPPreviewImageGenerator::generate` が返し、
   `UploadOutput` → `PrepareSegmentInput` → `CommonEditingSession.point_scale` と受け渡される
@@ -93,7 +93,7 @@ handler ── {session_id, x, y, is_foreground} → Point(プレビュー座標
       4. 元画像をプレビュー解像度（長辺600px）に縮小（resize_to_preview）
          Sam2Segmenter::segment_fast
            _inference: 座標を1024系に（元画像サイズ基準）→ prompt encoder(点, 前回マスク) → mask decoder → Mask(256², ロジット)
-           _generate_image_fast: プレビューサイズへ resize → sigmoid(ロジット→確率) → apply(アルファ書き込み)
+           _generate_image_fast: プレビューサイズへ resize → apply(alpha = clamp(ロジット×255))
       5. apply_edit(point, 新マスク) で両履歴に追加 → 編集セッション保存
       6. 新しい ImageId を振った RGBA Image（プレビュー解像度）を返す
     PreviewService::generate_and_save_segmented   WebP にしてプレビューストアへ（既にプレビューサイズなのでリサイズは実質無し）
@@ -107,7 +107,7 @@ handler ── {session_id, x, y, is_foreground} → Point(プレビュー座標
 - できないときは `UNDO_FAILED` / `REDO_FAILED`（400）
 
 ### 4.4 `/save` → `/get-completed`
-- `resegment`: 履歴を変えずに現在のポイントで推論し、`segment_high_quality`（resize → sigmoid → ガイデッドフィルタで平滑化 → apply）
+- `resegment`: 履歴を変えずに現在のポイントで推論し、`segment_high_quality`（resize → 境界付近だけガイデッドフィルタで平滑化 → apply）
 - `CompletedService` が元サイズのまま WebP(q95, method 2) にして保存。返した image_id で `/get-completed` から取得
 - 0 点で保存した場合は元画像をそのまま WebP 化（返す image_id は元画像と同じ）
 
@@ -192,15 +192,14 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 1. **編集セッションのメモリリーク**: `SAM2EditingSessionRepository` を `DeleteExpiredEntriesUseCase` に
    `Arc<dyn DeleteExpiredRepository>` として渡し、GC 対象にした。テスト:
    `delete_expired_entries_usecase_test::execute_removes_expired_editing_sessions`
-2. **マスクのロジットを確率として扱っていた件**: `editing/segmenter/mask_activation.rs` を追加し、
-   リサイズ後・平滑化/適用前に sigmoid を掛けるようにした。履歴に保存する前回マスクはロジットのまま。
-   テスト: `sam2_test::generate_image_fast_converts_mask_logits_to_alpha`,
-   `sam2_test::generate_image_high_quality_treats_zero_logit_as_half_transparent`,
-   `mask_activation_test::sigmoid_maps_logits_to_probabilities`
-   - 見た目の変化: 以前はほぼ二値（ロジット > 0 で不透明）だったが、境界が sigmoid に沿った半透明の
-     グラデーションになる。境界の幅は「マスク 1px = 元画像の 長辺/256 px」に比例して広がるので、
-     大きい画像ではエッジが柔らかくなりすぎる可能性がある（実モデルでの見た目は未検証）
-   - 残課題: `mask_smoother` の `confidence` ブレンドは確率入力では実質効いていない（同ファイルのコメント参照）
+2. **~~マスクのロジットを確率として扱っていた件~~ → 誤りだったので撤回**
+   一度 sigmoid でロジットを確率に変換する修正を入れたが、実画像で被写体の周りに「もや」が出た。
+   256x256 のマスクを拡大すると境界のロジットはなだらかな坂になり、sigmoid だと坂全体が半透明になるため。
+   元の `clamp(logit * 255)` は「ロジット 0 付近の狭い帯だけ半透明」で SAM2 公式の閾値 0 とほぼ同じであり、
+   `mask_smoother` の `confidence` ブレンドも「ロジットの絶対値が小さい境界付近だけ平滑化する」ように
+   ロジット入力を前提に働いていた。つまり元の実装が正しかったので元に戻した。
+   テスト: `sam2_test::generate_image_{fast,high_quality}_does_not_blur_boundary_into_haze`
+   教訓: 見た目に影響する変更は、実モデル・実画像で確認するまで「バグ修正」として入れない。
 3. **同一セッションの並行更新**: `editing/session/lock.rs` の `EditingSessionLocks`（セッションごとの
    Mutex を `TtlStore` に保持、GC 対象）を追加し、`SegmentServiceImpl` の各操作全体をロックで囲んだ。
    テスト: `segment_service_test::concurrent_segments_on_same_session_keep_all_points`（偽セグメンタ使用）

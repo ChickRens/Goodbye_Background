@@ -12,9 +12,14 @@
 //! ポイント(元画像座標) --_scale_prompt--> 1024座標 --prompt encoder--> sparse/dense
 //! 前回マスク(あれば) ------------------------------^
 //! StaticContext(特徴量) + sparse/dense + image_pe --mask decoder--> Mask(256x256 ロジット)
-//! Mask --resize--> 元画像サイズ --sigmoid--> 確率 --(save時のみ平滑化)--> アルファに適用
+//! Mask --resize--> 出力サイズ --(save時のみ平滑化)--> アルファに適用（全てロジットのまま）
 //! ```
 //! Mask はロジットのまま `SAM2InferenceContext` に保存され、次回推論の入力になる。
+//!
+//! **ロジットに sigmoid を掛けてはいけない。** 256x256 のマスクを拡大すると境界のロジットは
+//! なだらかな坂になり、sigmoid だと坂全体（数十 px）が半透明になって被写体の周りに「もや」がかかる
+//! （2026-11 に一度入れて実画像で発生し、戻した）。`mask_applier` の `clamp(logit * 255)` は
+//! 「ロジット 0〜1 の狭い帯だけ半透明」= SAM2 公式の「ロジット 0 で二値化」とほぼ同じで、これが正しい。
 //!
 //! スレッド安全性: 各 ONNX セッションは `Arc<Mutex<Session>>`。`Clone` しても同じセッションを共有する。
 //! つまり **全ユーザーの推論が1本の Mutex で直列化される**（同時アクセスが多いと待ち行列になる）。
@@ -37,7 +42,6 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelI
 use crate::{
     editing::segmenter::{
         error::{SegmenterLoadingError, SegmenterModelError, SegmenterRuntimeError},
-        mask_activation::SAM2MaskActivation,
         mask_applier::SAM2MaskApplier,
         mask_resizer::SAM2MaskResizer,
         mask_smoother::SAM2MaskSmoother,
@@ -407,7 +411,7 @@ impl Sam2Segmenter {
         Ok(mask)
     }
 
-    /// マスク → 切り抜き画像（高速版）: `output_image` のサイズにリサイズ → sigmoid で確率化 → アルファに適用。
+    /// マスク → 切り抜き画像（高速版）: `output_image` のサイズにリサイズ → アルファに適用（ロジットのまま）。
     /// `output_image` は通常プレビュー解像度なので、フル解像度で処理するより大幅に速い。
     fn _generate_image_fast(
         mask: &Mask,
@@ -419,8 +423,6 @@ impl Sam2Segmenter {
             output_image.image_size().height() as usize,
             output_image.image_size().width() as usize,
         );
-        // mask decoder の出力はロジットなので、アルファにする前に確率へ変換する。
-        let resized_mask = SAM2MaskActivation::sigmoid(resized_mask);
         let end = start.elapsed();
         println!("resize image in generate image: {:?}", end);
 
@@ -435,7 +437,7 @@ impl Sam2Segmenter {
         ))
     }
 
-    /// マスク → 切り抜き画像（高品質版）: リサイズ → sigmoid で確率化 → ガイデッドフィルタで平滑化 → 適用。
+    /// マスク → 切り抜き画像（高品質版）: リサイズ → ガイデッドフィルタで境界付近だけ平滑化 → 適用（ロジットのまま）。
     /// 大きい画像では平滑化が支配的に重い（`mask_smoother.rs` 参照）。
     fn _generate_image_high_quality(
         mask: &Mask,
@@ -447,8 +449,6 @@ impl Sam2Segmenter {
             original_image.image().image_size().height() as usize,
             original_image.image().image_size().width() as usize,
         );
-        // 平滑化（ガイデッドフィルタ）も 0〜1 の確率を前提にしているので、先に変換する。
-        let resized_mask = SAM2MaskActivation::sigmoid(resized_mask);
         let end = start.elapsed();
         println!("resize image in generate image: {:?}", end);
 
@@ -612,12 +612,13 @@ mod sam2_test {
         OriginalImage::new(Image::new(image_data, ImageId::new(), size))
     }
 
-    // mask decoder の出力はロジット（0 が境界）。ロジット 0 は確率 0.5 = 半透明になるべき。
+    // 前景（正のロジット）は不透明、背景（負のロジット）は完全に透明になること。
     #[test]
-    fn generate_image_fast_converts_mask_logits_to_alpha() {
+    fn generate_image_fast_keeps_foreground_and_removes_background() {
         let original_image = make_2x2_original_image();
-        let mask =
-            Mask::new(Array4::from_shape_vec((1, 1, 2, 2), vec![20.0, -20.0, 0.0, 20.0]).unwrap());
+        let mask = Mask::new(
+            Array4::from_shape_vec((1, 1, 2, 2), vec![20.0, -20.0, -20.0, 20.0]).unwrap(),
+        );
 
         let segmented =
             Sam2Segmenter::_generate_image_fast(&mask, original_image.image()).unwrap();
@@ -626,27 +627,55 @@ mod sam2_test {
         assert_eq!(&result_size, original_image.image().image_size());
         assert_eq!(
             result_image.image(),
-            &vec![
-                255, 0, 0, 255, 0, 255, 0, 0, 0, 0, 255, 127, 255, 255, 255, 255
-            ]
+            &vec![255, 0, 0, 255, 0, 255, 0, 0, 0, 0, 255, 0, 255, 255, 255, 255]
         );
     }
 
-    // 高品質版も同じくロジットを確率に変換してから平滑化・適用する。
-    // 一様な画像・一様なロジット 0 のマスクなら、平滑化しても全画素が半透明のまま。
-    #[test]
-    fn generate_image_high_quality_treats_zero_logit_as_half_transparent() {
-        let size = ImageSize::new(2, 2).unwrap();
-        let gray = vec![128u8, 128, 128, 255].repeat(4);
-        let original_image =
-            OriginalImage::new(Image::new(ImageData::new(gray), ImageId::new(), size));
-        let mask = Mask::new(Array4::<f32>::zeros((1, 1, 2, 2)));
+    /// 256 幅のマスクで、ロジットが左端 -10 から右端 +10 へなだらかに変化する（拡大後の境界を模擬）。
+    fn ramp_logit_mask() -> Mask {
+        let ramp: Vec<f32> = (0..256).map(|x| -10.0 + 20.0 * x as f32 / 255.0).collect();
+        Mask::new(Array4::from_shape_vec((1, 1, 1, 256), ramp).unwrap())
+    }
 
-        let segmented =
-            Sam2Segmenter::_generate_image_high_quality(&mask, &original_image).unwrap();
+    /// 1 行目のうち半透明（0 < alpha < 255）の画素の割合。
+    fn semi_transparent_ratio(rgba: &[u8], width: usize) -> f64 {
+        let row = &rgba[..width * 4];
+        let semi = row
+            .chunks_exact(4)
+            .filter(|pixel| pixel[3] > 0 && pixel[3] < 255)
+            .count();
+        semi as f64 / width as f64
+    }
+
+    fn uniform_original_image(height: u16, width: u16) -> OriginalImage {
+        let size = ImageSize::new(height, width).unwrap();
+        let pixels = [128u8, 128, 128, 255].repeat(height as usize * width as usize);
+        OriginalImage::new(Image::new(ImageData::new(pixels), ImageId::new(), size))
+    }
+
+    // マスクを拡大すると境界のロジットはなだらかな坂になる。坂全体を半透明にすると
+    // 被写体の周りに「もや」がかかる（sigmoid を掛けていた版で実際に起きた）。
+    // 境界はロジット 0 付近の狭い帯だけで切り替わること。
+    #[test]
+    fn generate_image_fast_does_not_blur_boundary_into_haze() {
+        let output = uniform_original_image(2, 2560);
+
+        let segmented = Sam2Segmenter::_generate_image_fast(&ramp_logit_mask(), output.image())
+            .unwrap();
         let (result_image, _) = segmented.into_image_and_size();
 
-        let alphas: Vec<u8> = result_image.image().chunks_exact(4).map(|p| p[3]).collect();
-        assert_eq!(alphas, vec![127, 127, 127, 127]);
+        assert!(semi_transparent_ratio(result_image.image(), 2560) < 0.1);
+    }
+
+    #[test]
+    fn generate_image_high_quality_does_not_blur_boundary_into_haze() {
+        let original_image = uniform_original_image(2, 2560);
+
+        let segmented =
+            Sam2Segmenter::_generate_image_high_quality(&ramp_logit_mask(), &original_image)
+                .unwrap();
+        let (result_image, _) = segmented.into_image_and_size();
+
+        assert!(semi_transparent_ratio(result_image.image(), 2560) < 0.1);
     }
 }
