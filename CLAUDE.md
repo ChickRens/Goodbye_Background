@@ -89,8 +89,10 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 6. **TTL は「最後にアクセスしてから 10 分」**（`get` するたびに延長）。サーバー再起動で全データ消失
 7. **SAM2 の ONNX セッションは Mutex 1本** → 全ユーザーの推論が直列化される。
    これは意図的（オーナー判断: 利用者が少ないうちはメモリを増やさない）。プール化はしないこと
-8. **マスクはロジット**: mask decoder の出力・履歴に保存する前回マスクはロジットのまま。
-   画像に適用する直前（リサイズ後）にだけ `SAM2MaskActivation::sigmoid` で確率にする
+8. **マスクはロジットのまま扱う。sigmoid を掛けない**: `mask_applier` の `clamp(logit * 255)` は
+   「ロジット 0 付近の狭い帯以外は完全に透明/不透明」で、SAM2 公式の閾値 0 とほぼ同じ。
+   sigmoid で確率にすると拡大でなだらかになった境界全体が半透明になり、被写体の周りに「もや」が出る
+   （一度入れて実画像で発生し、戻した。テスト: `*_does_not_blur_boundary_into_haze`）
 9. **ストアを追加したら GC に登録**: `wiring.rs` の `DeleteExpiredEntriesUseCase::new` に渡さないとリークする
 10. **編集セッションを変更する処理は `EditingSessionLocks` で囲む**: 取得→変更→保存の間にロックを持つ。
     ロック順は「セッションロック → ONNX の Mutex」のみ
