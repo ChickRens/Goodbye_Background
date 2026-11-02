@@ -55,6 +55,7 @@ use crate::{
     },
     maintenance::deleting_expired_entries::{
         clock::clock_impl::RealClock,
+        repository::DeleteExpiredRepository,
         usecase::{
             DeleteExpiredEntriesUseCase, ExpiringCompletedImageRepository,
             ExpiringOriginalImageRepository, ExpiringPreviewStorage, ExpiringSegmenterInputStorage,
@@ -99,8 +100,7 @@ impl App {
         // 下で clone しても同じモデルインスタンスを共有する（推論は全リクエストで直列化される）。
         let segmenter =
             Sam2Segmenter::new("models").expect("Failed to load SAM2 model during app initialize");
-        // SAM2 特徴量（1セッション約16MB）を保持する一番重いストア。
-        // 注意: 下の DeleteExpiredEntriesUseCase に渡していないため GC されない。
+        // SAM2 特徴量（1セッション約16MB）を保持する一番重いストア。GC 対象に必ず含めること。
         let editing_session_repo = Arc::new(SAM2EditingSessionRepository::new(clock.clone()));
         let preview_storage = Arc::new(PreviewStorageInMemory::new(clock.clone()));
         // プレビューは長辺 600px。フロントのクリック座標はこの解像度基準で送られてくる。
@@ -151,13 +151,14 @@ impl App {
         let save_uc = SaveUseCase::new(segment_service.clone(), completed_service.clone());
         let get_completed_uc = GetCompletedUseCase::new(completed_service.clone());
         let get_image_uc = GetPreviewUseCase::new(preview_service.clone());
-        // GC 対象のストア一覧。editing_session_repo が含まれていない点に注意（メモリリーク）。
+        // GC 対象のストア一覧。ストアを追加したらここにも渡すこと（渡し忘れ = メモリリーク）。
         let delete_expired_uc = DeleteExpiredEntriesUseCase::new(
             image_repo.clone() as Arc<dyn ExpiringOriginalImageRepository>,
             session_repo.clone() as Arc<dyn ExpiringSessionRepository>,
             completed_image_repo.clone() as Arc<dyn ExpiringCompletedImageRepository>,
             preview_storage.clone() as Arc<dyn ExpiringPreviewStorage>,
             input_storage.clone() as Arc<dyn ExpiringSegmenterInputStorage>,
+            editing_session_repo.clone() as Arc<dyn DeleteExpiredRepository>,
             TTL_SEC,
         );
 
