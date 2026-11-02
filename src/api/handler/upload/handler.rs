@@ -26,7 +26,8 @@ pub async fn upload(
     State(app): State<Arc<App>>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, AppError> {
-    while let Some(field) = multipart
+    // 先頭のフィールドだけを見る（どの分岐も return するのでループにはしない）。
+    if let Some(field) = multipart
         .next_field()
         .await
         .map_err(|err| PresentationError::Multipart(err.to_string()))?
@@ -57,7 +58,7 @@ pub async fn upload(
             }
 
             None => {
-                Err(PresentationError::NoName)?;
+                return Err(PresentationError::NoName.into());
             }
         }
     }

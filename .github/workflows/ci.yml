@@ -1,0 +1,40 @@
+# Rust のフォーマット・lint・テストを PR と master への push で回す。
+#
+# - ort-sys はビルド時に ONNX Runtime のバイナリを cdn.pyke.io から取ってくる（GitHub のランナーからは届く）
+# - テストは models/ が無くても動く（Sam2Segmenter::new を呼ばない）ので、モデルの用意は不要
+# - clippy は今のところ warning では落とさない（既存の warning が多いため）。
+#   deny レベルの lint（error）だけで落ちる。warning を潰し終えたら `-- -D warnings` を付けること
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked
+
+      - name: Test
+        run: cargo test --locked
