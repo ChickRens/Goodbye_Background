@@ -32,7 +32,7 @@ impl PreviewService for PreviewServiceImpl {
         let start = Instant::now();
         let (preview, scale) = self.generator.generate(image);
         let end = start.elapsed();
-        println!("Preview Generate: {:?}", end);
+        tracing::debug!(elapsed = ?end, "preview: generate");
 
         self.storage.save_as_original(preview);
         scale
@@ -42,7 +42,7 @@ impl PreviewService for PreviewServiceImpl {
         let start = Instant::now();
         let (preview, _) = self.generator.generate(image);
         let end = start.elapsed();
-        println!("Preview Generate: {:?}", end);
+        tracing::debug!(elapsed = ?end, "preview: generate");
 
         self.storage.save_as_segmented(preview);
     }

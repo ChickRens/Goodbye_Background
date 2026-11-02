@@ -61,7 +61,7 @@ impl ImageLoader for FileImageLoader {
         let image = Image::new(image_data, image_id, image_size);
 
         let end = start.elapsed();
-        println!("Loading: {:?}", end);
+        tracing::debug!(elapsed = ?end, "upload: decode image");
 
         Ok(LoadedImage::new(image))
     }

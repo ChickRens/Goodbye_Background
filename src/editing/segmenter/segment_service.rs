@@ -86,7 +86,7 @@ impl SegmentService for SegmentServiceImpl {
         let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let service_start = Instant::now();
 
-        println!("Input Point: {:?}", point);
+        tracing::debug!(?point, "segment: input point");
         let session = self.session_repo.get(&session_id)?;
         let image_id = *session.image_id();
 
@@ -101,7 +101,7 @@ impl SegmentService for SegmentServiceImpl {
 
         // ここで初めてプレビュー座標 → 元画像座標に変換される（セッションはまだ変更しない）。
         let input_points = session.points_with(point.clone());
-        println!("Scaled Points: {:?}", input_points);
+        tracing::debug!(?input_points, "segment: points in original image coordinates");
 
         // 表示用なのでプレビュー解像度で切り抜く（フル解像度だと 12MP 画像で約 200ms かかっていた）。
         let output_image = self.preview_generator.resize_to_preview(original_image.image());
@@ -116,7 +116,7 @@ impl SegmentService for SegmentServiceImpl {
             &output_image,
         )?;
         let end = start.elapsed();
-        println!("Segment: {:?}", end);
+        tracing::debug!(elapsed = ?end, "segment: segmenter");
 
         // 推論が成功したときだけ履歴に確定する（失敗時はセッションが変わらない）。
         session.apply_edit(point, new_context);
@@ -126,7 +126,7 @@ impl SegmentService for SegmentServiceImpl {
         let segmented_image_id = ImageId::new();
 
         let end = service_start.elapsed();
-        println!("Segment Service: {:?}", end);
+        tracing::debug!(elapsed = ?end, "segment: total");
 
         Ok(Image::new(segmented_image_data, segmented_image_id, size))
     }

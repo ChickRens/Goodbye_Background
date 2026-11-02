@@ -7,7 +7,7 @@
 //! 4. 期限切れデータ削除（GC）タスクを `CLEANUP_INTERVAL` ごとに回す
 //! 5. axum でポート `PORT`（デフォルト 3000）を listen。API 以外のパスは `frontend/` を静的配信
 //!
-//! 必要な環境変数: `DATABASE_URL_SQLITE` または `DATABASE_URL_POSTGRES`、任意で `PORT`。
+//! 必要な環境変数: `DATABASE_URL_SQLITE` または `DATABASE_URL_POSTGRES`、任意で `PORT`、`RUST_LOG`（ログレベル。既定 `info`）。
 //! カレントディレクトリはリポジトリ直下である必要がある（`models/` `frontend/` を相対パスで参照するため）。
 //!
 //! モジュール構成の全体像はリポジトリ直下の `CLAUDE.md` / `docs/ARCHITECTURE.md` を参照。
@@ -44,10 +44,12 @@ use crate::{
 
 #[tokio::main]
 async fn main() {
+    init_tracing();
+
     let backend = match database_backend() {
         Ok(backend) => backend,
         Err(message) => {
-            eprintln!("{message}");
+            tracing::error!("{message}");
             process::exit(2);
         }
     };
@@ -106,7 +108,7 @@ async fn main() {
         .await
         .expect("Failed to bind TCP listener");
 
-    println!("Server running on 0.0.0.0:{port}");
+    tracing::info!("Server running on 0.0.0.0:{port}");
 
     axum::serve(listener, router).await.unwrap();
 }
@@ -115,6 +117,20 @@ async fn main() {
 enum DatabaseBackend {
     Postgres,
     Sqlite,
+}
+
+/// ログ出力の初期化。レベルは環境変数 `RUST_LOG` で変えられる（未設定なら `info`）。
+///
+/// 例: `RUST_LOG=debug`（処理時間・クリック座標も出す）、`RUST_LOG=Goodbye_Background=trace,sqlx=warn`
+/// - info  : 起動メッセージなど
+/// - warn  : 4xx（クライアント起因）のエラー、利用ログの取りこぼし
+/// - error : 5xx（サーバー起因）のエラー、利用ログの INSERT 失敗
+/// - debug : 各処理の所要時間、クリック座標
+/// - trace : SAM2 に渡す直前の座標変換
+fn init_tracing() {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
 fn database_backend() -> Result<DatabaseBackend, String> {

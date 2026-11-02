@@ -24,7 +24,7 @@ pub struct SQLiteUsageRecorder {
 impl UsageRecorder for SQLiteUsageRecorder {
     fn record(&self, event: UsageEvent) {
         if let Err(e) = self.sender.try_send(event) {
-            eprintln!("{:?}", e);
+            tracing::warn!(error = ?e, "usage record dropped");
         };
     }
 }
@@ -65,7 +65,7 @@ impl SQLiteUsageRecorder {
                 .bind(processing_time_ms)
                 .execute(&pool)
                 .await {
-                    eprintln!("{}", e)
+                    tracing::error!(error = %e, "failed to insert usage record")
                 }
             }
         });
@@ -81,7 +81,7 @@ pub struct PostgresUsageRecorder {
 impl UsageRecorder for PostgresUsageRecorder {
     fn record(&self, event: UsageEvent) {
         if let Err(e) = self.sender.try_send(event) {
-            eprintln!("{:?}", e);
+            tracing::warn!(error = ?e, "usage record dropped");
         };
     }
 }
@@ -122,7 +122,7 @@ impl PostgresUsageRecorder {
                 .bind(processing_time_ms)
                 .execute(&pool)
                 .await {
-                    eprintln!("{}", e)
+                    tracing::error!(error = %e, "failed to insert usage record")
                 }
             }
         });

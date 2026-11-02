@@ -20,3 +20,5 @@ rayon = "1"
 fast_image_resize = { version = "6.0", features = ["rayon"]}
 dashmap = { version = "4.0", features = ["rayon"] }
 sqlx = { version = "0.9", features = ["postgres", "sqlite", "tls-native-tls", "runtime-tokio"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

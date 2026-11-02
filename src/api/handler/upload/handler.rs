@@ -38,8 +38,6 @@ pub async fn upload(
                     .await
                     .map_err(|err| PresentationError::Multipart(err.to_string()))?;
 
-                println!("Uploading");
-
                 let input = UploadInput::new(bytes.to_vec());
 
                 // SAM2 推論・画像処理は CPU を長時間使うので、tokio のワーカーを塞がないよう

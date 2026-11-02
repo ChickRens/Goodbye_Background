@@ -29,7 +29,7 @@ impl PreviewImageGenerator for WebPPreviewImageGenerator {
         let start = Instant::now();
         let (preview_size, scale) = self.preview_size_and_scale(image.image_size());
         let resized = self.resize_rgba(image, &preview_size);
-        println!("Resize in PreviewGenerator: {:?}", start.elapsed());
+        tracing::debug!(elapsed = ?start.elapsed(), "preview: resize");
 
         let start = Instant::now();
         let encoder = Encoder::from_rgba(
@@ -53,7 +53,7 @@ impl PreviewImageGenerator for WebPPreviewImageGenerator {
             .encode_advanced(&config)
             .expect("Encode Failed")
             .to_vec();
-        println!("Encode in PreviewGenerator: {:?}", start.elapsed());
+        tracing::debug!(elapsed = ?start.elapsed(), "preview: encode");
 
         (
             PreviewImage::new(Image::new(

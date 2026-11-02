@@ -378,9 +378,7 @@ impl Sam2Segmenter {
         if let Some(mask) = mask {
             mask_value = Some(mask.view())
         }
-        println!("before coords: {:?}", coords);
-
-        println!("{:?}", original_size);
+        tracing::trace!(?coords, ?original_size, "sam2: prompt before scaling");
         let scaled_coords = Self::_scale_prompt(
             coords,
             original_size.height(),
@@ -389,7 +387,7 @@ impl Sam2Segmenter {
             self.image_width as u16,
         );
 
-        println!("after coords: {:?}", scaled_coords);
+        tracing::trace!(?scaled_coords, "sam2: prompt after scaling");
 
         let (sparse_emb, dense_emb) = self
             ._encode_prompt(scaled_coords, labels, mask_value)
@@ -421,12 +419,12 @@ impl Sam2Segmenter {
         // mask decoder の出力はロジットなので、アルファにする前に確率へ変換する。
         let resized_mask = SAM2MaskActivation::sigmoid(resized_mask);
         let end = start.elapsed();
-        println!("resize image in generate image: {:?}", end);
+        tracing::debug!(elapsed = ?end, "sam2: resize mask");
 
         let start = Instant::now();
         let applied_image = SAM2MaskApplier::apply(output_image, resized_mask.view());
         let end = start.elapsed();
-        println!("apply image in generate image: {:?}", end);
+        tracing::debug!(elapsed = ?end, "sam2: apply mask");
 
         Ok(SegmentedImage::new(
             ImageData::new(applied_image),
@@ -449,18 +447,18 @@ impl Sam2Segmenter {
         // 平滑化（ガイデッドフィルタ）も 0〜1 の確率を前提にしているので、先に変換する。
         let resized_mask = SAM2MaskActivation::sigmoid(resized_mask);
         let end = start.elapsed();
-        println!("resize image in generate image: {:?}", end);
+        tracing::debug!(elapsed = ?end, "sam2: resize mask");
 
         let start = Instant::now();
         let smoothed_mask =
             SAM2MaskSmoother::smoothing(resized_mask.view(), original_image.image());
         let end = start.elapsed();
-        println!("smooth image in generate image: {:?}", end);
+        tracing::debug!(elapsed = ?end, "sam2: smooth mask");
 
         let start = Instant::now();
         let applied_image = SAM2MaskApplier::apply(&original_image.image(), smoothed_mask.view());
         let end = start.elapsed();
-        println!("apply image in generate image: {:?}", end);
+        tracing::debug!(elapsed = ?end, "sam2: apply mask");
 
         Ok(SegmentedImage::new(
             ImageData::new(applied_image),
@@ -490,12 +488,12 @@ impl ImageSegmenter for Sam2Segmenter {
             input_scaled_points,
         )?;
         let end = start.elapsed();
-        println!("SAM2 inference: {:?}", end);
+        tracing::debug!(elapsed = ?end, "sam2: inference");
 
         let start = Instant::now();
         let segmented = Self::_generate_image_fast(&mask, output_image)?;
         let end = start.elapsed();
-        println!("SAM2 generate image: {:?}", end);
+        tracing::debug!(elapsed = ?end, "sam2: generate image");
 
         // 今回のマスクを次回推論のヒントとして返す（segment では履歴に保存される）。
         let inference_context = SAM2InferenceContext::new(Some(mask));
@@ -524,12 +522,12 @@ impl ImageSegmenter for Sam2Segmenter {
             input_scaled_points,
         )?;
         let end = start.elapsed();
-        println!("SAM2 inference: {:?}", end);
+        tracing::debug!(elapsed = ?end, "sam2: inference");
 
         let start = Instant::now();
         let segmented = Self::_generate_image_high_quality(&mask, original_image)?;
         let end = start.elapsed();
-        println!("SAM2 generate image: {:?}", end);
+        tracing::debug!(elapsed = ?end, "sam2: generate image");
 
         let inference_context = SAM2InferenceContext::new(Some(mask));
 

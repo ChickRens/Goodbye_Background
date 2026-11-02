@@ -17,7 +17,6 @@ pub async fn get_completed_image(
     State(app): State<Arc<App>>,
     Json(request): Json<GetCompletedRequest>,
 ) -> Result<Response, AppError> {
-    println!("Getting image start");
     let image_id = request.image_id;
     let image_id = ImageId::from_str(&image_id).map_err(|err| PresentationError::from(err))?;
 

@@ -52,7 +52,12 @@ impl IntoResponse for AppError {
             code: code.to_string(),
         };
 
-        eprintln!("AppError: {:?}", self.cause());
+        // 5xx はサーバー側の問題なので error、4xx はクライアント起因なので warn。
+        if status.is_server_error() {
+            tracing::error!(code, cause = ?self.cause(), "request failed");
+        } else {
+            tracing::warn!(code, cause = ?self.cause(), "request rejected");
+        }
 
         let json = Json(ErrorBody {
             code: code.to_string(),

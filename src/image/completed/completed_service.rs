@@ -27,7 +27,7 @@ impl CompletedService for CompletedServiceImpl {
         let start = Instant::now();
         let completed_image = self.generator.generate(image);
         let end = start.elapsed();
-        println!("CompletedImage generate: {:?}", end);
+        tracing::debug!(elapsed = ?end, "save: encode completed image");
         self.repository.save(completed_image);
     }
 
