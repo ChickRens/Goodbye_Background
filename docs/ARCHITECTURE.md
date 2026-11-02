@@ -41,6 +41,7 @@ axum Router (presentation/router.rs)
 | `OriginalImageRepositoryInMemory` | ImageId | 元画像 生RGBA | 幅×高×4 B（4000x3000 で 48MB） | ✅ |
 | `SegmenterInputStorageInMemory` | ImageId（元画像と同じ） | 1024x1024 生RGBA | 4MB | ✅ |
 | `SAM2EditingSessionRepository` | SessionId | 特徴量 + ポイント履歴 + マスク履歴 | 約16MB + 256KB×履歴数 | ✅ |
+| `EditingSessionLocks` | SessionId | `Mutex<()>`（セッション単位のロック） | 数十B | ✅ |
 | `PreviewStorageInMemory`（2系統） | ImageId | 長辺600px WebP | 数十KB | ✅ |
 | `CompletedRepositoryInMemory` | ImageId | 元サイズ WebP q95 | 数百KB〜数MB | ✅ |
 
@@ -199,15 +200,24 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
      グラデーションになる。境界の幅は「マスク 1px = 元画像の 長辺/256 px」に比例して広がるので、
      大きい画像ではエッジが柔らかくなりすぎる可能性がある（実モデルでの見た目は未検証）
    - 残課題: `mask_smoother` の `confidence` ブレンドは確率入力では実質効いていない（同ファイルのコメント参照）
+3. **同一セッションの並行更新**: `editing/session/lock.rs` の `EditingSessionLocks`（セッションごとの
+   Mutex を `TtlStore` に保持、GC 対象）を追加し、`SegmentServiceImpl` の各操作全体をロックで囲んだ。
+   テスト: `segment_service_test::concurrent_segments_on_same_session_keep_all_points`（偽セグメンタ使用）
+4. **DB マイグレーション**: `migrations/sqlite/` と `migrations/postgres/` に分割し、両方とも起動時に適用。
+   SQLite は適用済みの2本を変えずに、テーブルを作り直して id を振り直す3本目を追加
+   （既存行は保持）。Postgres の2本目は手動作成済みテーブルでも通るよう `ADD COLUMN IF NOT EXISTS`。
+   `.env.example` も有効な URL 形式に修正。
+   テスト: `sqlite_migration_test::*`（新規 DB / 既存 DB の更新）。Postgres はローカルの PostgreSQL 16 で
+   「空の DB」「手動でテーブル作成済みの DB」の両方を手動確認
+   - 注意: もし過去に sqlx-cli で Postgres に旧マイグレーションを適用していた場合、2本目のチェックサムが
+     変わっているので起動時にエラーになる（アプリ本体は Postgres でマイグレーションを実行していなかったので、
+     通常は該当しない）
+5. **巨大画像の u16 回り込み**: `ImageSize::from_u32` を追加し、u32 のまま範囲チェックするようにした。
+   テスト: `image_loader_tests::test_{width,height}_over_u16_max_is_rejected`
 
-### 🟠 中
-3. **同一セッションの並行更新**: `SegmentServiceImpl` は「取得 → clone → 変更 → 保存」をロック無しで行う。
-   同じ session_id へ同時に segment が来ると後勝ちで片方の点が消える。フロントの `busy` ロック頼み。
-4. **DB マイグレーション**: `main.rs` は SQLite のときだけ `sqlx::migrate!` を実行し、Postgres では実行しない。
-   さらにマイグレーション SQL が `BIGSERIAL` / `TIMESTAMPTZ` を使っており、SQLite では
-   `id` が rowid の別名にならず NULL のまま入る。`.env.example` の URL（`sql://...`）もそのままでは使えない。
-5. **巨大画像の u16 回り込み**: `loader_impl.rs` で `width as u16` を検証前に行うので 65535px 超が素通りする。
+### 🟠 中（未対応）
 6. **推論の直列化**: ONNX セッションが Mutex 1本なので、同時利用者が増えると待ち時間が線形に伸びる。
+   セッションのプール化（メモリ増）か、ort の intra-op スレッド数調整か、設計判断が必要。
 
 ### 🟡 小
 7. 仕様（`rule.txt`）と実装の差: 最大 3000px ↔ 8000px、寿命 30 分 ↔ 10 分、保存後 10 分で削除 ↔ 特別扱い無し。

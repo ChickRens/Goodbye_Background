@@ -48,11 +48,12 @@ api/handler/<ep>/    エンドポイントごとの handler.rs / request.rs / re
 image_io/            ユースケース: upload / get_preview / get_completed
 editing/             ユースケース: prepare_segment / segment / undo / redo / save
   segmenter/         ★ SAM2 推論（segmenter_sam2.rs）と前後処理（mask_resizer/smoother/applier）
-  session/           編集セッション（SAM2 特徴量 + ポイント履歴 + マスク履歴）
+  session/           編集セッション（SAM2 特徴量 + ポイント履歴 + マスク履歴）とセッション単位のロック
 image/               画像ドメイン: original / segmenter_input / preview / completed
 point/               クリック座標・ラベル・undo/redo 履歴
 session/             セッション（session_id → 元画像 image_id の対応）
 maintenance/         TtlStore（全ストアの実体）と期限切れ削除ユースケース
+migrations/{sqlite,postgres}/  利用ログテーブルのマイグレーション（起動時に自動適用。src の外）
 analytics/           利用ログの記録（mpsc チャネル → バックグラウンドで INSERT）
 common/              エラー定義マクロ（leaf_error! / leaf_detail_error! / parent_error!）
 ```
@@ -90,13 +91,14 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 8. **マスクはロジット**: mask decoder の出力・履歴に保存する前回マスクはロジットのまま。
    画像に適用する直前（リサイズ後）にだけ `SAM2MaskActivation::sigmoid` で確率にする
 9. **ストアを追加したら GC に登録**: `wiring.rs` の `DeleteExpiredEntriesUseCase::new` に渡さないとリークする
+10. **編集セッションを変更する処理は `EditingSessionLocks` で囲む**: 取得→変更→保存の間にロックを持つ。
+    ロック順は「セッションロック → ONNX の Mutex」のみ
+11. **マイグレーションは DB ごと**: `migrations/sqlite/` と `migrations/postgres/` の両方に追加する。
+    適用済みのファイルは絶対に書き換えない（sqlx のチェックサム不一致で起動しなくなる）
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）
 
-- 🟠 同一セッションへの並行リクエストで lost update が起きる（サーバー側にロックが無い）
-- 🟠 Postgres モードではマイグレーションが実行されない。SQLite 用マイグレーションが Postgres 専用型
-  （BIGSERIAL / TIMESTAMPTZ）を使っており、SQLite では `id` が自動採番されない
-- 🟠 65535px 超の画像で `as u16` が回り込み、サイズ検証をすり抜ける
+- 🟠 SAM2 の ONNX セッションが Mutex 1本なので、同時利用者が増えると推論待ちが線形に伸びる
 - 🟡 rule.txt（3000px / 30分 / 保存後10分で削除）と実装（8000px / 10分 / 保存後の特別扱い無し）が不一致
 - 🟡 `frontend/README.md` は `/get-preview` が `image/png` を返すと書いているが、実際は `image/webp`
 - 🟡 `image_pe.bin` のパスだけ `model_dir` を無視してハードコード

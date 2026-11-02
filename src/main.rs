@@ -60,7 +60,7 @@ async fn main() {
                 .connect(&database_url)
                 .await
                 .expect("Failed to connect to SQLite database");
-            sqlx::migrate!("./migrations")
+            sqlx::migrate!("./migrations/sqlite")
                 .run(&pool)
                 .await
                 .expect("Failed to run SQLite migrations");
@@ -73,8 +73,12 @@ async fn main() {
                 .connect(&database_url)
                 .await
                 .expect("Failed to connect to PostgreSQL database");
-            // 注意: Postgres ではマイグレーションを実行していない。
-            // usage_records テーブル（migrations/ の内容）は事前に作成しておく必要がある。
+            // SQLite と Postgres で型が違うので、マイグレーションはディレクトリを分けている。
+            // 手動でテーブルを作った既存 DB でも通るよう、Postgres 側は IF NOT EXISTS で書いてある。
+            sqlx::migrate!("./migrations/postgres")
+                .run(&pool)
+                .await
+                .expect("Failed to run PostgreSQL migrations");
             Arc::new(PostgresUsageRecorder::new(pool))
         }
     };
