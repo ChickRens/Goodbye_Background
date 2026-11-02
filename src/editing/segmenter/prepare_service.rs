@@ -1,3 +1,10 @@
+//! `/upload` 直後に行う SAM2 の準備処理。
+//!
+//! 1. 元画像を取得し 1024x1024 にリサイズ（`SAM2InputGenerator`）
+//! 2. image encoder で特徴量を計算 → `SAM2StaticContext`（ここが一番重い）
+//! 3. 空のポイント履歴・マスク履歴（初期値 None）で `CommonEditingSession` を作って保存
+//! 4. リサイズ済み画像も保存（現状は推論で使われていない）
+
 use std::sync::Arc;
 
 use crate::editing::segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext};

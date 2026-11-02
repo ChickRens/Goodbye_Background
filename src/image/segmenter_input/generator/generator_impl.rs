@@ -1,7 +1,6 @@
-use image::{
-    RgbaImage,
-    imageops::{self, FilterType},
-};
+//! `SegmenterInputImageGenerator` の SAM2 実装。
+
+use fast_image_resize as fr;
 
 use crate::image::{
     image::{image::Image, raw_data::ImageData, size::ImageSize},
@@ -12,6 +11,11 @@ use crate::image::{
     },
 };
 
+/// 元画像を SAM2 入力サイズ（1024x1024）にリサイズする。
+///
+/// **アスペクト比を保たずに引き伸ばす**（パディングしない）。SAM2 公式の前処理と同じ方式で、
+/// ポイント座標も縦横別々の倍率で変換している（`Sam2Segmenter::_scale_prompt`）ので整合している。
+/// フィルタは Bilinear 畳み込み（`fast_image_resize`）。
 #[derive(Debug, Clone)]
 pub struct SAM2InputGenerator {
     sam2_required_height: f32,
@@ -23,22 +27,29 @@ impl SegmenterInputImageGenerator for SAM2InputGenerator {
         let input_image = image.image();
         let size = input_image.image_size();
 
-        let rgba_image = RgbaImage::from_raw(
+        // 元データは借用するだけ（コピーしない）。fast_image_resize は SIMD + rayon で並列に動く。
+        // （以前の image::imageops::resize はシングルスレッドで、12MP 画像で約 300ms かかっていた）
+        let source = fr::images::ImageRef::new(
             size.width() as u32,
             size.height() as u32,
-            input_image.image_data().image().clone(),
+            input_image.image_data().image(),
+            fr::PixelType::U8x4,
         )
         .expect("segmenter input image data is not valid RGBA data");
-
-        let resized = imageops::resize(
-            &rgba_image,
+        let mut resized = fr::images::Image::new(
             self.sam2_required_width as u32,
             self.sam2_required_height as u32,
-            FilterType::Triangle,
+            fr::PixelType::U8x4,
         );
+        // Bilinear 畳み込み（縮小時はサポート幅を広げて平均する）= 旧実装の Triangle フィルタと同等。
+        let options = fr::ResizeOptions::new()
+            .resize_alg(fr::ResizeAlg::Convolution(fr::FilterType::Bilinear));
+        fr::Resizer::new()
+            .resize(&source, &mut resized, &options)
+            .expect("Resize Failed in SAM2InputGenerator");
 
         let resized_image = Image::new(
-            ImageData::new(resized.into_raw()),
+            ImageData::new(resized.into_vec()),
             *input_image.image_id(),
             ImageSize::new(
                 self.sam2_required_height as u16,

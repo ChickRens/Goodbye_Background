@@ -1,3 +1,5 @@
+//! SAM2 へのプロンプト1点 = 座標 + ラベル（前景/背景）。
+
 use std::ops::{Div, Mul};
 
 use crate::point::coordinate::Coordinate;
@@ -8,6 +10,8 @@ pub struct Point {
     label: PointLabel,
 }
 
+/// ポイントの種類。数値は SAM2 の `point_labels` 入力にそのまま渡される（`as i64`）。
+/// 1 = 前景（残す）, 0 = 背景（消す）。SAM2 公式の定義と同じ値なので変更しないこと。
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PointLabel {
     BACKGROUND = 0,

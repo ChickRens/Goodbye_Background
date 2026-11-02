@@ -1,3 +1,6 @@
+//! 画像の共通表現。中身のバイト列が「生 RGBA」か「エンコード済み WebP」かは
+//! 型からは分からないので、どの文脈の `Image` かに注意すること（`image/mod.rs` の表を参照）。
+
 use crate::image::image::{id::ImageId, raw_data::ImageData, size::ImageSize};
 
 #[derive(Debug, PartialEq, Eq, Clone)]

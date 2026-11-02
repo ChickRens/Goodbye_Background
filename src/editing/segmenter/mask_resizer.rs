@@ -1,3 +1,11 @@
+//! マスク（SAM2 出力 256x256）を任意サイズ（元画像サイズ）にバイリニア補間で拡大する。
+//!
+//! 座標の対応は「ピクセル中心合わせ」（OpenCV の INTER_LINEAR / align_corners=False と同じ）:
+//! `src = (dst + 0.5) * src_size / dst_size - 0.5` を端で clamp。
+//!
+//! 形状は [1, 1, H, W] のみ対応（batch=1, channel=1）。
+//! 補間なので入力の値域がそのまま保たれる（ロジットはロジットのまま）。
+
 use ndarray::{Array4, ArrayView4, Axis};
 use rayon::{
     iter::{IndexedParallelIterator, ParallelIterator},

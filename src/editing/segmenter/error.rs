@@ -1,3 +1,10 @@
+//! セグメンタ関連のエラー定義。
+//!
+//! - `SegmenterModelError`  : 起動時の ONNX モデル読み込み失敗
+//! - `SegmenterRuntimeError`: 推論失敗（segment/undo/redo/save）
+//! - `SegmenterLoadingError`: 前処理（画像エンコード）失敗（upload）
+//! - `SegmentServiceError` / `PrepareServiceError`: サービス層でまとめたもの
+
 use crate::{
     common::traits::ErrorType::Internal,
     editing::session::{

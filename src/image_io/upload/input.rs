@@ -1,3 +1,5 @@
+//! アップロードの入力（multipart の `file` フィールドの生バイト列）。
+
 pub struct UploadInput {
     pub image: Vec<u8>,
 }

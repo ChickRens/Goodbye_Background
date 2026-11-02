@@ -1,3 +1,5 @@
+//! `/segment` のレスポンス: `{ "image_id": UUID }`（新しい切り抜き結果プレビューの ID）。
+
 use uuid::Uuid;
 
 #[derive(serde::Serialize)]

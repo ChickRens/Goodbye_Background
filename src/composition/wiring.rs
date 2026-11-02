@@ -1,3 +1,10 @@
+//! 依存性の組み立て（手書きの DI）。全ユースケース・サービス・ストアはここで1回だけ生成される。
+//!
+//! 「この trait の実装はどれ？」「このストアは誰と共有されている？」と思ったらまずここを見る。
+//! 各ストアは `Arc` で共有され、同じインスタンスが複数のサービス/ユースケースから参照される。
+//!
+//! HTTP ハンドラは `App` のメソッドだけを呼ぶ（ユースケースを直接触らない）。
+
 use std::{sync::Arc, time::Instant};
 
 use crate::{
@@ -14,7 +21,9 @@ use crate::{
             segment_service::{SegmentService, SegmentServiceImpl},
             segmenter_sam2::Sam2Segmenter,
         },
-        session::repository::repository_impl::SAM2EditingSessionRepository,
+        session::{
+            lock::EditingSessionLocks, repository::repository_impl::SAM2EditingSessionRepository,
+        },
         undo::{input::UndoInput, output::UndoOutput, usecase::UndoUseCase},
     },
     image::{
@@ -48,6 +57,7 @@ use crate::{
     },
     maintenance::deleting_expired_entries::{
         clock::clock_impl::RealClock,
+        repository::DeleteExpiredRepository,
         usecase::{
             DeleteExpiredEntriesUseCase, ExpiringCompletedImageRepository,
             ExpiringOriginalImageRepository, ExpiringPreviewStorage, ExpiringSegmenterInputStorage,
@@ -57,6 +67,10 @@ use crate::{
     session::repository::repository_impl::SessionRepositoryInMemory,
 };
 
+/// アプリ全体のファサード。axum の `State<Arc<App>>` として全ハンドラに渡される。
+///
+/// 同期メソッド（upload/segment/undo/redo/save）は CPU 重い処理を含むので、
+/// ハンドラ側で `spawn_blocking` 経由で呼ぶこと。
 pub struct App {
     upload_usecase: UploadUseCase,
     prepare_segment_usecase: PrepareSegmentUseCase,
@@ -71,26 +85,39 @@ pub struct App {
 }
 
 impl App {
+    /// 全依存を組み立てる。
+    ///
+    /// 注意: SAM2 モデルの読み込みに失敗すると `Result` ではなく panic する（`expect`）。
+    /// 戻り値の `Result` は現状 `Err` を返す経路が無い。
     pub fn new(usage_recorder: Arc<dyn UsageRecorder>) -> Result<Self, ApplicationError> {
         let clock = RealClock::new();
 
+        // ---- ストア（全てインメモリ + TTL。サーバー再起動で全て消える） ----
         let session_repo = Arc::new(SessionRepositoryInMemory::new(clock.clone()));
         let image_repo = Arc::new(OriginalImageRepositoryInMemory::new(Arc::new(
             clock.clone(),
         )));
         let loader = FileImageLoader::new();
+        // Sam2Segmenter は内部で ONNX セッションを Arc<Mutex<_>> で持つので、
+        // 下で clone しても同じモデルインスタンスを共有する（推論は全リクエストで直列化される）。
         let segmenter =
             Sam2Segmenter::new("models").expect("Failed to load SAM2 model during app initialize");
+        // SAM2 特徴量（1セッション約16MB）を保持する一番重いストア。GC 対象に必ず含めること。
         let editing_session_repo = Arc::new(SAM2EditingSessionRepository::new(clock.clone()));
         let preview_storage = Arc::new(PreviewStorageInMemory::new(clock.clone()));
-        let preview_generator = WebPPreviewImageGenerator::new(600);
+        // プレビューは長辺 600px。フロントのクリック座標はこの解像度基準で送られてくる。
+        let preview_generator = Arc::new(WebPPreviewImageGenerator::new(600));
         let input_storage = Arc::new(SegmenterInputStorageInMemory::new(clock.clone()));
+        // 同一セッションへの segment/undo/redo/save を直列化するロック表（GC 対象）。
+        let session_locks = Arc::new(EditingSessionLocks::new(clock.clone()));
+        // SAM2 の image encoder は 1024x1024 固定入力。
         let input_generator = SAM2InputGenerator::new(1024, 1024);
         let completed_image_generator = WebPCompletedImageGenerator::new();
         let completed_image_repo = Arc::new(CompletedRepositoryInMemory::new(clock.clone()));
 
+        // ---- サービス（複数ユースケースで共有するドメインロジック） ----
         let preview_service: Arc<dyn PreviewService> = Arc::new(PreviewServiceImpl::new(
-            Arc::new(preview_generator),
+            preview_generator.clone(),
             preview_storage.clone(),
         ));
         let prepare_service: Arc<dyn PrepareSegmentService> =
@@ -108,12 +135,15 @@ impl App {
             image_repo.clone(),
             editing_session_repo.clone(),
             input_storage.clone(),
+            session_locks.clone(),
+            preview_generator.clone(),
         ));
         let completed_service: Arc<dyn CompletedService> = Arc::new(CompletedServiceImpl::new(
             Arc::new(completed_image_generator),
             completed_image_repo.clone(),
         ));
 
+        // ---- ユースケース（1 API = 1 ユースケース。prepare_segment だけは upload の後段） ----
         let upload_uc = UploadUseCase::new(
             session_repo.clone(),
             image_repo.clone(),
@@ -127,12 +157,15 @@ impl App {
         let save_uc = SaveUseCase::new(segment_service.clone(), completed_service.clone());
         let get_completed_uc = GetCompletedUseCase::new(completed_service.clone());
         let get_image_uc = GetPreviewUseCase::new(preview_service.clone());
+        // GC 対象のストア一覧。ストアを追加したらここにも渡すこと（渡し忘れ = メモリリーク）。
         let delete_expired_uc = DeleteExpiredEntriesUseCase::new(
             image_repo.clone() as Arc<dyn ExpiringOriginalImageRepository>,
             session_repo.clone() as Arc<dyn ExpiringSessionRepository>,
             completed_image_repo.clone() as Arc<dyn ExpiringCompletedImageRepository>,
             preview_storage.clone() as Arc<dyn ExpiringPreviewStorage>,
             input_storage.clone() as Arc<dyn ExpiringSegmenterInputStorage>,
+            editing_session_repo.clone() as Arc<dyn DeleteExpiredRepository>,
+            session_locks.clone() as Arc<dyn DeleteExpiredRepository>,
             TTL_SEC,
         );
 
@@ -150,8 +183,15 @@ impl App {
         })
     }
 
+    /// `/upload`: 画像デコード + セッション作成 + 元画像プレビュー生成（UploadUseCase）を行い、
+    /// 続けて SAM2 の画像エンコード（PrepareSegmentUseCase。数百ms〜数秒かかる重い処理）を行う。
+    ///
+    /// 2つのユースケースを順に呼ぶだけでトランザクションは無い。
+    /// 後半が失敗するとセッションと元画像だけが残る（TTL で消える）。
     pub fn upload(&self, input: UploadInput) -> Result<UploadOutput, ApplicationError> {
         let output = self.upload_usecase.execute(input)?;
+        // 名前は "preview_to_original" だが、実際の値は preview = original * scale となる倍率
+        // （= 600 / 元画像の長辺）。ポイントは `point / scale` で元画像座標に戻される。
         let preview_to_original_point_scale = output.scale();
         let (session_id, image_id) = output.session_id_and_image_id();
 
@@ -160,18 +200,23 @@ impl App {
         Ok(output)
     }
 
+    /// `/segment`: ポイントを追加して推論（高速版）し、切り抜き結果のプレビューを作る。
     pub fn segment(&self, input: SegmentInput) -> Result<SegmentOutput, ApplicationError> {
         Ok(self.segment_usecase.execute(input)?)
     }
 
+    /// `/undo`: 最後のポイントを取り消して再推論する。ポイントが0個になったら元画像そのものを返す。
     pub fn undo(&self, input: UndoInput) -> Result<UndoOutput, ApplicationError> {
         Ok(self.undo_usecase.execute(input)?)
     }
 
+    /// `/redo`: undo したポイントを戻して再推論する。
     pub fn redo(&self, input: RedoInput) -> Result<RedoOutput, ApplicationError> {
         Ok(self.redo_usecase.execute(input)?)
     }
 
+    /// `/save`: 現在のポイントで高品質推論（エッジ平滑化あり）し、保存用 WebP を作る。
+    /// 返す image_id は `/get-completed` 用（プレビューストアには入らない）。
     pub fn save(&self, input: SaveInput) -> Result<SaveOutput, ApplicationError> {
         Ok(self.save_usecase.execute(input)?)
     }
@@ -190,6 +235,7 @@ impl App {
         Ok(self.get_preview_usecase.execute(input)?)
     }
 
+    /// GC タスクから呼ばれる。`now` 時点で期限切れのエントリを全ストアから削除する。
     pub fn cleanup(&self, now: Instant) {
         self.delete_expired_usecase.execute(now);
     }

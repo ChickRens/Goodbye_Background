@@ -1,3 +1,5 @@
+//! デコード済み画像（生 RGBA）。
+
 use crate::image::image::image::Image;
 
 #[derive(Debug, PartialEq, Eq)]

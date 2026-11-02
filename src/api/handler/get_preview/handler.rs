@@ -1,3 +1,7 @@
+//! `POST /get-preview` ハンドラ。image_id のプレビューを `image/webp` で返す。
+//!
+//! 軽い処理なので `spawn_blocking` を使っていない（async fn から同期的に呼ぶ）。
+
 use std::sync::Arc;
 
 use axum::{Json, body::Body, extract::State, response::Response};

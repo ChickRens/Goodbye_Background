@@ -1,3 +1,26 @@
+//! SAM2.1 (hiera_small) を ONNX Runtime (`ort` クレート) で動かすセグメンタ。
+//!
+//! モデルは3分割で、`models/` に置く（git 管理外。`scripts/*_export.py` で生成する）:
+//! - `sam2.1_hiera_small_image_encoder.onnx`  : 画像 [1,3,1024,1024]（0〜1 の RGB）→ 特徴量3つ
+//!   （ImageNet の mean/std 正規化はモデル内部で行うので、Rust 側は /255 するだけ）
+//! - `sam2.1_hiera_small_prompt_encoder.onnx` : ポイント + 前回マスク → sparse/dense 埋め込み
+//! - `sam2.1_hiera_small_mask_decoder.onnx`   : 特徴量 + 埋め込み + image_pe → マスク [1,1,256,256]
+//! - `image_pe.bin` : 位置エンコーディング [1,256,64,64] の f32 生バイナリ（`scripts/image_pe_generate.py`）
+//!
+//! 推論の流れ（`_inference`）:
+//! ```text
+//! ポイント(元画像座標) --_scale_prompt--> 1024座標 --prompt encoder--> sparse/dense
+//! 前回マスク(あれば) ------------------------------^
+//! StaticContext(特徴量) + sparse/dense + image_pe --mask decoder--> Mask(256x256 ロジット)
+//! Mask --resize--> 元画像サイズ --sigmoid--> 確率 --(save時のみ平滑化)--> アルファに適用
+//! ```
+//! Mask はロジットのまま `SAM2InferenceContext` に保存され、次回推論の入力になる。
+//!
+//! スレッド安全性: 各 ONNX セッションは `Arc<Mutex<Session>>`。`Clone` しても同じセッションを共有する。
+//! つまり **全ユーザーの推論が1本の Mutex で直列化される**（同時アクセスが多いと待ち行列になる）。
+//!
+//! 命名: `_` 始まりのメソッドは内部ヘルパー（Python 風の慣習。Rust としては非標準）。
+
 use std::{
     sync::{Arc, Mutex},
     time::Instant,
@@ -14,6 +37,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelI
 use crate::{
     editing::segmenter::{
         error::{SegmenterLoadingError, SegmenterModelError, SegmenterRuntimeError},
+        mask_activation::SAM2MaskActivation,
         mask_applier::SAM2MaskApplier,
         mask_resizer::SAM2MaskResizer,
         mask_smoother::SAM2MaskSmoother,
@@ -25,7 +49,7 @@ use crate::{
         segmenter::ImageSegmenter,
     },
     image::{
-        image::{raw_data::ImageData, size::ImageSize},
+        image::{image::Image, raw_data::ImageData, size::ImageSize},
         original::original_image::OriginalImage,
         segmenter_input::segmenter_input_image::SegmenterInputImage,
     },
@@ -33,12 +57,15 @@ use crate::{
 };
 use std::fs::read;
 
+/// SAM2 セグメンタ本体。起動時に1回だけ作られ、prepare/segment の両サービスで共有される。
 #[derive(Clone)]
 pub struct Sam2Segmenter {
     image_encoder_session: Arc<Mutex<Session>>,
     prompt_encoder_session: Arc<Mutex<Session>>,
     mask_decoder_session: Arc<Mutex<Session>>,
+    /// mask decoder に毎回渡す位置エンコーディング（定数）。
     image_pe: Array4<f32>,
+    /// SAM2 の入力解像度（1024 固定）。
     image_height: usize,
     image_width: usize,
 }
@@ -59,6 +86,7 @@ impl Sam2Segmenter {
                 model_dir
             ))?)),
             image_pe: {
+                // 注意: ここだけ `model_dir` 引数を使わずパスがハードコードされている。
                 let bin_file = read("models/image_pe.bin")
                     .map_err(|e| SegmenterModelError::ModelLoadError(e.to_string()))?;
                 let data: &[f32] = bytemuck::cast_slice(&bin_file);
@@ -107,6 +135,10 @@ impl Sam2Segmenter {
             .expect("Failed to create Array3 from tensor data")
     }
 
+    /// image encoder を実行する（`/upload` 時に1回だけ。CPU だと数百ms〜数秒）。
+    ///
+    /// 入力は 1024x1024 の画像。RGBA → RGB にし、HWC（ピクセルごとに RGB）から
+    /// CHW（R 平面・G 平面・B 平面）に並べ替えつつ 0〜1 に正規化する。
     fn _encode_image(
         &self,
         original_image: &DynamicImage,
@@ -157,6 +189,8 @@ impl Sam2Segmenter {
         Ok((image_embeddings, high_res_feature_s0, high_res_feature_s1))
     }
 
+    /// ポイント座標を current サイズ → target サイズへ縦横独立に拡大縮小する。
+    /// 元画像座標 → 1024x1024 座標の変換に使う（入力画像もアスペクト比無視で引き伸ばしているため整合する）。
     fn _scale_prompt(
         points_coords: Vec<(f32, f32)>,
         current_height: u16,
@@ -178,6 +212,10 @@ impl Sam2Segmenter {
         scaled_points_coords
     }
 
+    /// prompt encoder を実行する。
+    ///
+    /// `mask` が None（初回推論）のときはゼロ配列を渡し、`has_mask = 0.0` でモデル側に無視させる
+    /// （ONNX に if 分岐を持ち込めないため。scripts/prompt_encoder_export.py 参照）。
     fn _encode_prompt(
         &self,
         points_coords: Vec<(f32, f32)>,
@@ -233,6 +271,8 @@ impl Sam2Segmenter {
         Ok((sparse_embeddings, dense_embeddings))
     }
 
+    /// mask decoder を実行し、256x256 のマスク（ロジット）を得る。
+    /// multimask_output=False でエクスポートされているので、出力マスクは1枚だけ。
     fn _decode_mask(
         &self,
         image_embeddings: &ImageEmbeddings,
@@ -310,6 +350,10 @@ impl Sam2Segmenter {
         Ok(mask)
     }
 
+    /// 1回分の推論（prompt encoder → mask decoder）。画像の encode は含まない。
+    ///
+    /// `input_scaled_points` は名前に反して **元画像座標**（"scaled" はプレビュー→元画像の変換済みの意）。
+    /// ここで `original_size` を使って 1024 座標に変換する。
     fn _inference(
         &self,
         original_size: &ImageSize,
@@ -363,30 +407,36 @@ impl Sam2Segmenter {
         Ok(mask)
     }
 
+    /// マスク → 切り抜き画像（高速版）: `output_image` のサイズにリサイズ → sigmoid で確率化 → アルファに適用。
+    /// `output_image` は通常プレビュー解像度なので、フル解像度で処理するより大幅に速い。
     fn _generate_image_fast(
         mask: &Mask,
-        original_image: &OriginalImage,
+        output_image: &Image,
     ) -> Result<SegmentedImage, SegmenterRuntimeError> {
         let start = Instant::now();
         let resized_mask = SAM2MaskResizer::resize_mask(
             &mask.view(),
-            original_image.image().image_size().height() as usize,
-            original_image.image().image_size().width() as usize,
+            output_image.image_size().height() as usize,
+            output_image.image_size().width() as usize,
         );
+        // mask decoder の出力はロジットなので、アルファにする前に確率へ変換する。
+        let resized_mask = SAM2MaskActivation::sigmoid(resized_mask);
         let end = start.elapsed();
         println!("resize image in generate image: {:?}", end);
 
         let start = Instant::now();
-        let applied_image = SAM2MaskApplier::apply(&original_image.image(), resized_mask.view());
+        let applied_image = SAM2MaskApplier::apply(output_image, resized_mask.view());
         let end = start.elapsed();
         println!("apply image in generate image: {:?}", end);
 
         Ok(SegmentedImage::new(
             ImageData::new(applied_image),
-            original_image.image().image_size().clone(),
+            output_image.image_size().clone(),
         ))
     }
 
+    /// マスク → 切り抜き画像（高品質版）: リサイズ → sigmoid で確率化 → ガイデッドフィルタで平滑化 → 適用。
+    /// 大きい画像では平滑化が支配的に重い（`mask_smoother.rs` 参照）。
     fn _generate_image_high_quality(
         mask: &Mask,
         original_image: &OriginalImage,
@@ -397,6 +447,8 @@ impl Sam2Segmenter {
             original_image.image().image_size().height() as usize,
             original_image.image().image_size().width() as usize,
         );
+        // 平滑化（ガイデッドフィルタ）も 0〜1 の確率を前提にしているので、先に変換する。
+        let resized_mask = SAM2MaskActivation::sigmoid(resized_mask);
         let end = start.elapsed();
         println!("resize image in generate image: {:?}", end);
 
@@ -429,6 +481,7 @@ impl ImageSegmenter for Sam2Segmenter {
         static_context: &Self::StaticContext,
         inference_context: &Self::InferenceContext,
         input_scaled_points: &[Point],
+        output_image: &Image,
     ) -> Result<(Self::InferenceContext, SegmentedImage), SegmenterRuntimeError> {
         let start = Instant::now();
         let mask = self._inference(
@@ -441,10 +494,11 @@ impl ImageSegmenter for Sam2Segmenter {
         println!("SAM2 inference: {:?}", end);
 
         let start = Instant::now();
-        let segmented = Self::_generate_image_fast(&mask, original_image)?;
+        let segmented = Self::_generate_image_fast(&mask, output_image)?;
         let end = start.elapsed();
         println!("SAM2 generate image: {:?}", end);
 
+        // 今回のマスクを次回推論のヒントとして返す（segment では履歴に保存される）。
         let inference_context = SAM2InferenceContext::new(Some(mask));
 
         // Ok(SegmentedImage::new(
@@ -488,6 +542,7 @@ impl ImageSegmenter for Sam2Segmenter {
         Ok((inference_context, segmented))
     }
 
+    /// 1024x1024 の入力画像から画像特徴量を計算する（= image encoder 実行）。
     fn prepare_static_context(
         &self,
         image: &SegmenterInputImage,
@@ -513,6 +568,7 @@ impl ImageSegmenter for Sam2Segmenter {
         Ok(static_context)
     }
 
+    /// 初期の推論コンテキスト = 前回マスク無し。
     fn prepare_inference_context(
         &self,
         _image: &SegmenterInputImage,
@@ -545,8 +601,7 @@ mod sam2_test {
         assert!((scaled[1].1 - 40.0).abs() < f32::EPSILON);
     }
 
-    #[test]
-    fn generate_image_fast_applies_mask_alpha_to_original_pixels() {
+    fn make_2x2_original_image() -> OriginalImage {
         let size = ImageSize::new(2, 2).unwrap();
         let image_data = ImageData::new(vec![
             255, 0, 0, 255, // red, alpha 255
@@ -554,20 +609,44 @@ mod sam2_test {
             0, 0, 255, 255, // blue, alpha 255
             255, 255, 255, 255,
         ]);
-        let image = Image::new(image_data.clone(), ImageId::new(), size.clone());
-        let original_image = OriginalImage::new(image);
-        let mask =
-            Mask::new(Array4::from_shape_vec((1, 1, 2, 2), vec![1.0, 0.0, 0.5, 1.0]).unwrap());
+        OriginalImage::new(Image::new(image_data, ImageId::new(), size))
+    }
 
-        let segmented = Sam2Segmenter::_generate_image_fast(&mask, &original_image).unwrap();
+    // mask decoder の出力はロジット（0 が境界）。ロジット 0 は確率 0.5 = 半透明になるべき。
+    #[test]
+    fn generate_image_fast_converts_mask_logits_to_alpha() {
+        let original_image = make_2x2_original_image();
+        let mask =
+            Mask::new(Array4::from_shape_vec((1, 1, 2, 2), vec![20.0, -20.0, 0.0, 20.0]).unwrap());
+
+        let segmented =
+            Sam2Segmenter::_generate_image_fast(&mask, original_image.image()).unwrap();
         let (result_image, result_size) = segmented.into_image_and_size();
 
-        assert_eq!(result_size, size);
+        assert_eq!(&result_size, original_image.image().image_size());
         assert_eq!(
             result_image.image(),
             &vec![
                 255, 0, 0, 255, 0, 255, 0, 0, 0, 0, 255, 127, 255, 255, 255, 255
             ]
         );
+    }
+
+    // 高品質版も同じくロジットを確率に変換してから平滑化・適用する。
+    // 一様な画像・一様なロジット 0 のマスクなら、平滑化しても全画素が半透明のまま。
+    #[test]
+    fn generate_image_high_quality_treats_zero_logit_as_half_transparent() {
+        let size = ImageSize::new(2, 2).unwrap();
+        let gray = vec![128u8, 128, 128, 255].repeat(4);
+        let original_image =
+            OriginalImage::new(Image::new(ImageData::new(gray), ImageId::new(), size));
+        let mask = Mask::new(Array4::<f32>::zeros((1, 1, 2, 2)));
+
+        let segmented =
+            Sam2Segmenter::_generate_image_high_quality(&mask, &original_image).unwrap();
+        let (result_image, _) = segmented.into_image_and_size();
+
+        let alphas: Vec<u8> = result_image.image().chunks_exact(4).map(|p| p[3]).collect();
+        assert_eq!(alphas, vec![127, 127, 127, 127]);
     }
 }

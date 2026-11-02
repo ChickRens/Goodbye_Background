@@ -1,3 +1,8 @@
+//! セッション ID（UUID v4）。クライアントには文字列で渡し、リクエストで受け取る。
+//!
+//! 同じ SessionId が `session::repository`（元画像との対応）と
+//! `editing::session::repository`（SAM2 編集状態）の両方のキーになっている。
+
 use uuid::Uuid;
 
 use crate::session::error::SessionIdError;

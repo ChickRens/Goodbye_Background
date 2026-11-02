@@ -1,3 +1,5 @@
+//! セッション = 「どの元画像を編集しているか」の対応。`/upload` で作られる。
+
 use crate::{image::image::id::ImageId, session::id::SessionId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

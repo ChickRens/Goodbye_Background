@@ -1,3 +1,5 @@
+//! 保存用画像保存先のトレイト。
+
 use std::sync::Arc;
 
 use crate::image::{

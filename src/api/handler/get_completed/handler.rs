@@ -1,3 +1,5 @@
+//! `POST /get-completed` ハンドラ。`/save` で作った保存用画像を `image/webp` で返す。
+
 use std::sync::Arc;
 
 use axum::{Json, body::Body, extract::State, response::Response};

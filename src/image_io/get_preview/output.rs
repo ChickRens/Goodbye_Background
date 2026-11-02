@@ -1,3 +1,5 @@
+//! プレビュー取得の出力（WebP バイト列 + サイズ）。
+
 use crate::image::image::size::ImageSize;
 
 pub struct GetPreviewOutput {

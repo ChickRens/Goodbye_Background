@@ -1,3 +1,8 @@
+//! ハンドラが返す最上位のエラー型 `AppError` と、その HTTP レスポンスへの変換。
+//!
+//! `AppError` = ユースケース由来（`ApplicationError`）+ HTTP 層由来（`PresentationError`）。
+//! どちらも `From` があるので、ハンドラ内では `?` だけで変換できる。
+
 use axum::{
     Json,
     http::StatusCode,
@@ -20,12 +25,20 @@ parent_error!(
     }
 );
 
+/// エラー時のレスポンスボディ。`{"code": "SESSION_NOT_FOUND"}` のような形。
+/// 詳細メッセージ（`cause`）はクライアントには返さず、サーバーログにだけ出す。
 #[derive(serde::Serialize)]
 struct ErrorBody {
     code: String,
 }
 
 impl IntoResponse for AppError {
+    /// エラー → HTTP レスポンス変換。全ハンドラのエラーは最終的にここを通る。
+    ///
+    /// 1. `error_type()` で HTTP ステータスを決める
+    /// 2. `code()` を JSON ボディに入れる
+    /// 3. 同じ code を `UsageStatusExt` としてレスポンス拡張に入れる
+    ///    → `track_usage` ミドルウェアが「失敗」として記録するための目印
     fn into_response(self) -> Response {
         let status = match self.error_type() {
             ErrorType::NotFound => StatusCode::NOT_FOUND,

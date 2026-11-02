@@ -1,3 +1,5 @@
+//! セグメンタの出力: アルファにマスクを適用した生 RGBA（元画像サイズ）。ID はまだ無い。
+
 use crate::image::image::{raw_data::ImageData, size::ImageSize};
 
 pub struct SegmentedImage {

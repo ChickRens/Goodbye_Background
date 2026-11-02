@@ -1,3 +1,5 @@
+//! プレビュー取得時のエラー。
+
 use crate::{
     common::traits::ErrorType::{Conflict, NotFound},
     leaf_error,

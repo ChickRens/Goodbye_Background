@@ -1,3 +1,5 @@
+//! 画像のバイト列。生 RGBA（4byte/pixel, 行優先）の場合と WebP エンコード済みの場合がある。
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ImageData {
     image: Vec<u8>,

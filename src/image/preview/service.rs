@@ -1,3 +1,9 @@
+//! プレビューの生成と保存をまとめたサービス。
+//!
+//! - `generate_and_save_original`  : `/upload` 時。元画像のプレビュー。戻り値は座標変換用の倍率
+//! - `generate_and_save_segmented` : segment/undo/redo 時。切り抜き結果のプレビュー（倍率は捨てる）
+//! - `get` : `/get-preview` 用。Arc から clone して返す（WebP なので小さい）
+
 use std::{sync::Arc, time::Instant};
 
 use crate::image::{

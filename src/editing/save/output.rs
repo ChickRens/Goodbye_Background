@@ -1,3 +1,5 @@
+//! save の出力。`/get-completed` に渡す image_id。
+
 use crate::image::image::id::ImageId;
 
 pub struct SaveOutput {

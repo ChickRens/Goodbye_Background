@@ -1,3 +1,5 @@
+//! 保存用最終画像（WebP エンコード済み）。
+
 use crate::image::image::{id::ImageId, image::Image};
 
 #[derive(Debug, Clone)]

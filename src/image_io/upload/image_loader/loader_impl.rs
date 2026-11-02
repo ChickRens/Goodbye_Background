@@ -1,3 +1,11 @@
+//! `ImageLoader` の実装（`image` クレート）。
+//!
+//! - 形式はバイト列の中身から推測（拡張子・Content-Type は見ない）。対応形式は image クレートの
+//!   有効な feature 次第（デフォルト feature: PNG/JPEG/WebP/GIF/BMP/TIFF 等。HEIC は非対応）
+//! - EXIF の Orientation を反映してから RGBA8 に変換する（スマホ写真が横倒しにならないように）
+//! - 16bit 画像や透過なし画像も全て RGBA8 に正規化される
+
+
 use std::time::Instant;
 
 use crate::image::image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize};
@@ -42,7 +50,8 @@ impl ImageLoader for FileImageLoader {
         let width = img.width();
         let height = img.height();
 
-        let image_size = ImageSize::new(height as u16, width as u16)?;
+        // u32 のまま渡す（先に `as u16` すると 65535 超が回り込んで検証をすり抜けるため）。
+        let image_size = ImageSize::from_u32(height, width)?;
 
         let rgba_image = img.to_rgba8();
         let raw_pixels = rgba_image.into_raw();
@@ -69,7 +78,10 @@ mod image_loader_tests {
     use std::{fs::read, path::Path};
 
     use super::FileImageLoader;
-    use crate::image_io::upload::image_loader::{error::LoadingError, loader::ImageLoader};
+    use crate::{
+        image::image::error::ImageSizeError,
+        image_io::upload::image_loader::{error::LoadingError, loader::ImageLoader},
+    };
 
     #[test]
     fn test_normal_load() {
@@ -98,6 +110,40 @@ mod image_loader_tests {
 
         let result = loader.load(image);
         assert!(matches!(result, Err(LoadingError::CorruptedImage(_))))
+    }
+
+    // u16 に収まらない幅（70000 = 65536 + 4464）でも回り込まずに LongWidth で弾くこと。
+    #[test]
+    fn test_width_over_u16_max_is_rejected() {
+        let png = encode_png(70_000, 2);
+
+        let result = FileImageLoader::new().load(png);
+
+        assert!(matches!(
+            result,
+            Err(LoadingError::ImageSize(ImageSizeError::LongWidth))
+        ));
+    }
+
+    #[test]
+    fn test_height_over_u16_max_is_rejected() {
+        let png = encode_png(2, 70_000);
+
+        let result = FileImageLoader::new().load(png);
+
+        assert!(matches!(
+            result,
+            Err(LoadingError::ImageSize(ImageSizeError::LongHeight))
+        ));
+    }
+
+    fn encode_png(width: u32, height: u32) -> Vec<u8> {
+        let image = image::RgbaImage::new(width, height);
+        let mut bytes = Vec::new();
+        image
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
     }
 
     #[test]

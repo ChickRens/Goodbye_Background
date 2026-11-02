@@ -1,3 +1,5 @@
+//! 画像デコード時のエラー（形式非対応 / 破損 / サイズ範囲外）。
+
 use crate::{
     common::traits::{Cause, Code, ErrorType, ErrorTypeProvider},
     image::image::error::ImageSizeError,

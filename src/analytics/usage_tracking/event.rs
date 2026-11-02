@@ -1,3 +1,5 @@
+//! 1リクエスト分の利用ログ。usage_records テーブルの1行に対応する。
+
 use std::time::Duration;
 
 use crate::analytics::usage_tracking::{

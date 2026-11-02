@@ -1,3 +1,7 @@
+//! 画像サイズ（高さ・幅）。生成時にバリデーションする値オブジェクト。
+//!
+//! 注意: 引数の順番は `new(height, width)`（幅が先ではない）。取り違えに注意。
+
 use crate::image::image::error::ImageSizeError;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -7,6 +11,8 @@ pub struct ImageSize {
 }
 
 impl ImageSize {
+    // 許容範囲: 2〜8000px（縦横それぞれ）。
+    // 注意: rule.txt には 3000px までと書かれているが、実装は 8000px。
     const MIN_DIMENSION: u16 = 2;
     const MAX_DIMENSION: u16 = 8000;
 
@@ -20,6 +26,14 @@ impl ImageSize {
         }
     }
 
+    /// デコーダが返す u32 のサイズから作る。u16 に収まらない値は範囲外（Long*）として弾く。
+    /// （`as u16` で先にキャストすると 70000 → 4464 のように回り込んで検証をすり抜けるため）
+    pub fn from_u32(height: u32, width: u32) -> Result<Self, ImageSizeError> {
+        let height = u16::try_from(height).unwrap_or(u16::MAX);
+        let width = u16::try_from(width).unwrap_or(u16::MAX);
+        Self::new(height, width)
+    }
+
     pub fn height(&self) -> u16 {
         self.height
     }
@@ -28,6 +42,8 @@ impl ImageSize {
         self.width
     }
 
+    /// アスペクト比を保って (max_height, max_width) に収まるよう拡大縮小したサイズを返す。
+    /// バリデーションを通さないので MIN/MAX の範囲外になり得る。現状は未使用（テストのみ）。
     pub fn fit_within(&self, max_height: u16, max_width: u16) -> Self {
         let scale: f32 =
             (max_height as f32 / self.height as f32).min(max_width as f32 / self.width as f32);

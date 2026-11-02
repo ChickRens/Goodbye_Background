@@ -1,8 +1,29 @@
-use image::RgbaImage;
+//! ガイデッドフィルタ（He et al. 2010）によるマスクのエッジ平滑化。`/save`（高品質版）でのみ使う。
+//!
+//! 目的: 256x256 から拡大したマスクはエッジがぼやける/ガタつくので、元画像の輝度エッジに
+//! 沿うように補正する（髪の毛などの境界がきれいになる）。
+//!
+//! アルゴリズム（各ピクセルの周囲 (2r+1)^2 の窓で）:
+//! - I = ガイド画像（元画像のグレースケール 0〜1）, p = 入力マスク
+//! - a = cov(I, p) / (var(I) + eps), b = mean(p) - a * mean(I)
+//! - 出力 = a * I + b
+//! - 窓内の平均は積分画像（summed-area table）で O(1) に計算する
+//!
+//! パラメータ: radius = 16, eps = 0.1（ハードコード）。
+//!
+//! 入力は 0〜1 の確率（呼び出し側で sigmoid 済み）。
+//!
+//! 最後に「元のマスク値が 0.5 から遠いほど元の値を残す」ブレンドをしている（`confidence`）。
+//! 注意: p が 0〜1 だと confidence は最大でも 0.25^20 ≈ 1e-12 なので、このブレンドは実質効いておらず、
+//! 出力はほぼガイデッドフィルタの結果そのもの。確信度の高い画素を残したいなら式の見直しが必要。
+//!
+//! 注意: 4 枚の積分画像（f32 × (H+1)(W+1)）を作るので、8000x8000 だと一時的に約1GBを使う。
+//! また積分画像を f32 で累積しているため、大きな画像では精度が落ちる。
+
 use ndarray::{Array4, ArrayView4};
 use rayon::{
     iter::{IndexedParallelIterator, ParallelIterator},
-    slice::ParallelSliceMut,
+    slice::{ParallelSlice, ParallelSliceMut},
 };
 
 use crate::image::image::image::Image;
@@ -28,21 +49,26 @@ impl SAM2MaskSmoother {
         let guide = Self::build_guidance_image(original_image);
         let mask_values = mask_slice.to_vec();
 
-        let integral_i = Self::build_integral(&guide, height, width);
-        let integral_p = Self::build_integral(&mask_values, height, width);
-        let integral_ip = Self::build_integral(
-            &mask_values
-                .iter()
-                .zip(guide.iter())
-                .map(|(mask_value, guide_value)| mask_value * guide_value)
-                .collect::<Vec<_>>(),
-            height,
-            width,
-        );
-        let integral_i2 = Self::build_integral(
-            &guide.iter().map(|value| value * value).collect::<Vec<_>>(),
-            height,
-            width,
+        // 4 枚の積分画像はそれぞれ独立なので並列に作る（1枚の作成自体は逐次処理しかできない）。
+        let mask_times_guide: Vec<f32> = mask_values
+            .iter()
+            .zip(guide.iter())
+            .map(|(mask_value, guide_value)| mask_value * guide_value)
+            .collect();
+        let guide_squared: Vec<f32> = guide.iter().map(|value| value * value).collect();
+        let ((integral_i, integral_p), (integral_ip, integral_i2)) = rayon::join(
+            || {
+                rayon::join(
+                    || Self::build_integral(&guide, height, width),
+                    || Self::build_integral(&mask_values, height, width),
+                )
+            },
+            || {
+                rayon::join(
+                    || Self::build_integral(&mask_times_guide, height, width),
+                    || Self::build_integral(&guide_squared, height, width),
+                )
+            },
         );
 
         let eps = 1e-1f32;
@@ -87,19 +113,13 @@ impl SAM2MaskSmoother {
         output
     }
 
+    /// 元画像 RGBA → 輝度（ITU-R BT.601 の係数）0〜1 のグレースケール。
     fn build_guidance_image(original_image: &Image) -> Vec<f32> {
-        let width = original_image.image_size().width() as u32;
-        let height = original_image.image_size().height() as u32;
-
-        let image = RgbaImage::from_raw(
-            width,
-            height,
-            original_image.image_data().clone().into_image(),
-        )
-        .expect("Rgba Image generate failed");
-
-        image
-            .pixels()
+        // 元データを借用して並列に変換する（以前は RgbaImage を作るために画像全体を clone していた）。
+        original_image
+            .image_data()
+            .image()
+            .par_chunks_exact(4)
             .map(|pixel| {
                 let r = pixel[0] as f32 / 255.0;
                 let g = pixel[1] as f32 / 255.0;
@@ -110,6 +130,7 @@ impl SAM2MaskSmoother {
             .collect()
     }
 
+    /// 積分画像を作る。サイズは (H+1) x (W+1) で、先頭行・先頭列は 0（境界処理を省くため）。
     fn build_integral(values: &[f32], height: usize, width: usize) -> Vec<f32> {
         let stride = width + 1;
         let mut integral = vec![0.0; (height + 1) * stride];
@@ -128,6 +149,7 @@ impl SAM2MaskSmoother {
         integral
     }
 
+    /// 積分画像から矩形 [x0..=x1] x [y0..=y1] の総和を O(1) で求める。
     const fn rect_sum(
         integral: &[f32],
         width: usize,

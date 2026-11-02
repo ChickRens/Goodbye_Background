@@ -1,3 +1,6 @@
+//! SAM2 用編集セッションのインメモリ実装（`TtlStore` を使用）。
+
+
 use std::{
     sync::Arc,
     time::{Duration, Instant},

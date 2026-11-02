@@ -1,9 +1,13 @@
+//! アップロードの出力。
+
 use crate::{image::image::id::ImageId, session::id::SessionId};
 
 #[derive(Debug, PartialEq)]
 pub struct UploadOutput {
     session_id: SessionId,
     image_id: ImageId,
+    /// 名前は preview_to_original だが、値は preview = original * scale の倍率
+    /// （= 600 / 元画像の長辺）。プレビュー座標 → 元画像座標は `÷ scale`。
     preview_to_original_scale: f64,
 }
 

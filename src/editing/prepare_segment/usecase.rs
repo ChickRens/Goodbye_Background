@@ -1,3 +1,5 @@
+//! SAM2 前処理ユースケース。中身は `PrepareSegmentService::prepare` に委譲するだけ。
+
 use std::sync::Arc;
 
 use crate::editing::{

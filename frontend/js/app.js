@@ -1,3 +1,10 @@
+/**
+ * app.html のエントリーポイント。
+ *
+ * やることは配線だけ: store（状態）を1つ作り、strip（上部の画像一覧）と
+ * editor（下の編集キャンバス）に渡す。strip で画像が選ばれたら editor.open を呼ぶ、
+ * という一方向の流れ。各モジュールの詳細は frontend/README.md を参照。
+ */
 import { createStore } from './store.js';
 import { initStrip } from './strip.js';
 import { initEditor } from './editor.js';

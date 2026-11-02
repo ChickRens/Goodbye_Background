@@ -1,3 +1,5 @@
+//! プレビュー保存先のトレイト。保存は種類別、取得は ID だけで行う。
+
 use std::sync::Arc;
 
 use crate::image::{

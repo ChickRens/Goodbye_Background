@@ -1,3 +1,12 @@
+//! アップロードユースケース。
+//!
+//! 1. バイト列をデコード（形式判定・EXIF 回転・サイズ検証）→ 生 RGBA
+//! 2. 新しい SessionId を発行し、Session(session_id → image_id) を保存
+//! 3. 元画像のプレビュー（長辺600px WebP）を生成・保存し、座標変換倍率を得る
+//! 4. 元画像を保存
+//!
+//! SAM2 の準備はここでは行わない（`App::upload` が続けて `PrepareSegmentUseCase` を呼ぶ）。
+
 use std::sync::Arc;
 
 use crate::{

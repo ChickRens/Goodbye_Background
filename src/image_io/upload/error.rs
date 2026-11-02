@@ -1,3 +1,5 @@
+//! アップロードユースケースのエラー。
+
 use crate::{
     editing::{
         segmenter::error::SegmenterLoadingError,
