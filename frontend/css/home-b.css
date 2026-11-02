@@ -1,0 +1,86 @@
+/* 候補B 一目でわかる: 使い方3ステップを画像付きで、ファーストビューに並べる */
+.intro { padding: 40px 0 8px; }
+.intro h1 { font-size: clamp(1.5rem, 3.6vw, 2.1rem); }
+.intro p { margin: 8px 0 0; }
+
+.howto { padding: 24px 0 56px; }
+
+.howto-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 32px;
+    counter-reset: howto;
+}
+
+@media (min-width: 760px) {
+    .howto-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+}
+
+.howto-list li { counter-increment: howto; }
+
+.howto-list h3 {
+    font-size: 1.08rem;
+    margin-top: 12px;
+}
+
+.howto-list h3::before {
+    content: counter(howto);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: var(--blue);
+    color: #fff;
+    font-size: 0.9rem;
+    vertical-align: 2px;
+}
+
+.howto-list p { margin: 4px 0 0; }
+
+.howto-visual {
+    position: relative;
+}
+
+.howto-visual .photo { aspect-ratio: 4 / 3; }
+
+/* アプリの部品を真似た飾り（押せないので aria やフォーカスは持たせない） */
+.mock-btn {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    background: var(--blue);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+    box-shadow: 0 2px 6px rgba(20, 33, 61, 0.25);
+}
+
+.mock-pick { left: 50%; right: auto; bottom: 50%; transform: translate(-50%, 50%); }
+
+/* タップ位置の印（アプリで表示される点と同じ意味） */
+.mock-tap {
+    position: absolute;
+    left: var(--x);
+    top: var(--y);
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    border-radius: 50%;
+    background: #2fa36b;
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 6px rgba(47, 163, 107, 0.3);
+}
+
+.howto-cta {
+    margin-top: 40px;
+    text-align: center;
+}
+
+.howto-cta p { margin: 8px 0 0; }

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- ホーム画面の候補5案を見比べるための一覧。採用が決まったら候補ページごと削除する -->
+<title>ホーム画面の候補｜Goodbye Background</title>
+<meta name="robots" content="noindex, nofollow" />
+<link rel="stylesheet" href="css/home-base.css" />
+<style>
+  .variants { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; max-width: 760px; }
+  .variants a { display: block; padding: 16px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); text-decoration: none; }
+  .variants a:hover { border-color: var(--blue); }
+  .variants strong { display: block; color: var(--ink); font-size: 1.08rem; }
+  .variants span { color: var(--ink-muted); font-size: 0.92rem; }
+</style>
+</head>
+<body>
+<main class="wrap section">
+  <h1 class="section-title">ホーム画面の候補</h1>
+  <p class="muted">見た目は揃えてあり、違うのは「何を優先して使いやすくするか」だけです。本番のホーム画面は <a href="index.html">index.html</a>。</p>
+  <ul class="variants">
+    <li><a href="home-a.html"><strong>A 即スタート</strong><span>画面の大半が「写真を選ぶ」入口。何をするツールか分かっている人が最短で始められる</span></a></li>
+    <li><a href="home-b.html"><strong>B 一目でわかる</strong><span>使い方3ステップを画像付きで最初に見せる。初めて来た人向け</span></a></li>
+    <li><a href="home-c.html"><strong>C 試してから</strong><span>その場でタップを体験できるデモが主役。操作のイメージがわかない人向け</span></a></li>
+    <li><a href="home-d.html"><strong>D 不安を先に解消</strong><span>画像の扱い・登録の有無・対応形式への答えをCTAのすぐ下に。慎重な人向け</span></a></li>
+    <li><a href="home-e.html"><strong>E スマホ片手</strong><span>縦一列と大きなボタン、開始ボタンを画面下に固定。スマホから来る人向け</span></a></li>
+  </ul>
+</main>
+</body>
+</html>

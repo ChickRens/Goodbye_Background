@@ -1,0 +1,77 @@
+/* 候補C 試してから: その場でタップを体験できるデモを主役にする */
+.trial { padding: 40px 0 56px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.trial h1 { font-size: clamp(1.4rem, 3.4vw, 2rem); }
+.trial h1 + p { margin: 8px 0 24px; }
+
+.demo {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: 1fr 1fr;
+    max-width: 760px;
+}
+
+.demo-label {
+    margin: 0 0 6px;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--ink-muted);
+}
+
+.demo-photo { position: relative; }
+
+.demo-photo .photo,
+.demo-result { aspect-ratio: 4 / 5; }
+
+/* タップできる範囲。見えない円だが、ホバー・フォーカスで輪郭を出す */
+.demo-hit {
+    position: absolute;
+    left: calc(var(--x) - var(--r));
+    top: calc(var(--y) - var(--r) * 0.8);
+    width: calc(var(--r) * 2);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 2px dashed transparent;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+}
+
+.demo-hit:hover { border-color: rgba(255, 255, 255, 0.9); }
+.demo-hit:focus-visible { border-color: #fff; outline: 3px solid var(--blue); outline-offset: 0; }
+
+.demo-marker {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    border-radius: 50%;
+    background: #2fa36b;
+    border: 3px solid #fff;
+    pointer-events: none;
+}
+
+.demo-result {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.demo-result img {
+    position: absolute;
+    inset: 0;
+    /* 切り抜き結果の画像は 4:3 なので、欠けないよう枠の中に収める */
+    object-fit: contain;
+}
+
+.demo-empty {
+    margin: 0;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.92);
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+.trial-cta { margin-top: 32px; }
+.trial-cta p { margin: 8px 0 0; }

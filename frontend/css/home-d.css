@@ -1,0 +1,39 @@
+/* 候補D 不安を先に解消: 見出し・CTAのすぐ下に、アップロード前に気になることへの答えを並べる */
+.lead { padding: 40px 0; background: var(--surface); border-bottom: 1px solid var(--line); }
+
+.lead-grid { display: grid; gap: 32px; align-items: center; }
+
+@media (min-width: 860px) {
+    .lead-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 48px; }
+}
+
+.lead h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); }
+.lead h1 + p { margin: 8px 0 24px; }
+
+.lead-sample { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.lead-sample .photo { aspect-ratio: 4 / 5; }
+
+.faq-list {
+    margin: 0;
+    display: grid;
+    gap: 0;
+    max-width: 760px;
+    border-top: 1px solid var(--line);
+}
+
+.faq-list > div {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+@media (min-width: 720px) {
+    .faq-list > div { display: grid; grid-template-columns: 16em 1fr; gap: 24px; }
+}
+
+.faq-list dt { font-weight: 700; }
+
+.faq-list dd { margin: 4px 0 0; color: var(--ink-muted); }
+
+@media (min-width: 720px) {
+    .faq-list dd { margin: 0; }
+}

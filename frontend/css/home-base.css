@@ -1,0 +1,270 @@
+/*
+ * ホーム画面の候補(home-a〜e.html)で共通に使うスタイル。
+ * 5案は「使いやすさの考え方」だけを比べるため、見た目(色・文字・部品)はここで揃えている。
+ * 案ごとの違い(構成)は css/home-a〜e.css に書く。
+ *
+ * 配色: 青ベース。リンク・CTAの青は「押せるもの」として誰にでも通じる慣習に合わせている。
+ *   白文字 on --blue ≒ 5.6:1 / --ink-muted on --bg ≒ 6.7:1（どちらも WCAG AA 以上）
+ */
+:root {
+    --bg: #f5f8fc;
+    --surface: #ffffff;
+    --ink: #14213d;
+    --ink-muted: #4a5a78;
+    --line: #d3ddec;
+    --blue: #1d5fd6;
+    --blue-hover: #164baa;
+    --blue-soft: #e3ecfb;
+    --checker-light: #e9edf2;
+    --checker-dark: #c9d1dc;
+
+    --radius: 8px;
+    --max: 1080px;
+    --gutter: 16px;
+    --touch: 48px;
+
+    --font: system-ui, -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-tap-highlight-color: transparent;
+}
+
+img { display: block; max-width: 100%; }
+
+a { color: var(--blue); text-underline-offset: 3px; }
+a:hover { color: var(--blue-hover); }
+
+:focus-visible {
+    outline: 3px solid var(--blue);
+    outline-offset: 3px;
+}
+
+[hidden] { display: none !important; }
+
+.wrap {
+    width: 100%;
+    max-width: var(--max);
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+}
+
+@media (min-width: 720px) {
+    :root { --gutter: 32px; }
+}
+
+/* ---------- Header ---------- */
+.site-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+}
+
+.site-header .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 60px;
+}
+
+.wordmark {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--ink);
+    text-decoration: none;
+    line-height: 1.3;
+}
+
+.header-nav {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+}
+
+.header-nav a {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--touch);
+    padding: 0 24px;
+    border-radius: var(--radius);
+    border: 2px solid var(--blue);
+    font: inherit;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-primary {
+    background: var(--blue);
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background: var(--blue-hover);
+    border-color: var(--blue-hover);
+    color: #fff;
+}
+
+.btn-secondary {
+    background: var(--surface);
+    color: var(--blue);
+}
+
+.btn-secondary:hover {
+    background: var(--blue-soft);
+    color: var(--blue-hover);
+}
+
+.btn-large {
+    min-height: 56px;
+    padding: 0 32px;
+    font-size: 1.08rem;
+}
+
+/* ---------- 画像 ---------- */
+/* 透過部分を示す市松模様 */
+.checker {
+    background-color: var(--checker-light);
+    background-image:
+        linear-gradient(45deg, var(--checker-dark) 25%, transparent 25%),
+        linear-gradient(-45deg, var(--checker-dark) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, var(--checker-dark) 75%),
+        linear-gradient(-45deg, transparent 75%, var(--checker-dark) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.photo {
+    margin: 0;
+    overflow: hidden;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background-color: var(--surface);
+}
+
+/* .checker は .photo より前に定義しているので、組み合わせたときに市松模様が負けないようにする */
+.photo.checker {
+    background-color: var(--checker-light);
+}
+
+.photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* 元画像の右上に素材由来の「Made with AI」表示があるため、左下を基点に拡大して隠す
+   （本番 landing.css と同じ処理） */
+.photo-before img {
+    transform: scale(1.12);
+    transform-origin: left bottom;
+}
+
+/* ---------- 見出し・本文 ---------- */
+h1, h2, h3 {
+    line-height: 1.4;
+    margin: 0;
+    /* 文節の途中で折り返さず、行の長さも揃える（「す。」だけが次の行に残るのを防ぐ） */
+    word-break: auto-phrase;
+    text-wrap: balance;
+}
+
+.section {
+    padding: 56px 0;
+}
+
+.section + .section {
+    border-top: 1px solid var(--line);
+}
+
+.section-title {
+    font-size: 1.35rem;
+    margin-bottom: 24px;
+}
+
+.muted { color: var(--ink-muted); }
+
+.small { font-size: 0.875rem; }
+
+/* ---------- Footer ---------- */
+.site-footer {
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    padding: 24px 0;
+    font-size: 0.875rem;
+    color: var(--ink-muted);
+}
+
+.site-footer .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    justify-content: space-between;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+}
+
+/* ---------- 共通部品: 特徴リスト / 手順リスト ---------- */
+.feature-list {
+    list-style: none;
+    margin: 0 0 24px;
+    padding: 0;
+    display: grid;
+    gap: 16px;
+}
+
+@media (min-width: 720px) {
+    .feature-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
+}
+
+.feature-list li {
+    display: flex;
+    flex-direction: column;
+}
+
+/* li を flex にすると番号(::marker)が消えるので、手順リストは中の要素を block にする */
+.step-list strong,
+.step-list span {
+    display: block;
+}
+
+.feature-list span { color: var(--ink-muted); }
+
+/* 順番のある手順なので番号付き */
+.step-list {
+    margin: 0 0 32px;
+    padding-left: 1.6em;
+    display: grid;
+    gap: 12px;
+}
+
+.step-list li::marker { color: var(--blue); font-weight: 700; }
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}

@@ -1,0 +1,87 @@
+/* 候補A 即スタート: ファーストビューの大半を「写真を選ぶ」入口にし、説明は最小限にする */
+.start {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 40px 0 48px;
+}
+
+.start-grid {
+    display: grid;
+    gap: 32px;
+    align-items: center;
+}
+
+@media (min-width: 860px) {
+    .start-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 48px; }
+}
+
+.start h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); }
+.start h1 + p { margin: 8px 0 24px; }
+
+/* アプリのドロップエリアと同じ見た目にして、「ここに写真を入れる」と一目で分かるようにする */
+.start-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 200px;
+    padding: 24px;
+    border: 2px dashed var(--blue);
+    border-radius: 12px;
+    background: var(--blue-soft);
+    text-decoration: none;
+    text-align: center;
+    transition: background-color 0.15s ease;
+}
+
+.start-zone:hover { background: #d3e1f8; }
+
+.start-zone-title {
+    display: inline-flex;
+    align-items: center;
+    min-height: 56px;
+    padding: 0 32px;
+    border-radius: var(--radius);
+    background: var(--blue);
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.start-zone:hover .start-zone-title { background: var(--blue-hover); }
+
+.start-zone-sub {
+    color: var(--ink-muted);
+    font-size: 0.875rem;
+    margin-top: 8px;
+}
+
+/* 手順を1行で。番号は CSS で付ける */
+.start-flow {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    margin: 16px 0 0;
+    padding: 0;
+    counter-reset: flow;
+    font-size: 0.92rem;
+    color: var(--ink-muted);
+}
+
+.start-flow li { counter-increment: flow; }
+
+.start-flow li::before {
+    content: counter(flow) ". ";
+    color: var(--blue);
+    font-weight: 700;
+}
+
+.start-sample {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.start-sample .photo { aspect-ratio: 4 / 5; }

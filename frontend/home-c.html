@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- ホーム画面の候補 C（試してから）。比較用なので検索結果には出さない。本番は index.html -->
+<title>候補C 試してから｜Goodbye Background</title>
+<meta name="robots" content="noindex, nofollow" />
+<link rel="icon" href="/favicon.ico" sizes="48x48" />
+<link rel="stylesheet" href="css/home-base.css" />
+<link rel="stylesheet" href="css/home-c.css" />
+</head>
+<body class="home-c">
+<header class="site-header">
+  <div class="wrap">
+    <a class="wordmark" href="home-variants.html">Goodbye Background</a>
+    <nav class="header-nav" aria-label="ヘッダー">
+      <a href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="trial">
+    <div class="wrap">
+      <h1>写真の、残したいものをタップしてみてください。</h1>
+      <p class="muted">このお試しはブラウザの中だけで動きます。画像は送信されません。</p>
+
+      <div class="demo" data-demo>
+        <div class="demo-pane">
+          <p class="demo-label" id="demo-before-label">元の写真</p>
+          <!-- --x/--y/--r はタップできる範囲（写真の枠に対する %）。本番の before.png に合わせて調整すること -->
+          <div class="demo-photo">
+            <figure class="photo photo-before"><img src="assets/before.png" alt="お試し用の写真" /></figure>
+            <button type="button" class="demo-hit" style="--x: 42%; --y: 41%; --r: 16%;" data-after="1" aria-label="1つ目の対象を残す"></button>
+            <button type="button" class="demo-hit" style="--x: 78%; --y: 54%; --r: 15%;" data-after="2" aria-label="2つ目の対象を残す"></button>
+            <button type="button" class="demo-hit" style="--x: 57%; --y: 81%; --r: 14%;" data-after="3" aria-label="3つ目の対象を残す"></button>
+            <span class="demo-marker" hidden aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="demo-pane">
+          <p class="demo-label">切り抜き結果</p>
+          <div class="demo-result photo checker" aria-live="polite">
+            <p class="demo-empty">左の写真で残したいものをタップすると、ここに結果が出ます。</p>
+            <img src="assets/after1.png" alt="切り抜き結果: 1つ目の対象" data-result="1" hidden />
+            <img src="assets/after2.png" alt="切り抜き結果: 2つ目の対象" data-result="2" hidden />
+            <img src="assets/after3.png" alt="切り抜き結果: 3つ目の対象" data-result="3" hidden />
+          </div>
+        </div>
+      </div>
+
+      <div class="trial-cta">
+        <a class="btn btn-primary btn-large" href="app.html">自分の写真でやってみる</a>
+        <p class="small muted">JPEG・PNG・WebP など／10MB・縦横8000pxまで</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <h2 class="section-title">アプリでは、さらに</h2>
+    <ul class="feature-list">
+      <li><strong>何通りでも切り抜ける</strong><span>同じ写真から、残したい対象ごとに別々の切り抜きを作れます。</span></li>
+      <li><strong>何度でもやり直せる</strong><span>Undo/Redoで1タップ前に戻せるので、気軽に試せます。</span></li>
+      <li><strong>元の解像度で保存</strong><span>編集中は軽いプレビューで操作し、保存するときは元の大きさで書き出します。</span></li>
+    </ul>
+      <p class="small muted">アップロードした画像の扱いは<a href="privacy.html">プライバシーポリシー</a>をご覧ください。</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>Goodbye Background</span>
+    <a href="privacy.html">プライバシーポリシー</a>
+  </div>
+</footer>
+<script src="js/home-demo.js" defer></script>
+</body>
+</html>

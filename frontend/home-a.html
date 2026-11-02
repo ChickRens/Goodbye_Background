@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- ホーム画面の候補 A（即スタート）。比較用なので検索結果には出さない。本番は index.html -->
+<title>候補A 即スタート｜Goodbye Background</title>
+<meta name="robots" content="noindex, nofollow" />
+<link rel="icon" href="/favicon.ico" sizes="48x48" />
+<link rel="stylesheet" href="css/home-base.css" />
+<link rel="stylesheet" href="css/home-a.css" />
+</head>
+<body class="home-a">
+<header class="site-header">
+  <div class="wrap">
+    <a class="wordmark" href="home-variants.html">Goodbye Background</a>
+    <nav class="header-nav" aria-label="ヘッダー">
+      <a href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="start">
+    <div class="wrap start-grid">
+      <div class="start-main">
+        <h1>写真の背景を、タップで消す。</h1>
+        <p class="muted">残したいところをタップするだけ。登録はいりません。</p>
+        <!-- 候補段階では、ここで選んだファイルをアプリへ引き渡す仕組みがまだ無いのでアプリ画面へのリンクにしている。
+             採用時は js/app.js に受け渡し(IndexedDB 経由)を足して、この場でファイル選択できるようにする -->
+        <a class="start-zone" href="app.html">
+          <span class="start-zone-title">写真を選んで始める</span>
+          <span class="start-zone-sub">JPEG・PNG・WebP など／10MB・縦横8000pxまで</span>
+        </a>
+        <ol class="start-flow" aria-label="使い方">
+          <li>写真を選ぶ</li>
+          <li>残したいところをタップ</li>
+          <li>保存</li>
+        </ol>
+      </div>
+      <div class="start-sample" aria-label="切り抜きの例">
+        <figure class="photo photo-before"><img src="assets/before.png" alt="切り抜き前の写真" /></figure>
+        <figure class="photo checker"><img src="assets/after1.png" alt="切り抜き後: 1つの対象だけが残り、背景が透明になった写真" /></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+    <ul class="feature-list">
+      <li><strong>何通りでも切り抜ける</strong><span>同じ写真から、残したい対象ごとに別々の切り抜きを作れます。</span></li>
+      <li><strong>何度でもやり直せる</strong><span>Undo/Redoで1タップ前に戻せるので、気軽に試せます。</span></li>
+      <li><strong>元の解像度で保存</strong><span>編集中は軽いプレビューで操作し、保存するときは元の大きさで書き出します。</span></li>
+    </ul>
+      <p class="small muted">アップロードした画像の扱いは<a href="privacy.html">プライバシーポリシー</a>をご覧ください。</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>Goodbye Background</span>
+    <a href="privacy.html">プライバシーポリシー</a>
+  </div>
+</footer>
+</body>
+</html>
