@@ -5,7 +5,6 @@
 //! - EXIF の Orientation を反映してから RGBA8 に変換する（スマホ写真が横倒しにならないように）
 //! - 16bit 画像や透過なし画像も全て RGBA8 に正規化される
 
-
 use std::time::Instant;
 
 use crate::image::image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize};
@@ -141,7 +140,10 @@ mod image_loader_tests {
         let image = image::RgbaImage::new(width, height);
         let mut bytes = Vec::new();
         image
-            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
             .unwrap();
         bytes
     }

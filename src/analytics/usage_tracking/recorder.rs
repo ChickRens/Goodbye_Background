@@ -163,15 +163,19 @@ mod sqlite_migration_test {
     #[tokio::test]
     async fn sqlite_migrations_assign_ids_to_new_records() {
         let pool = memory_pool().await;
-        sqlx::migrate!("./migrations/sqlite").run(&pool).await.unwrap();
-
-        insert_record(&pool).await;
-        insert_record(&pool).await;
-
-        let ids: Vec<Option<i64>> = sqlx::query_scalar("SELECT id FROM usage_records ORDER BY rowid")
-            .fetch_all(&pool)
+        sqlx::migrate!("./migrations/sqlite")
+            .run(&pool)
             .await
             .unwrap();
+
+        insert_record(&pool).await;
+        insert_record(&pool).await;
+
+        let ids: Vec<Option<i64>> =
+            sqlx::query_scalar("SELECT id FROM usage_records ORDER BY rowid")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
         assert_eq!(ids, vec![Some(1), Some(2)]);
     }
 
@@ -186,7 +190,10 @@ mod sqlite_migration_test {
         insert_record(&pool).await;
         insert_record(&pool).await;
 
-        sqlx::migrate!("./migrations/sqlite").run(&pool).await.unwrap();
+        sqlx::migrate!("./migrations/sqlite")
+            .run(&pool)
+            .await
+            .unwrap();
         insert_record(&pool).await;
 
         let rows: Vec<(Option<i64>, Option<String>, String)> =

@@ -616,8 +616,7 @@ mod sam2_test {
         let mask =
             Mask::new(Array4::from_shape_vec((1, 1, 2, 2), vec![20.0, -20.0, 0.0, 20.0]).unwrap());
 
-        let segmented =
-            Sam2Segmenter::_generate_image_fast(&mask, original_image.image()).unwrap();
+        let segmented = Sam2Segmenter::_generate_image_fast(&mask, original_image.image()).unwrap();
         let (result_image, result_size) = segmented.into_image_and_size();
 
         assert_eq!(&result_size, original_image.image().image_size());

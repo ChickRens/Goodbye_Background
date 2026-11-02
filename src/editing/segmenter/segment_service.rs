@@ -101,10 +101,15 @@ impl SegmentService for SegmentServiceImpl {
 
         // ここで初めてプレビュー座標 → 元画像座標に変換される（セッションはまだ変更しない）。
         let input_points = session.points_with(point.clone());
-        tracing::debug!(?input_points, "segment: points in original image coordinates");
+        tracing::debug!(
+            ?input_points,
+            "segment: points in original image coordinates"
+        );
 
         // 表示用なのでプレビュー解像度で切り抜く（フル解像度だと 12MP 画像で約 200ms かかっていた）。
-        let output_image = self.preview_generator.resize_to_preview(original_image.image());
+        let output_image = self
+            .preview_generator
+            .resize_to_preview(original_image.image());
 
         let start = Instant::now();
         let (new_context, segmented_image) = self.segmenter.segment_fast(
@@ -141,7 +146,9 @@ impl SegmentService for SegmentServiceImpl {
 
         let original_image = self.image_repo.get(&image_id)?;
         // 表示用なのでプレビュー解像度で切り抜く。
-        let output_image = self.preview_generator.resize_to_preview(original_image.image());
+        let output_image = self
+            .preview_generator
+            .resize_to_preview(original_image.image());
 
         let input_image = self.input_storage.get(image_id)?;
 
@@ -216,7 +223,9 @@ impl SegmentService for SegmentServiceImpl {
 
         let original_image = self.image_repo.get(&image_id)?;
         // 表示用なのでプレビュー解像度で切り抜く。
-        let output_image = self.preview_generator.resize_to_preview(original_image.image());
+        let output_image = self
+            .preview_generator
+            .resize_to_preview(original_image.image());
 
         let input_image = self.input_storage.get(image_id)?;
 
@@ -302,7 +311,6 @@ mod segment_service_test {
         },
         image::{
             image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize},
-            preview::generator::generator_impl::WebPPreviewImageGenerator,
             original::{
                 original_image::OriginalImage,
                 original_repository::{
@@ -310,6 +318,7 @@ mod segment_service_test {
                     repository_impl::OriginalImageRepositoryInMemory,
                 },
             },
+            preview::generator::generator_impl::WebPPreviewImageGenerator,
             segmenter_input::{
                 segmenter_input_image::SegmenterInputImage,
                 storage::{
@@ -326,7 +335,9 @@ mod segment_service_test {
         },
         session::{
             id::SessionId,
-            repository::{repository::SessionRepository, repository_impl::SessionRepositoryInMemory},
+            repository::{
+                repository::SessionRepository, repository_impl::SessionRepositoryInMemory,
+            },
             session::Session,
         },
     };
@@ -397,7 +408,9 @@ mod segment_service_test {
     ) {
         let clock = FakeClock::new(Instant::now());
         let session_repo = Arc::new(SessionRepositoryInMemory::new(clock.clone()));
-        let image_repo = Arc::new(OriginalImageRepositoryInMemory::new(Arc::new(clock.clone())));
+        let image_repo = Arc::new(OriginalImageRepositoryInMemory::new(Arc::new(
+            clock.clone(),
+        )));
         let input_storage = Arc::new(SegmenterInputStorageInMemory::new(clock.clone()));
         let editing_session_repo = Arc::new(SAM2EditingSessionRepository::new(clock.clone()));
 

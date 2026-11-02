@@ -15,8 +15,7 @@ use crate::{
     editing::segmenter::error::{SegmenterLoadingError, SegmenterRuntimeError},
     editing::segmenter::segmented_image::SegmentedImage,
     image::{
-        image::image::Image,
-        original::original_image::OriginalImage,
+        image::image::Image, original::original_image::OriginalImage,
         segmenter_input::segmenter_input_image::SegmenterInputImage,
     },
     point::point::Point,

@@ -154,7 +154,10 @@ mod preview_image_generator_test {
 
         assert_eq!(resized.image_size(), &ImageSize::new(2, 4).unwrap());
         assert_eq!(resized.image_id(), &image_id);
-        assert_eq!(resized.image_data().image(), &[10u8, 20, 30, 255].repeat(2 * 4));
+        assert_eq!(
+            resized.image_data().image(),
+            &[10u8, 20, 30, 255].repeat(2 * 4)
+        );
     }
 }
 

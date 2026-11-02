@@ -140,7 +140,9 @@ mod delete_expired_entries_usecase_test {
         let clock = FakeClock::new(base);
         let editing_session_repo = Arc::new(SAM2EditingSessionRepository::new(clock.clone()));
         let usecase = DeleteExpiredEntriesUseCase::new(
-            Arc::new(OriginalImageRepositoryInMemory::new(Arc::new(clock.clone()))),
+            Arc::new(OriginalImageRepositoryInMemory::new(Arc::new(
+                clock.clone(),
+            ))),
             Arc::new(SessionRepositoryInMemory::new(clock.clone())),
             Arc::new(CompletedRepositoryInMemory::new(clock.clone())),
             Arc::new(PreviewStorageInMemory::new(clock.clone())),

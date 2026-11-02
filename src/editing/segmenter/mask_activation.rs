@@ -34,8 +34,7 @@ mod mask_activation_test {
 
     #[test]
     fn sigmoid_maps_logits_to_probabilities() {
-        let logits =
-            Array4::from_shape_vec((1, 1, 1, 4), vec![0.0, 20.0, -20.0, 2.0]).unwrap();
+        let logits = Array4::from_shape_vec((1, 1, 1, 4), vec![0.0, 20.0, -20.0, 2.0]).unwrap();
 
         let probabilities = SAM2MaskActivation::sigmoid(logits);
 

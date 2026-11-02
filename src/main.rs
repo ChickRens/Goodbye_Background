@@ -53,10 +53,11 @@ async fn main() {
             process::exit(2);
         }
     };
-    
+
     let usage_recorder: Arc<dyn UsageRecorder> = match backend {
         DatabaseBackend::Sqlite => {
-            let database_url = env::var("DATABASE_URL_SQLITE").expect("DATABASE_URL_SQLITE must be set");
+            let database_url =
+                env::var("DATABASE_URL_SQLITE").expect("DATABASE_URL_SQLITE must be set");
             let pool = SqlitePoolOptions::new()
                 .max_connections(1)
                 .connect(&database_url)
@@ -69,7 +70,8 @@ async fn main() {
             Arc::new(SQLiteUsageRecorder::new(pool))
         }
         DatabaseBackend::Postgres => {
-            let database_url = env::var("DATABASE_URL_POSTGRES").expect("DATABASE_URL_POSTGRES must be set");
+            let database_url =
+                env::var("DATABASE_URL_POSTGRES").expect("DATABASE_URL_POSTGRES must be set");
             let pool = PgPoolOptions::new()
                 .max_connections(1)
                 .connect(&database_url)
