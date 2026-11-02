@@ -1,3 +1,8 @@
+//! SAM2 用編集セッションのインメモリ実装（`TtlStore` を使用）。
+//!
+//! 注意: `DeleteExpiredRepository` を実装しているが、`DeleteExpiredEntriesUseCase` に
+//! 登録されていないため、実際には GC されない（`composition/wiring.rs` 参照）。
+
 use std::{
     sync::Arc,
     time::{Duration, Instant},

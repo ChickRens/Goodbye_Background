@@ -1,3 +1,5 @@
+//! プレビュー画像（WebP エンコード済み）。
+
 use crate::image::image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

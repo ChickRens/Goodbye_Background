@@ -1,3 +1,6 @@
+//! `POST /save` ハンドラ。高品質推論 + 保存用 WebP 生成を行い、その image_id を返す。
+//! クライアントは続けて `/get-completed` でバイナリを取得する。
+
 use std::sync::Arc;
 
 use axum::{Json, extract::State};
@@ -22,6 +25,8 @@ pub async fn save(
 
     let input = SaveInput::new(session_id);
 
+    // SAM2 推論・画像処理は CPU を長時間使うので、tokio のワーカーを塞がないよう
+    // blocking スレッドで実行する。`??` の1つ目は JoinError（panic 等）、2つ目はユースケースのエラー。
     let output = spawn_blocking(move || app.save(input))
         .await
         .map_err(|err| PresentationError::BlockingTask(err.to_string()))??;

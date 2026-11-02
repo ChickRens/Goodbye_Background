@@ -1,3 +1,5 @@
+//! プレビュー取得ユースケースのエラー。
+
 use crate::{image::preview::storage::error::PreviewStorageError, parent_error};
 
 parent_error!(

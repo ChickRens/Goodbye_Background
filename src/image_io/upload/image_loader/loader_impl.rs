@@ -1,3 +1,15 @@
+//! `ImageLoader` の実装（`image` クレート）。
+//!
+//! - 形式はバイト列の中身から推測（拡張子・Content-Type は見ない）。対応形式は image クレートの
+//!   有効な feature 次第（デフォルト feature: PNG/JPEG/WebP/GIF/BMP/TIFF 等。HEIC は非対応）
+//! - EXIF の Orientation を反映してから RGBA8 に変換する（スマホ写真が横倒しにならないように）
+//! - 16bit 画像や透過なし画像も全て RGBA8 に正規化される
+//!
+//! 注意: `width as u16` / `height as u16` はバリデーション前のキャストなので、
+//! 65535px を超える画像は値が回り込み（例: 70000 → 4464）、サイズ検証をすり抜ける。
+//! その後は「サイズ情報」と「実際の RGBA バッファ長」が食い違ったまま処理が進み、
+//! 画像が崩れるか、どこかの `expect` で panic する（未検証）。キャスト前に u32 のまま検証すべき。
+
 use std::time::Instant;
 
 use crate::image::image::{id::ImageId, image::Image, raw_data::ImageData, size::ImageSize};
@@ -42,6 +54,7 @@ impl ImageLoader for FileImageLoader {
         let width = img.width();
         let height = img.height();
 
+        // 注意: u32 → u16 のキャストが先なので 65535 超は回り込む（ファイル先頭のコメント参照）。
         let image_size = ImageSize::new(height as u16, width as u16)?;
 
         let rgba_image = img.to_rgba8();

@@ -1,3 +1,8 @@
+//! `AppClock` の実装。
+//!
+//! - `RealClock`: `Instant::now()` を返す本番用
+//! - `FakeClock`: 生成時に渡した時刻を常に返すテスト用（`#[cfg(test)]` ではないので本番バイナリにも含まれる）
+
 use std::time::Instant;
 
 use crate::maintenance::deleting_expired_entries::clock::clock::AppClock;

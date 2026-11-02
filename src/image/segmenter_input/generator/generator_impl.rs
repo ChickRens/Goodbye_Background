@@ -1,3 +1,5 @@
+//! `SegmenterInputImageGenerator` の SAM2 実装。
+
 use image::{
     RgbaImage,
     imageops::{self, FilterType},
@@ -12,6 +14,11 @@ use crate::image::{
     },
 };
 
+/// 元画像を SAM2 入力サイズ（1024x1024）にリサイズする。
+///
+/// **アスペクト比を保たずに引き伸ばす**（パディングしない）。SAM2 公式の前処理と同じ方式で、
+/// ポイント座標も縦横別々の倍率で変換している（`Sam2Segmenter::_scale_prompt`）ので整合している。
+/// フィルタは Triangle（バイリニア相当）。
 #[derive(Debug, Clone)]
 pub struct SAM2InputGenerator {
     sam2_required_height: f32,

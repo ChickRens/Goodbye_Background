@@ -1,3 +1,5 @@
+//! SAM2 入力画像保存先のトレイト。
+
 use std::sync::Arc;
 
 use crate::image::{

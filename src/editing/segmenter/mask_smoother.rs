@@ -1,3 +1,23 @@
+//! ガイデッドフィルタ（He et al. 2010）によるマスクのエッジ平滑化。`/save`（高品質版）でのみ使う。
+//!
+//! 目的: 256x256 から拡大したマスクはエッジがぼやける/ガタつくので、元画像の輝度エッジに
+//! 沿うように補正する（髪の毛などの境界がきれいになる）。
+//!
+//! アルゴリズム（各ピクセルの周囲 (2r+1)^2 の窓で）:
+//! - I = ガイド画像（元画像のグレースケール 0〜1）, p = 入力マスク
+//! - a = cov(I, p) / (var(I) + eps), b = mean(p) - a * mean(I)
+//! - 出力 = a * I + b
+//! - 窓内の平均は積分画像（summed-area table）で O(1) に計算する
+//!
+//! パラメータ: radius = 16, eps = 0.1（ハードコード）。
+//!
+//! 最後に「元のマスク値が 0.5 から遠いほど元の値を残す」ブレンドをしている（`confidence`）。
+//! 注意: この式も 0〜1 の確率前提。実際の入力はロジット（`mask_applier.rs` 参照）なので、
+//! |p| が大きいと confidence が巨大になり、結果は最終的に applier の clamp で 0/255 に丸められている。
+//!
+//! 注意: 4 枚の積分画像（f32 × (H+1)(W+1)）を作るので、8000x8000 だと一時的に約1GBを使う。
+//! また積分画像を f32 で累積しているため、大きな画像では精度が落ちる。
+
 use image::RgbaImage;
 use ndarray::{Array4, ArrayView4};
 use rayon::{
@@ -87,6 +107,7 @@ impl SAM2MaskSmoother {
         output
     }
 
+    /// 元画像 RGBA → 輝度（ITU-R BT.601 の係数）0〜1 のグレースケール。
     fn build_guidance_image(original_image: &Image) -> Vec<f32> {
         let width = original_image.image_size().width() as u32;
         let height = original_image.image_size().height() as u32;
@@ -110,6 +131,7 @@ impl SAM2MaskSmoother {
             .collect()
     }
 
+    /// 積分画像を作る。サイズは (H+1) x (W+1) で、先頭行・先頭列は 0（境界処理を省くため）。
     fn build_integral(values: &[f32], height: usize, width: usize) -> Vec<f32> {
         let stride = width + 1;
         let mut integral = vec![0.0; (height + 1) * stride];
@@ -128,6 +150,7 @@ impl SAM2MaskSmoother {
         integral
     }
 
+    /// 積分画像から矩形 [x0..=x1] x [y0..=y1] の総和を O(1) で求める。
     const fn rect_sum(
         integral: &[f32],
         width: usize,

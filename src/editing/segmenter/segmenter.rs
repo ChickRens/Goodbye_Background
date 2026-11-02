@@ -1,3 +1,16 @@
+//! 画像セグメンタの抽象トレイト（実装は `Sam2Segmenter` のみ）。
+//!
+//! 関連型:
+//! - `StaticContext`    : 画像ごとに1回だけ計算する重い前処理結果（SAM2 なら画像特徴量）
+//! - `InferenceContext` : 推論のたびに更新される状態（SAM2 なら直前のマスク）
+//!
+//! `segment_fast` と `segment_high_quality` の違いはマスクの後処理だけ（推論は同じ）:
+//! - fast : リサイズ → 適用（segment/undo/redo のプレビュー用）
+//! - high_quality : リサイズ → ガイデッドフィルタで平滑化 → 適用（save 用）
+//!
+//! `input_points` は **元画像座標**。1024 座標への変換は実装側で行う。
+//! `input_image` は現状の SAM2 実装では使われていない（特徴量は StaticContext にあるため）。
+
 use crate::{
     editing::segmenter::error::{SegmenterLoadingError, SegmenterRuntimeError},
     editing::segmenter::segmented_image::SegmentedImage,

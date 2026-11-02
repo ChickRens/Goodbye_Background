@@ -1,3 +1,14 @@
+//! 全インメモリストアから期限切れエントリを削除するユースケース。
+//!
+//! `main.rs` の GC タスクが `CLEANUP_INTERVAL`（60秒）ごとに `App::cleanup` 経由で `execute` を呼ぶ。
+//!
+//! `Expiring*` トレイトは「元のリポジトリトレイト + DeleteExpiredRepository」を1つの
+//! trait object（`Arc<dyn ...>`）として扱うための合成トレイト（Rust は `dyn A + B` を書けないため）。
+//! blanket impl があるので、両方を実装した型は自動的に該当する。
+//!
+//! 注意: `SAM2EditingSessionRepository`（編集セッション = 一番メモリを食う SAM2 特徴量）は
+//! ここに含まれていない。TTL を過ぎても GC されず、メモリリークになる。
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

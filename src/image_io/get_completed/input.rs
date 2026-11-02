@@ -1,3 +1,5 @@
+//! 完成画像取得の入力。image_id は `/save` のレスポンスで返したもの。
+
 use crate::image::image::id::ImageId;
 
 pub struct GetCompletedInput {

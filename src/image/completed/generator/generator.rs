@@ -1,3 +1,7 @@
+//! `CompletedImageGenerator` の実装: 生 RGBA を WebP(quality 95, 非可逆) にエンコードする。
+//!
+//! 注意: ファイル名と中身が他モジュールと逆（このファイルが実装側）。
+
 use webp::Encoder;
 
 use crate::image::{

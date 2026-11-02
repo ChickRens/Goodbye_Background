@@ -1,3 +1,5 @@
+//! save の入力。
+
 use crate::session::id::SessionId;
 
 pub struct SaveInput {

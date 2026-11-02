@@ -1,3 +1,14 @@
+//! `UsageRecorder` の実装（SQLite 版 / PostgreSQL 版）。
+//!
+//! 仕組み: `new()` で容量 1024 の mpsc チャネルと、受信して INSERT し続ける tokio タスクを作る。
+//! `record()` は `try_send` するだけなので、DB が遅くても API レスポンスは遅れない。
+//! その代わりチャネルが満杯だとログは捨てられる（eprintln のみ）。
+//!
+//! 注意:
+//! - `new()` 内で `tokio::spawn` するため、tokio ランタイム内で呼ぶ必要がある
+//! - SQLite 版と Postgres 版はプレースホルダ（`?` / `$1`）以外ほぼ同じコードの重複
+//! - Postgres 版は `main.rs` でマイグレーションを実行していない（テーブルは事前に作っておく必要がある）
+
 use sqlx::{PgPool, SqlitePool};
 use tokio::sync::mpsc::{self, Sender};
 

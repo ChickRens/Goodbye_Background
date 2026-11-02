@@ -1,3 +1,5 @@
+//! undo の入力。
+
 use crate::session::id::SessionId;
 
 pub struct UndoInput {

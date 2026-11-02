@@ -1,3 +1,5 @@
+//! SessionId のパース失敗エラー。
+
 use crate::{common::traits::ErrorType::InvalidInput, leaf_error};
 
 leaf_error!(

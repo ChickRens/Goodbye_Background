@@ -1,3 +1,5 @@
+//! SAM2 入力用にリサイズした画像。ImageId は元画像と同じ。
+
 use crate::image::image::{id::ImageId, image::Image};
 
 #[derive(Debug, PartialEq, Eq, Clone)]

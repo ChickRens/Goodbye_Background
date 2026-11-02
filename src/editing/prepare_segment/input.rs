@@ -1,8 +1,11 @@
+//! SAM2 前処理の入力。
+
 use crate::{image::image::id::ImageId, session::id::SessionId};
 
 pub struct PrepareSegmentInput {
     image_id: ImageId,
     session_id: SessionId,
+    /// プレビュー座標 → 元画像座標の変換に使う倍率（元画像座標 = プレビュー座標 / point_scale）。
     point_scale: f64,
 }
 

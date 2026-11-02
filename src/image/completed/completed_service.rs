@@ -1,3 +1,5 @@
+//! 保存用画像の生成（WebP エンコード）と保存・取得をまとめたサービス。
+
 use std::{sync::Arc, time::Instant};
 
 use crate::image::{

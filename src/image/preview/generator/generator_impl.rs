@@ -1,3 +1,11 @@
+//! `PreviewImageGenerator` の実装: 長辺 `long_side`px（本番は 600）に縮小して WebP にエンコードする。
+//!
+//! 速度優先の設定（プレビューは segment のたびに作られるため）:
+//! - リサイズは Nearest（最近傍）。ジャギーが出るが速い
+//! - WebP は quality 75, method 0（最速）, アルファ品質 50
+//!
+//! 元画像が 600px より小さい場合は **拡大** される（scale > 1）。
+
 use std::time::Instant;
 
 use fast_image_resize as fr;
@@ -17,6 +25,7 @@ pub struct WebPPreviewImageGenerator {
 impl PreviewImageGenerator for WebPPreviewImageGenerator {
     fn generate(&self, image: &Image) -> (PreviewImage, f64) {
         let source_size = image.image_size();
+        // scale = プレビュー / 元画像。フロントのクリック座標 ÷ scale = 元画像座標。
         let scale = self.long_side / source_size.height().max(source_size.width()) as f64;
         let width = ((source_size.width() as f64 * scale).round() as u16).max(2);
         let height = ((source_size.height() as f64 * scale).round() as u16).max(2);

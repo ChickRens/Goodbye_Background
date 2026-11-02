@@ -1,3 +1,24 @@
+//! SAM2.1 (hiera_small) を ONNX Runtime (`ort` クレート) で動かすセグメンタ。
+//!
+//! モデルは3分割で、`models/` に置く（git 管理外。`scripts/*_export.py` で生成する）:
+//! - `sam2.1_hiera_small_image_encoder.onnx`  : 画像 [1,3,1024,1024]（0〜1 の RGB）→ 特徴量3つ
+//!   （ImageNet の mean/std 正規化はモデル内部で行うので、Rust 側は /255 するだけ）
+//! - `sam2.1_hiera_small_prompt_encoder.onnx` : ポイント + 前回マスク → sparse/dense 埋め込み
+//! - `sam2.1_hiera_small_mask_decoder.onnx`   : 特徴量 + 埋め込み + image_pe → マスク [1,1,256,256]
+//! - `image_pe.bin` : 位置エンコーディング [1,256,64,64] の f32 生バイナリ（`scripts/image_pe_generate.py`）
+//!
+//! 推論の流れ（`_inference`）:
+//! ```text
+//! ポイント(元画像座標) --_scale_prompt--> 1024座標 --prompt encoder--> sparse/dense
+//! 前回マスク(あれば) ------------------------------^
+//! StaticContext(特徴量) + sparse/dense + image_pe --mask decoder--> Mask(256x256 ロジット)
+//! ```
+//!
+//! スレッド安全性: 各 ONNX セッションは `Arc<Mutex<Session>>`。`Clone` しても同じセッションを共有する。
+//! つまり **全ユーザーの推論が1本の Mutex で直列化される**（同時アクセスが多いと待ち行列になる）。
+//!
+//! 命名: `_` 始まりのメソッドは内部ヘルパー（Python 風の慣習。Rust としては非標準）。
+
 use std::{
     sync::{Arc, Mutex},
     time::Instant,
@@ -33,12 +54,15 @@ use crate::{
 };
 use std::fs::read;
 
+/// SAM2 セグメンタ本体。起動時に1回だけ作られ、prepare/segment の両サービスで共有される。
 #[derive(Clone)]
 pub struct Sam2Segmenter {
     image_encoder_session: Arc<Mutex<Session>>,
     prompt_encoder_session: Arc<Mutex<Session>>,
     mask_decoder_session: Arc<Mutex<Session>>,
+    /// mask decoder に毎回渡す位置エンコーディング（定数）。
     image_pe: Array4<f32>,
+    /// SAM2 の入力解像度（1024 固定）。
     image_height: usize,
     image_width: usize,
 }
@@ -59,6 +83,7 @@ impl Sam2Segmenter {
                 model_dir
             ))?)),
             image_pe: {
+                // 注意: ここだけ `model_dir` 引数を使わずパスがハードコードされている。
                 let bin_file = read("models/image_pe.bin")
                     .map_err(|e| SegmenterModelError::ModelLoadError(e.to_string()))?;
                 let data: &[f32] = bytemuck::cast_slice(&bin_file);
@@ -107,6 +132,10 @@ impl Sam2Segmenter {
             .expect("Failed to create Array3 from tensor data")
     }
 
+    /// image encoder を実行する（`/upload` 時に1回だけ。CPU だと数百ms〜数秒）。
+    ///
+    /// 入力は 1024x1024 の画像。RGBA → RGB にし、HWC（ピクセルごとに RGB）から
+    /// CHW（R 平面・G 平面・B 平面）に並べ替えつつ 0〜1 に正規化する。
     fn _encode_image(
         &self,
         original_image: &DynamicImage,
@@ -157,6 +186,8 @@ impl Sam2Segmenter {
         Ok((image_embeddings, high_res_feature_s0, high_res_feature_s1))
     }
 
+    /// ポイント座標を current サイズ → target サイズへ縦横独立に拡大縮小する。
+    /// 元画像座標 → 1024x1024 座標の変換に使う（入力画像もアスペクト比無視で引き伸ばしているため整合する）。
     fn _scale_prompt(
         points_coords: Vec<(f32, f32)>,
         current_height: u16,
@@ -178,6 +209,10 @@ impl Sam2Segmenter {
         scaled_points_coords
     }
 
+    /// prompt encoder を実行する。
+    ///
+    /// `mask` が None（初回推論）のときはゼロ配列を渡し、`has_mask = 0.0` でモデル側に無視させる
+    /// （ONNX に if 分岐を持ち込めないため。scripts/prompt_encoder_export.py 参照）。
     fn _encode_prompt(
         &self,
         points_coords: Vec<(f32, f32)>,
@@ -233,6 +268,8 @@ impl Sam2Segmenter {
         Ok((sparse_embeddings, dense_embeddings))
     }
 
+    /// mask decoder を実行し、256x256 のマスク（ロジット）を得る。
+    /// multimask_output=False でエクスポートされているので、出力マスクは1枚だけ。
     fn _decode_mask(
         &self,
         image_embeddings: &ImageEmbeddings,
@@ -310,6 +347,10 @@ impl Sam2Segmenter {
         Ok(mask)
     }
 
+    /// 1回分の推論（prompt encoder → mask decoder）。画像の encode は含まない。
+    ///
+    /// `input_scaled_points` は名前に反して **元画像座標**（"scaled" はプレビュー→元画像の変換済みの意）。
+    /// ここで `original_size` を使って 1024 座標に変換する。
     fn _inference(
         &self,
         original_size: &ImageSize,
@@ -363,6 +404,7 @@ impl Sam2Segmenter {
         Ok(mask)
     }
 
+    /// マスク → 切り抜き画像（高速版）: 元画像サイズにリサイズしてアルファに適用するだけ。
     fn _generate_image_fast(
         mask: &Mask,
         original_image: &OriginalImage,
@@ -387,6 +429,8 @@ impl Sam2Segmenter {
         ))
     }
 
+    /// マスク → 切り抜き画像（高品質版）: リサイズ後にガイデッドフィルタで平滑化してから適用する。
+    /// 大きい画像では平滑化が支配的に重い（`mask_smoother.rs` 参照）。
     fn _generate_image_high_quality(
         mask: &Mask,
         original_image: &OriginalImage,
@@ -445,6 +489,7 @@ impl ImageSegmenter for Sam2Segmenter {
         let end = start.elapsed();
         println!("SAM2 generate image: {:?}", end);
 
+        // 今回のマスクを次回推論のヒントとして返す（segment では履歴に保存される）。
         let inference_context = SAM2InferenceContext::new(Some(mask));
 
         // Ok(SegmentedImage::new(
@@ -488,6 +533,7 @@ impl ImageSegmenter for Sam2Segmenter {
         Ok((inference_context, segmented))
     }
 
+    /// 1024x1024 の入力画像から画像特徴量を計算する（= image encoder 実行）。
     fn prepare_static_context(
         &self,
         image: &SegmenterInputImage,
@@ -513,6 +559,7 @@ impl ImageSegmenter for Sam2Segmenter {
         Ok(static_context)
     }
 
+    /// 初期の推論コンテキスト = 前回マスク無し。
     fn prepare_inference_context(
         &self,
         _image: &SegmenterInputImage,

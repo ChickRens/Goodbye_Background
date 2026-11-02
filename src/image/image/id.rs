@@ -1,3 +1,10 @@
+//! 画像 ID（UUID v4）。
+//!
+//! 重要: image_id は「画像の版（スナップショット）」を指す。segment/undo/redo のたびに
+//! 新しい ImageId が発行され、プレビューストアにその ID で保存される。
+//! フロントは返ってきた image_id で `/get-preview` を叩いて表示を更新する。
+//! 元画像の image_id は `Session` が保持し、セッション中は不変。
+
 use uuid::Uuid;
 
 use crate::image::image::error::ImageIdError;

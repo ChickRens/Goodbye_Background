@@ -1,3 +1,6 @@
+//! `/save` のレスポンス: `{ "image_id": UUID }`。`/get-completed` に渡す ID
+//! （`/get-preview` では取得できない）。
+
 use uuid::Uuid;
 
 #[derive(serde::Serialize)]

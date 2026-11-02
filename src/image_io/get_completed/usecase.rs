@@ -1,3 +1,5 @@
+//! 完成画像を ID で取り出して返すだけのユースケース。
+
 use std::sync::Arc;
 
 use crate::{

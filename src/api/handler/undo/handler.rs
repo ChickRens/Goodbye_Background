@@ -1,3 +1,6 @@
+//! `POST /undo` ハンドラ。最後のポイントを取り消して切り抜き直す。
+//! undo できない場合は 400 `UNDO_FAILED`。
+
 use std::sync::Arc;
 
 use axum::{Json, extract::State};
@@ -22,6 +25,8 @@ pub async fn undo(
 
     let input = UndoInput::new(session_id);
 
+    // SAM2 推論・画像処理は CPU を長時間使うので、tokio のワーカーを塞がないよう
+    // blocking スレッドで実行する。`??` の1つ目は JoinError（panic 等）、2つ目はユースケースのエラー。
     let output = spawn_blocking(move || app.undo(input))
         .await
         .map_err(|err| PresentationError::BlockingTask(err.to_string()))??;

@@ -1,3 +1,5 @@
+//! セッション保存先のトレイト。
+
 use std::sync::Arc;
 
 use crate::session::{id::SessionId, repository::error::SessionRepositoryError, session::Session};

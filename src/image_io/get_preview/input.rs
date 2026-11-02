@@ -1,3 +1,5 @@
+//! プレビュー取得の入力。image_id は `/upload` `/segment` `/undo` `/redo` のレスポンスで返したもの。
+
 use crate::image::image::id::ImageId;
 
 pub struct GetPreviewInput {

@@ -1,3 +1,10 @@
+//! 全 API リクエストの利用ログを記録するミドルウェア。
+//!
+//! 記録内容: `client-id` ヘッダー（UUID）/ 呼ばれたパス / 処理時間 / 成功・失敗（エラーコード）。
+//! 成否は「レスポンス拡張に `UsageStatusExt` があるか」で判定する（`AppError::into_response` が入れる）。
+//! そのため axum 自体が返すエラー（JSON パース失敗の 422、ボディサイズ超過の 413 など）は
+//! `AppError` を経由しないので **成功として記録される** 点に注意。
+
 use std::{sync::Arc, time::Instant};
 
 use axum::{
@@ -28,6 +35,7 @@ pub async fn track_usage(
         .and_then(|value| Uuid::parse_str(value).ok())
         .map(|value| UsageId::new(value));
 
+    // "/segment" → "segment" → UsageOperation::Segment
     let operation = request.uri().path().trim_start_matches("/").to_string();
     let operation = UsageOperation::new(&operation);
     let start = Instant::now();
@@ -42,6 +50,7 @@ pub async fn track_usage(
     };
 
     let event = UsageEvent::new(id, operation, status, end);
+    // チャネルに投げるだけなのでレスポンスは遅れない（INSERT は別タスク）。
     app.usage_recorder().record(event);
 
     response

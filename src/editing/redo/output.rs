@@ -1,3 +1,5 @@
+//! redo の出力。新しく発行されたプレビューの image_id。
+
 use crate::image::image::id::ImageId;
 
 pub struct RedoOutput {

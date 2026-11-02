@@ -1,3 +1,5 @@
+//! segment の入力。`point` の座標は **プレビュー画像（長辺600px）上のピクセル座標**。
+
 use crate::{point::point::Point, session::id::SessionId};
 
 pub struct SegmentInput {

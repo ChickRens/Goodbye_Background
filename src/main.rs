@@ -1,3 +1,17 @@
+//! Goodbye Background — SAM2 を使った背景除去 Web アプリのサーバー（エントリーポイント）。
+//!
+//! 起動の流れ:
+//! 1. コマンドライン引数で利用ログの保存先 DB を選ぶ（なし/`--sqlite` → SQLite, `--postgres` → PostgreSQL）
+//! 2. DB に接続して `UsageRecorder` を作る（SQLite のときだけマイグレーションを実行）
+//! 3. `App::new` で全ユースケースを組み立てる（ここで `models/` の ONNX モデルを読み込む。無いと panic）
+//! 4. 期限切れデータ削除（GC）タスクを `CLEANUP_INTERVAL` ごとに回す
+//! 5. axum でポート `PORT`（デフォルト 3000）を listen。API 以外のパスは `frontend/` を静的配信
+//!
+//! 必要な環境変数: `DATABASE_URL_SQLITE` または `DATABASE_URL_POSTGRES`、任意で `PORT`。
+//! カレントディレクトリはリポジトリ直下である必要がある（`models/` `frontend/` を相対パスで参照するため）。
+//!
+//! モジュール構成の全体像はリポジトリ直下の `CLAUDE.md` / `docs/ARCHITECTURE.md` を参照。
+
 mod analytics;
 mod api;
 mod application;
@@ -59,16 +73,20 @@ async fn main() {
                 .connect(&database_url)
                 .await
                 .expect("Failed to connect to PostgreSQL database");
+            // 注意: Postgres ではマイグレーションを実行していない。
+            // usage_records テーブル（migrations/ の内容）は事前に作成しておく必要がある。
             Arc::new(PostgresUsageRecorder::new(pool))
         }
     };
 
+    // ONNX モデル（models/*.onnx, models/image_pe.bin）の読み込みもここで行われる。
     let app = Arc::new(App::new(usage_recorder).unwrap());
     let clock = RealClock::new();
 
     let app_for_gc = app.clone();
     let app_for_router = app.clone();
 
+    // 60 秒ごとに、全インメモリストアから「最後のアクセスから TTL_SEC 以上経った」エントリを消す。
     spawn_gc_task(CLEANUP_INTERVAL, move || {
         app_for_gc.cleanup(clock.now());
     });
@@ -89,6 +107,7 @@ async fn main() {
     axum::serve(listener, router).await.unwrap();
 }
 
+/// 利用ログ（usage_records テーブル）の保存先。画像データ自体は DB に入らず、全てメモリ上に置かれる。
 enum DatabaseBackend {
     Postgres,
     Sqlite,
@@ -104,6 +123,10 @@ fn database_backend() -> Result<DatabaseBackend, String> {
     }
 }
 
+/// `interval` ごとに `task` を実行し続けるバックグラウンドタスクを起動する。
+///
+/// 注意: `task` は tokio のワーカースレッド上で同期実行される（`spawn_blocking` ではない）。
+/// ストアが大きいと `DashMap::retain` の間ワーカーを占有する。
 fn spawn_gc_task<F>(interval: Duration, task: F)
 where
     F: Fn() + Send + Sync + 'static,

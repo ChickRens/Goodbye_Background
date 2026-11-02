@@ -1,3 +1,14 @@
+//! HTTP 層（リクエストのパース等）で起きるエラー。
+//!
+//! 他のエラーと違いマクロを使わず手書きで `Code`/`Cause`/`ErrorTypeProvider` を実装している
+//! （詳細メッセージ付きの variant と子エラーの variant が混在しているため）。
+//!
+//! - `Multipart`   : multipart の読み取り失敗（500 扱い）
+//! - `UnknownName` : `/upload` で `file` 以外のフィールド名が来た
+//! - `NoName`      : multipart フィールドに名前が無い
+//! - `SessionId` / `ImageId` : リクエストの ID が UUID として不正
+//! - `BlockingTask`: `spawn_blocking` のタスクが panic した（推論中の `expect` 失敗など）
+
 use crate::{
     common::traits::{
         Cause, Code,

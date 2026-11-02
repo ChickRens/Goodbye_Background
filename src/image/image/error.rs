@@ -1,3 +1,5 @@
+//! 画像サイズ/ID のバリデーションエラー。
+
 use crate::{common::traits::ErrorType::InvalidInput, leaf_error};
 
 leaf_error!(

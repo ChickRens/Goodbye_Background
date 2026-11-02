@@ -1,3 +1,5 @@
+//! `/undo` のレスポンス: `{ "image_id": UUID }`（新しいプレビューの ID）。
+
 use uuid::Uuid;
 
 #[derive(serde::Serialize)]

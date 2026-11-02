@@ -1,3 +1,5 @@
+//! segment の出力。新しく発行された切り抜き結果プレビューの image_id。
+
 use crate::image::image::id::ImageId;
 
 pub struct SegmentOutput {

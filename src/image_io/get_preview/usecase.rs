@@ -1,3 +1,5 @@
+//! プレビューを ID で取り出して返すだけのユースケース。
+
 use std::sync::Arc;
 
 use crate::{

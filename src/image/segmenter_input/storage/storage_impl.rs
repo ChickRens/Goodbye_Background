@@ -1,3 +1,5 @@
+//! SAM2 入力画像のインメモリ実装（`TtlStore` を使用）。
+
 use std::{
     sync::Arc,
     time::{Duration, Instant},

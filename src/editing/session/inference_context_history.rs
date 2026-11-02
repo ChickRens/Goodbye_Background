@@ -1,3 +1,18 @@
+//! 推論コンテキスト（SAM2 では直前のマスク）の undo/redo 履歴。
+//!
+//! `PointHistory` と同じ考え方だが、**初期要素を1つ持つ**点が違う:
+//! ```text
+//! PointHistory:            items=[]            cursor=0  (current = [] 空)
+//! InferenceContextHistory: items=[ctx0(None)]  cursor=0  (current = ctx0)
+//! 1点追加後:
+//! PointHistory:            items=[p0]          cursor=1  (current = [p0])
+//! InferenceContextHistory: items=[ctx0, ctx1]  cursor=1  (current = ctx1)
+//! ```
+//! つまり cursor の値は両者で常に一致する。`can_undo`/`can_redo` の結果も一致するはずで、
+//! `CommonEditingSession` がそれを検査している。
+//!
+//! 注意: `undo`/`redo` は境界チェックをしない。必ず `can_undo`/`can_redo` を先に確認すること。
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InferenceContextHistory<T> {
     items: Vec<T>,

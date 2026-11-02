@@ -1,3 +1,8 @@
+//! 全ユースケースのエラーを1つにまとめた `ApplicationError`。
+//!
+//! `App` の各メソッドはこの型を返し、ハンドラ側で `AppError` に `?` で変換される。
+//! 新しいユースケースを追加したら、ここにも variant を足すこと（足さないと `?` が通らない）。
+
 use crate::{
     editing::{
         prepare_segment::error::PrepareSegmentUseCaseError, redo::error::RedoUseCaseError,

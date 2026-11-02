@@ -1,3 +1,10 @@
+//! プレビューのインメモリ実装。元画像用と切り抜き結果用の2つの `TtlStore` を持つ。
+//!
+//! `get` は両方を調べ、両方にあれば `AmbiguousId`（409）を返す。
+//! 切り抜き結果には毎回新しい ImageId が振られるので、通常は重複しない。
+//!
+//! 注意: `get` は `contains` → `get` の2段階なので、その間に GC で消えると `ImageNotFound` になる（無害）。
+
 use std::{
     sync::Arc,
     time::{Duration, Instant},

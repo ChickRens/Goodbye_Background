@@ -1,3 +1,12 @@
+//! マスクを元画像のアルファチャンネルに書き込む（= 切り抜き）。RGB は変更しない。
+//!
+//! alpha = clamp(mask * 255, 0, 255)。マスクは元画像と同じ解像度に揃えてから渡すこと。
+//!
+//! 注意: この式はマスクが「0〜1 の確率」である前提。しかし SAM2 の mask decoder の出力は
+//! **ロジット**（sigmoid 前。scripts/export.py の MaskDecoderWrapper は sigmoid を掛けていない）。
+//! そのためロジット 0〜1 の極めて狭い範囲以外は alpha が 0 か 255 に張り付き、
+//! 実質「ロジット > 0 で二値化」に近い挙動になっている。意図的でなければ sigmoid を挟むべき。
+
 use ndarray::{ArrayView4, s};
 use rayon::prelude::*;
 
@@ -18,6 +27,7 @@ impl SAM2MaskApplier {
             .as_slice()
             .expect("Applier requires contiguous ArrayView4");
 
+        // RGBA の 4 バイトずつとマスク値1つを対応させ、A だけ書き換える（rayon で並列）。
         output
             .par_chunks_exact_mut(4)
             .zip(mask_slice.par_iter())

@@ -1,3 +1,5 @@
+//! 元画像。マスク適用（切り抜き）は常にこの解像度で行う。
+
 use crate::image::image::{id::ImageId, image::Image};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

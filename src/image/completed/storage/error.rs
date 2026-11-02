@@ -1,3 +1,5 @@
+//! 保存用画像取得時のエラー。
+
 use crate::{common::traits::ErrorType::NotFound, leaf_error};
 
 leaf_error!(

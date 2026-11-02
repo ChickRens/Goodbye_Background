@@ -1,3 +1,7 @@
+//! 画像サイズ（高さ・幅）。生成時にバリデーションする値オブジェクト。
+//!
+//! 注意: 引数の順番は `new(height, width)`（幅が先ではない）。取り違えに注意。
+
 use crate::image::image::error::ImageSizeError;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -7,6 +11,8 @@ pub struct ImageSize {
 }
 
 impl ImageSize {
+    // 許容範囲: 2〜8000px（縦横それぞれ）。
+    // 注意: rule.txt には 3000px までと書かれているが、実装は 8000px。
     const MIN_DIMENSION: u16 = 2;
     const MAX_DIMENSION: u16 = 8000;
 
@@ -28,6 +34,8 @@ impl ImageSize {
         self.width
     }
 
+    /// アスペクト比を保って (max_height, max_width) に収まるよう拡大縮小したサイズを返す。
+    /// バリデーションを通さないので MIN/MAX の範囲外になり得る。現状は未使用（テストのみ）。
     pub fn fit_within(&self, max_height: u16, max_width: u16) -> Self {
         let scale: f32 =
             (max_height as f32 / self.height as f32).min(max_width as f32 / self.width as f32);
