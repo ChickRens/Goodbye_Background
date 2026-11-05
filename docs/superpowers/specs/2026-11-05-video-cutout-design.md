@@ -62,13 +62,14 @@ Python ワーカーはポートの向こう側、既存の画像用 trait に動
 | D4 | fps | 全フレーム推論。上限 30fps（60fps は 30fps に落とす） | 間引き＋補間は IoU 0.73 まで崩れた（`report.txt`） |
 | D5 | GPU 事業者 | Modal（L4）。中核は事業者に依存しない Python パッケージ、Modal は薄いアダプタ | 月 $30 の無料クレジットで月数千本まで実質無料 |
 | D6 | 進捗の伝え方 | ワーカー → Rust に HMAC 署名付きで通知。スマホは Rust を 1 秒ごとにポーリング | iOS Safari でタブを裏に回しても復帰できる。Rust は Modal の API を知らない |
-| D7 | ジョブ状態の保存 | インメモリ（`TtlStore`）。再起動で消えるのを許容 | 永続化は課金を入れるとき（C）に行う |
+| D7 | ジョブ状態の保存 | ジョブはインメモリ（`TtlStore`）。再起動・0 台への縮小で消えるのを許容。**1 日の回数だけは既存の DB（本番は PostgreSQL）に保存** | ジョブ処理中はポーリングでインスタンスが生きている。回数は 0 台への縮小のたびにリセットされると制限にならない |
 | D8 | プレビュー | 既存の画像切り抜き（CPU、SAM2.1 hiera_small）の `/upload` と `/segment` を使い回す | 追加原価ゼロで「対象の取り違え」を防げる。細部の不一致は許容し「目安」と表示 |
 | D9 | タップするフレームと範囲 | 開始・終了位置を選ぶ画面を作り、開始位置のフレームでタップ。ワーカーは範囲だけ処理 | 10 秒上限への対応と開始フレームの選択を 1 画面で済ませる |
 | D10 | 無料枠 | 上限 10 秒、1 日 3 回（IP と `client-id` の両方で数える）、ロゴ入り、Modal の月の予算上限 $30 | 1 人 1 日最大 30 秒 |
 | D11 | コードの配置 | 同じリポジトリに `worker/` と `contracts/` を追加。Rust は `src/video_cutout/`、既存は `src/image_cutout/` に移す | 契約の変更を 1 コミットで両側直せる |
 | D12 | 出力 | H.264 / yuv420p / MP4、長辺 1080px 以下、音声は範囲に合わせて残す（AAC） | どの編集アプリ・SNS でもそのまま読める |
 | D13 | ロゴ | `assets/brand/logo-original.webp` を、黒背景ごと角丸の**不透明**バッジとして右下に入れる | 半透明や背景なしだと、クロマキーでロゴまで抜ける |
+| D14 | 本番環境 | Cloud Run（`https://chickren.goodbye-background.com`、最小 0 台・最大 1 台・リクエストベースの CPU）を前提にする。最大 1 台は変えない | インメモリの状態を 1 台で共有するため（§4.9） |
 
 ---
 
@@ -153,7 +154,7 @@ src/video_cutout/
 | `VideoObjectStorage` | `presign_put(key, content_type, ttl)`, `presign_get(key, ttl, download_filename)`, `head(key) -> Option<size>`, `delete(key)` | `R2VideoObjectStorage` |
 | `CutoutWorker` | `dispatch(WorkerJobRequest)` | `ModalCutoutWorker` |
 | `VideoJobRepository` | `get`, `save`, `remove`, `list_expired(now)` | `TtlStore` ベース |
-| `DailyQuota` | `remaining(client_id, ip, today)`, `try_consume(...)`, `refund(...)` | DashMap ベース |
+| `DailyQuota` | `remaining(client_id, ip, today)`, `try_consume(...)`, `refund(...)` | sqlx（SQLite 版 / PostgreSQL 版。`recorder.rs` と同じ分け方）。非同期の trait |
 
 - `VideoObjectStorage` と `CutoutWorker` はネットワーク待ちだけなので、`async-trait` で非同期の trait にする（`Arc<dyn Trait>` のまま使える）。
   `spawn_blocking` には載せない（ブロッキング用スレッドを待ちで占有しないため）。これは CLAUDE.md の
@@ -162,8 +163,9 @@ src/video_cutout/
   `StartVideoJob` / `ReportVideoJobEvent` / 期限処理は取得 → 変更 → 保存の間ロックを持つ。
   非同期処理（R2 の HEAD、ワーカー投入）をまたぐので、ロックは `tokio::sync::Mutex` を使う。
 - GC への登録: ジョブのストアは `TtlStore::delete_expired`（最終アクセス基準）ではなく、状態ごとの期限（5.2）で
-  `DeleteExpiredVideoJobs` が消す。`VideoJobLocks` はジョブを消すときに一緒に消す。`DailyQuota` は前日以前のエントリを GC で消す。
-  `main.rs` の GC タスクから、既存の `App::cleanup` に続けて非同期で呼ぶ。
+  `DeleteExpiredVideoJobs` が消す。`VideoJobLocks` はジョブを消すときに一緒に消す。`DailyQuota` の古い行は §4.8 のとおり消費時に消す。
+  リクエストベースの CPU では裏の GC タスクがほとんど進まないため、`DeleteExpiredVideoJobs` は**動画 API へのリクエストの処理中に**
+  （最後の実行から 60 秒以上経っていれば）呼ぶ。`main.rs` の GC タスクからも呼ぶが、そちらは補助とする（§4.9）。
 - 追加するクレート: `rusty-s3`（署名のみ）、`hmac`、`sha2`、`async-trait`、`hex`。`reqwest` は既存。
 
 ### 4.5 ユースケース
@@ -174,7 +176,7 @@ src/video_cutout/
 | `StartVideoJob` | ロック内: 持ち主確認 → `Created` か → R2 に HEAD（無ければ `upload_not_found`、200MB 超なら `Failed(too_large)`）→ `try_consume` → `Queued` で保存 → `dispatch`。投入失敗なら `refund` して `Failed(dispatch_failed)` |
 | `GetVideoJob` | 持ち主確認 → 期限（5.2）を過ぎていれば `Failed(timeout)` にして `refund` → `Done` ならその場で 10 分有効の GET URL を発行（ファイル名 `cutout-{id 先頭8文字}.mp4`） |
 | `ReportVideoJobEvent` | ロック内で状態を進める。`Done` / `Failed` になったら入力ファイルを削除（失敗してもログだけ）。`Failed` は 5.1 の表に従って `refund` |
-| `DeleteExpiredVideoJobs` | GC タスク（60 秒ごと）から呼ぶ。期限切れのジョブを集め、R2 の削除 → ストアから削除。進行中で期限を過ぎたものは `Failed(timeout)` にして `refund` |
+| `DeleteExpiredVideoJobs` | 動画 API のリクエスト処理中に、60 秒に 1 回まで呼ぶ（§4.9）。期限切れのジョブを集め、R2 の削除 → ストアから削除。進行中で期限を過ぎたものは `Failed(timeout)` にして `refund` |
 
 ### 4.6 エンドポイント
 
@@ -188,9 +190,12 @@ src/video_cutout/
 - CLAUDE.md の手順どおり `presentation/router.rs`、`analytics/usage_tracking/operation.rs`、`recorder.rs`（2 箇所）、`frontend/js/api.js` を更新する。
 - HMAC: ヘッダー `X-Signature-Timestamp`（UNIX 秒）と `X-Signature`（`hex(HMAC-SHA256(secret, timestamp + "." + body))`）。
   時刻のずれが 5 分を超えたら 401。パスの `id` と本文の `job_id` が違えば 400。比較は定数時間で行う。
-- IP の取り方: `TRUST_FORWARDED_FOR=true` のときだけ `X-Forwarded-For` の先頭を使い、それ以外は `ConnectInfo` の接続元。
-  プロキシが無いのに `X-Forwarded-For` を信用すると、偽装で回数制限を回避できるため。
-  （現状のコードは IP を一切取っていないので、`axum::serve` を `into_make_service_with_connect_info` に変える。）
+- IP の取り方: `TRUSTED_PROXY_HOPS=N`（N ≥ 1）のとき、`X-Forwarded-For` を**右から数えて N 番目**の値を使う。0 のときは `ConnectInfo` の接続元。
+  - 先頭（左端）は利用者が自由に偽装できる（Google のフロントエンドは受け取った値の後ろに本当の IP を書き足すだけ）ので使わない。
+  - Cloud Run に直接つないでいる本番では N = 1（右端）の見込み。**実装時に、偽の `X-Forwarded-For` を付けて本番にアクセスし、
+    ログで実際の値を確かめてから N を確定する**（実装計画にタスクとして入れる）。
+  - `ConnectInfo` を使うため、`axum::serve` を `into_make_service_with_connect_info` に変える（現状のコードは IP を一切取っていない）。
+  - Cloud Run で N = 0 にすると全利用者が Google の内部アドレス 1 つになり、全員で 1 日 3 回になってしまうので注意。
 
 ### 4.7 設定
 
@@ -199,8 +204,8 @@ src/video_cutout/
 | `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | R2 |
 | `MODAL_ENDPOINT_URL`, `MODAL_KEY`, `MODAL_SECRET` | Modal の Web エンドポイントとプロキシ認証 |
 | `WORKER_CALLBACK_SECRET` | 通知の HMAC 鍵（Modal 側にも Secret として同じ値を置く） |
-| `PUBLIC_BASE_URL` | ワーカーが通知を送る先（例: `https://example.com`） |
-| `TRUST_FORWARDED_FOR` | 上記。既定は `false` |
+| `PUBLIC_BASE_URL` | ワーカーが通知を送る先（例: `https://chickren.goodbye-background.com`） |
+| `TRUSTED_PROXY_HOPS` | 上記。既定は `0`。本番（Cloud Run）は確認後に `1` の見込み |
 
 1 つでも欠けていたら動画のルートは 503（`video_cutout_disabled`）を返し、画像機能は通常どおり動く。
 `.env.example` に追記する。
@@ -209,8 +214,25 @@ src/video_cutout/
 
 - キーは `(client-id, 日本時間の日付)` と `(IP, 日本時間の日付)` の 2 系統。どちらかが 3 に達したら止める。消費・返却は両方同時。
 - 日付は注入した Clock から日本時間（UTC+9 固定）で計算する。
-- 前日以前のエントリは GC で消す。再起動でリセットされるのは許容する。
+- 保存先は既存の利用ログ用 DB。テーブル `video_quota_usage (day DATE, key_kind TEXT, key TEXT, count INTEGER, PRIMARY KEY (day, key_kind, key))`。
+  - マイグレーションは `migrations/sqlite/` と `migrations/postgres/` の**両方に新しいファイルとして**追加する（適用済みのファイルは書き換えない）。
+  - 消費は 1 トランザクションで、2 系統とも `count < 3` を確認してから両方を +1 する。返却は両方を −1（0 未満にしない）。
+  - 消費のついでに、8 日以上前の行を削除する。
+- DB に置くので、再起動や 0 台への縮小ではリセットされない。
 - モバイル回線では IP を多人数で共有することがあり、他人の分を消費しうる。厳密にするには認証が必要で、C の仕様書で扱う。
+
+### 4.9 Cloud Run の設定による制約
+
+本番は最小 0 台・最大 1 台・リクエストベースの CPU。
+
+| 設定 | 影響 | 対応 |
+|---|---|---|
+| 最大 1 台 | 全リクエストが同じインスタンスに届く。インメモリの状態を共有できる | **最大 1 台を変えない**（増やすとポーリングや通知が別の台に届いて 404 になる）。運用の手順に明記する |
+| 最小 0 台 | アクセスが途絶えると 0 台になり、インメモリのジョブが消える | ジョブ処理中はスマホが 1 秒ごとにポーリングし、ワーカーも通知を送るので縮まない。消えた場合はジョブが 404 になり、スマホには「やり直してください」と出す（回数は DB にあり、返却はされない。まれなので許容）。R2 の残りは 1 日ルールで消える |
+| リクエストベースの CPU | レスポンスを返した後と、リクエストが無い間は CPU がほぼ割り当てられない。`tokio::spawn` した後処理や 60 秒ごとの GC が進まない | R2 の削除は**レスポンスを返す前に await する**（通知のハンドラ内で入力ファイルを消す等）。期限の処理は動画 API のリクエスト処理中に行う（§4.4） |
+
+補足（今回の範囲外）: 既存の利用ログ（`UsageRecorder`）も `tokio::spawn` したタスクで INSERT しているため、同じ理由で書き込みが遅れたり、
+0 台への縮小で失われたりしうる。別の課題として扱う。
 
 ---
 
@@ -245,7 +267,7 @@ src/video_cutout/
 ### 5.3 ファイル削除の 3 段構え
 
 1. `Done` / `Failed` になった時点で、Rust が入力ファイルを削除する（失敗してもログだけ）。
-2. `DeleteExpiredVideoJobs` が期限切れのジョブの入出力を削除する。既存の `TtlStore::delete_expired` は値を捨てるだけで R2 を消せないので、ジョブだけはこの手順にする。
+2. `DeleteExpiredVideoJobs`（動画 API のリクエスト処理中に 60 秒に 1 回まで）が期限切れのジョブの入出力を削除する。既存の `TtlStore::delete_expired` は値を捨てるだけで R2 を消せないので、ジョブだけはこの手順にする。
 3. R2 のライフサイクルルールで `video-jobs/` を 1 日で削除する（再起動でジョブを忘れた場合の漏れを拾う）。
 
 ワーカーの `/tmp` は `finally` で削除する。
@@ -294,7 +316,7 @@ contracts/video_cutout/
   "background_rgb": [0, 255, 0],
   "watermark": true,
   "max_input_bytes": 209715200,
-  "callback_url": "https://example.com/internal/video-jobs/6f1c…/events"
+  "callback_url": "https://chickren.goodbye-background.com/internal/video-jobs/6f1c…/events"
 }
 ```
 
@@ -430,7 +452,9 @@ contracts/video_cutout/
 - Modal: Starter プランで、ワークスペースの月の予算上限を $30 に設定する。Secret に `WORKER_CALLBACK_SECRET` を置く。
 - R2: 非公開のバケットを作る。CORS で本番オリジンからの `PUT` / `GET` を許可する。
   ライフサイクルルールで `video-jobs/` を 1 日で削除する。オブジェクトの読み書きだけを許可した API トークンを発行する。
-- Rust の本番環境に 4.7 の環境変数を設定する。
+- Rust の本番環境（Cloud Run）に 4.7 の環境変数を設定する。シークレットは Secret Manager 経由で渡す。
+- Cloud Run の最大インスタンス数は 1 のまま変えない（§4.9）。
+- R2 の CORS で許可するオリジンは `https://chickren.goodbye-background.com`。
 
 ---
 
@@ -443,5 +467,5 @@ contracts/video_cutout/
 | プレビューと本番のずれ | hiera_small（1024）と tiny（512）で細部が違う | 「目安」と表示。困る例が出たら GPU プレビューに切り替える（フロントの流れは変わらない） |
 | 縁取り | `high_res_mask` + erode でも残る可能性 | MVP 後に別課題として扱う |
 | IP の共有 | モバイル回線で他人の分を消費しうる | C の仕様書（認証）で扱う |
-| 再起動 | 処理中のジョブと回数の記録が消える | 許容（D7）。R2 は 1 日ルールで掃除される |
-| 未確認の本番環境 | Rust がリバースプロキシの裏にあるか、本番のドメイン | 実装前にオーナーが回答する（`TRUST_FORWARDED_FOR`、`PUBLIC_BASE_URL` を決める） |
+| 再起動・0 台への縮小 | 処理中のジョブが消える（回数は DB にあるので消えない） | 許容（D7）。R2 は 1 日ルールで掃除される |
+| IP の取り方 | Cloud Run での `X-Forwarded-For` の実際の形が未確認 | 実装時に本番で確かめて `TRUSTED_PROXY_HOPS` を確定する（§4.6） |
