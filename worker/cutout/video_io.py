@@ -107,9 +107,15 @@ def output_geometry(info: VideoInfo) -> tuple[int, int, float]:
 
     info.width / height は回転適用後の表示サイズなので、ここで回転は考えない。
     """
-    scale = min(1.0, MAX_LONG_SIDE / max(info.width, info.height))
-    w = max(2, int(info.width * scale) // 2 * 2)
-    h = max(2, int(info.height * scale) // 2 * 2)
+    long_side = max(info.width, info.height)
+    if long_side > MAX_LONG_SIDE:
+        # 整数演算で長辺をちょうど MAX_LONG_SIDE にする
+        w = info.width * MAX_LONG_SIDE // long_side
+        h = info.height * MAX_LONG_SIDE // long_side
+    else:
+        w, h = info.width, info.height
+    w = max(2, w // 2 * 2)
+    h = max(2, h // 2 * 2)
     return w, h, min(info.fps, MAX_FPS)
 
 
@@ -253,8 +259,12 @@ class Mp4Writer:
 
     def __exit__(self, exc_type, *exc):
         if exc_type is not None:
+            # 元の例外を隠さない。ffmpeg が既に死んでいても必ず回収する
             self._closed = True
-            self._proc.stdin.close()
+            try:
+                self._proc.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
             _terminate(self._proc)
             self._stderr.close()
         else:

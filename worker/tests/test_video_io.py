@@ -1,7 +1,9 @@
+import subprocess
+
 import numpy as np
 import pytest
 
-from cutout.video_io import FrameReader, Mp4Writer, UnsupportedVideo, VideoInfo, output_geometry, probe
+from cutout.video_io import FfmpegError, FrameReader, Mp4Writer, UnsupportedVideo, VideoInfo, output_geometry, probe
 from tests.media import make_video
 
 
@@ -64,12 +66,35 @@ def test_odd_and_large_sizes_become_even_and_capped(tmp_path):
     write_through(make_video(tmp_path, fps=30, seconds=1, size=(721, 405), audio=False), tmp_path)
 
 
+def test_long_side_is_exactly_1080_when_shrinking():
+    assert output_geometry(info_of(width=2140, height=1204, fps=30))[:2] == (1080, 606)
+    assert output_geometry(info_of(width=1204, height=2140, fps=30))[:2] == (606, 1080)
+
+
+def test_writer_exit_on_dead_ffmpeg_keeps_original_error_and_reaps(tmp_path):
+    wr = Mp4Writer(tmp_path / "o.mp4", 64, 64, 30, None, 0, 1000)
+    frame = np.zeros((64, 64, 3), np.uint8)
+    with pytest.raises(FfmpegError):
+        with wr:
+            wr._proc.kill()
+            wr._proc.wait()
+            wr.write(frame)
+    assert wr._proc.poll() is not None
+
+
 def test_rotation_metadata_gives_portrait(tmp_path):
     src = make_video(tmp_path, fps=30, seconds=1, size=(640, 360), audio=False, rotate=90)
     assert output_geometry(probe(src))[:2] == (360, 640)
 
 
+def _has_zscale() -> bool:
+    out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout
+    return " zscale " in out
+
+
 def test_hlg_10bit_is_detected_and_tonemapped(tmp_path):
+    if not _has_zscale():
+        pytest.skip("ffmpeg に zscale が無い")
     src = make_video(tmp_path, fps=30, seconds=1, size=(640, 360), audio=False, hlg=True)
     info = probe(src)
     assert info.is_hdr
