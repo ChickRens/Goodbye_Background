@@ -1,5 +1,6 @@
 //! `VideoClock` の実装。本番用の `RealVideoClock` とテスト用の `FakeVideoClock`。
 
+#[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -17,10 +18,12 @@ impl VideoClock for RealVideoClock {
 }
 
 /// 時刻を手動で進められるテスト用の時計。
+#[cfg(test)]
 pub struct FakeVideoClock {
     ms: AtomicU64,
 }
 
+#[cfg(test)]
 impl FakeVideoClock {
     pub fn new(ms: u64) -> Self {
         Self {
@@ -33,6 +36,7 @@ impl FakeVideoClock {
     }
 }
 
+#[cfg(test)]
 impl VideoClock for FakeVideoClock {
     fn now_ms(&self) -> u64 {
         self.ms.load(Ordering::SeqCst)

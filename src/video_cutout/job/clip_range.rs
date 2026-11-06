@@ -27,6 +27,7 @@ impl ClipRange {
         self.end_ms
     }
 
+    #[cfg(test)]
     pub fn duration_ms(&self) -> u32 {
         self.end_ms - self.start_ms
     }

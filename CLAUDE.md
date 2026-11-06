@@ -35,8 +35,7 @@ docker compose up --build
   ort-sys のダウンロードが通らない環境では、PyPI の `onnxruntime==1.24.2` の wheel から
   `libonnxruntime.so.1.24.2` を取り出し、`ORT_LIB_LOCATION=<dir> ORT_PREFER_DYNAMIC_LINK=1
   LD_LIBRARY_PATH=<dir> cargo test` で動的リンクできる
-- 現状 `cargo check` で 19 件の既存警告（未使用関数・ライフタイム省略など。うち 4 件は動画のテスト用の
-  `FakeVideoClock` / `signature::sign` / `ClipRange::duration_ms`）が出るのが正常
+- 現状 `cargo check` で 15 件の既存警告（未使用関数・ライフタイム省略など）が出るのが正常
 
 ## ディレクトリ構成（src/）
 

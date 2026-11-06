@@ -28,7 +28,8 @@ fn mac_for(secret: &[u8], timestamp: u64, body: &[u8]) -> HmacSha256 {
     mac
 }
 
-/// 署名（小文字の16進）を作る。
+/// 署名（小文字の16進）を作る。署名するのはワーカー側なので、Rust ではテストでだけ使う。
+#[cfg(test)]
 pub fn sign(secret: &[u8], timestamp: u64, body: &[u8]) -> String {
     hex::encode(mac_for(secret, timestamp, body).finalize().into_bytes())
 }
