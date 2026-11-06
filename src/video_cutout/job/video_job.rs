@@ -39,12 +39,12 @@ pub struct VideoJob {
 impl VideoJob {
     /// 入力動画のオブジェクトストレージ上のキー。
     pub fn input_key(&self) -> String {
-        format!("input/{}", self.id.value())
+        format!("video-jobs/{}/input", self.id.value())
     }
 
     /// 出力動画のオブジェクトストレージ上のキー。
     pub fn output_key(&self) -> String {
-        format!("output/{}", self.id.value())
+        format!("video-jobs/{}/output.mp4", self.id.value())
     }
 
     /// この時刻を過ぎたらジョブを期限切れとして扱う（仕様 §5.2）。
@@ -105,7 +105,8 @@ mod video_job_test {
     #[test]
     fn keys_are_derived_from_id() {
         let j = job_created_at(0);
-        assert_eq!(j.input_key(), format!("input/{}", j.id.value()));
-        assert_eq!(j.output_key(), format!("output/{}", j.id.value()));
+        let id = j.id.value().to_string();
+        assert_eq!(j.input_key(), format!("video-jobs/{}/input", id));
+        assert_eq!(j.output_key(), format!("video-jobs/{}/output.mp4", id));
     }
 }

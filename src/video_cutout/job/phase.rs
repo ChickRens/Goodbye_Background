@@ -80,6 +80,12 @@ impl JobPhase {
         if self.is_terminal() {
             return None;
         }
+        // 進捗が非有限・範囲外の Tracking は受け付けない（NaN/inf が入ると進捗が止まるため）
+        if let JobPhase::Tracking(p) = next {
+            if !p.is_finite() || !(0.0..=1.0).contains(&p) {
+                return None;
+            }
+        }
         match (self, &next) {
             (_, JobPhase::Failed(_)) => Some(next),
             (JobPhase::Tracking(cur), JobPhase::Tracking(new)) => (new > cur).then_some(next),
@@ -110,6 +116,17 @@ mod phase_test {
         assert_eq!(
             JobPhase::Queued.advance(JobPhase::Failed(FailureCode::InternalError)),
             Some(JobPhase::Failed(FailureCode::InternalError))
+        );
+    }
+
+    #[test]
+    fn tracking_progress_must_be_finite_and_in_range() {
+        for bad in [f32::NAN, f32::INFINITY, -0.1, 1.1] {
+            assert!(JobPhase::Queued.advance(JobPhase::Tracking(bad)).is_none());
+        }
+        assert_eq!(
+            JobPhase::Queued.advance(JobPhase::Tracking(1.0)),
+            Some(JobPhase::Tracking(1.0))
         );
     }
 
