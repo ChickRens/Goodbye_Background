@@ -534,6 +534,13 @@ def test_lost_frames_are_counted(tmp_path):
 - アダプタの中で行う依存の組み立て: `HttpTransfer`（httpx）、`Notifier(post=httpx の実装, clock=time.time, sleep=time.sleep)`、`workdir=/tmp/{job_id}`。
 - 受け付け処理は `accept(body: dict, spawn: Callable[[dict], None]) -> tuple[int, dict]` という純粋な関数に切り出し、テストする（Modal を import せずにテストできるように、`modal_app.py` の中で Modal に依存しない部分を `cutout/accept.py` に置いてもよい）。
 
+**引き継ぎ事項（実装前に必ず反映）:**
+- (a) `Transfer.head_size` で、GET 用に署名された入力 URL へ HEAD を送らない（SigV4 はメソッドも署名するので 403 になる）。`GET` に `Range: bytes=0-0` を付けて `Content-Range` の全体サイズを読むか、403 なら `None` を返す。
+- (b) `download` はストリームで読み、`max_input_bytes` を超えた時点で止めて `too_large` にする（全部読んでから確かめない）。
+- (c) 署名付き URL をログに出さない。httpx の例外は URL を含むので、ログにはステータスコードと例外の型だけを出す。
+- (d) `Notifier` の時計は `time.time`（UNIX 秒。署名のタイムスタンプに使うため。`time.monotonic` ではない）。
+- (e) 本番の前に、一致の遅いテスト（IoU ≥ 0.99）を実行し、`MODEL_REVISION="main"` をコミットのハッシュに固定する（開発のセッションでは huggingface.co に接続できず未実施）。
+
 - [ ] **Step 1: 失敗するテストを書く**
 
 ```python
@@ -944,6 +951,12 @@ Run: 認証ヘッダー無しで `curl -X POST <URL>` → Expected: 401/403。�
 
 本番に、一時的に `X-Forwarded-For` と接続元をログに出す状態でデプロイし、`curl -H 'X-Forwarded-For: 6.6.6.6' https://chickren.goodbye-background.com/video-jobs ...` でアクセスする。
 Expected: ログの `X-Forwarded-For` の右端が、自分の本当のグローバル IP になっている → `TRUSTED_PROXY_HOPS=1`。違う形なら、本当の IP が右から何番目かで N を決める。確認後、ログ出力は戻す。
+
+**引き継ぎ事項（このタスクで必ず行う）:**
+- 本物の PostgreSQL に対して `DailyQuota`（Postgres 実装）の煙テストをする（消費・上限・返却。開発のセッションでは SQLite でしか確かめていない）。
+- R2 の CORS で、本番のオリジンからの PUT に `content-type` と `content-length` のヘッダーを許可する（PUT URL が両方を署名しているため）。
+- `frontend/index.html` の動画（`video.html`）へのリンク 2 か所を戻す（判断 R9。本番の準備が終わるまで隠している）。
+- 本物の iPhone でフレームの取り込み（プレビューの静止画）が空にならないことを確認する。
 
 - [ ] **Step 2: 通しで動かす（iPhone 13 / iOS 18 の Safari）**
 
