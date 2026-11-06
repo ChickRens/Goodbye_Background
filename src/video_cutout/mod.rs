@@ -1,6 +1,9 @@
-//! 動画切り抜き機能。ジョブのドメインの値・時計から始まり、後続でリポジトリ・ユースケースなどを足す。
+//! 動画切り抜き機能。ジョブのドメインの値・時計・回数制限・外部へのポート（R2・ワーカー）と、ユースケースを持つ。
 
 pub mod clock;
 pub mod clock_impl;
 pub mod job;
 pub mod quota;
+pub mod signature;
+pub mod storage;
+pub mod worker;
