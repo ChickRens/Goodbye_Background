@@ -15,7 +15,7 @@ use crate::{
         requester::Requester,
     },
     composition::video_wiring::VideoCutoutApp,
-    presentation::errors::app_error::AppError,
+    presentation::{client_ip::client_ip_debug_line, errors::app_error::AppError},
     video_cutout::create_job::input::CreateVideoJobInput,
 };
 
@@ -26,6 +26,15 @@ pub async fn create_video_job(
     request: Result<Json<CreateVideoJobRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<CreateVideoJobResponse>), AppError> {
     video.ensure_enabled()?;
+    // 一時的な確認用（LOG_CLIENT_IP_DEBUG=1）。TRUSTED_PROXY_HOPS を決めたら環境変数を外す
+    if let Some(line) = client_ip_debug_line(
+        video.log_client_ip_debug(),
+        &headers,
+        peer,
+        video.trusted_proxy_hops(),
+    ) {
+        println!("{line}");
+    }
     let requester =
         Requester::from_request(&headers, peer, &video).map_err(VideoHandlerError::from)?;
     let Json(request) =

@@ -61,6 +61,7 @@ struct VideoCutout {
     clock: Arc<dyn VideoClock>,
     callback_secret: Vec<u8>,
     trusted_proxy_hops: usize,
+    log_client_ip_debug: bool,
 }
 
 impl VideoCutoutApp {
@@ -89,6 +90,7 @@ impl VideoCutoutApp {
                 config.public_base_url,
                 config.worker_callback_secret.into_bytes(),
                 config.trusted_proxy_hops,
+                config.log_client_ip_debug,
             )),
         }
     }
@@ -111,6 +113,7 @@ impl VideoCutoutApp {
                 crate::video_cutout::testing::PUBLIC_BASE_URL.to_string(),
                 callback_secret.as_bytes().to_vec(),
                 0,
+                false,
             )),
         }
     }
@@ -177,6 +180,11 @@ impl VideoCutoutApp {
         self.inner.as_ref().map_or(0, |v| v.trusted_proxy_hops)
     }
 
+    /// 一時的な確認用の IP のログ（`LOG_CLIENT_IP_DEBUG=1`）を出すか。無効なら false。
+    pub fn log_client_ip_debug(&self) -> bool {
+        self.inner.as_ref().is_some_and(|v| v.log_client_ip_debug)
+    }
+
     /// 署名の時刻のずれの判定に使う現在時刻（UNIX 秒）。テストでは偽の時計になる。
     pub fn now_s(&self) -> u64 {
         match &self.inner {
@@ -201,6 +209,7 @@ impl VideoCutout {
         public_base_url: String,
         callback_secret: Vec<u8>,
         trusted_proxy_hops: usize,
+        log_client_ip_debug: bool,
     ) -> Self {
         // ジョブは状態ごとの期限で DeleteExpiredVideoJobsUseCase が消す（TtlStore の GC には登録しない）
         let repository = Arc::new(VideoJobRepositoryInMemory::new());
@@ -240,6 +249,7 @@ impl VideoCutout {
             clock,
             callback_secret,
             trusted_proxy_hops,
+            log_client_ip_debug,
         }
     }
 

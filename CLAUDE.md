@@ -117,7 +117,9 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 14. **Cloud Run の最大インスタンス数は 1 のまま変えない**: 動画ジョブはインメモリなので、2 台以上にすると
     ポーリングやワーカーの通知が別の台に届いて 404 になる（docs/ARCHITECTURE.md §9）
 15. **`TRUSTED_PROXY_HOPS`**: 回数制限の IP を `X-Forwarded-For` の右から何番目で取るか（`presentation/client_ip.rs`）。
-    0 = 接続元。Cloud Run で 0 のままだと全員が同じ IP になり、全員で 1 日 3 回になる。本番で実際の値を確かめて決める
+    0 = 接続元。Cloud Run で 0 のままだと全員が同じ IP になり、全員で 1 日 3 回になる。本番で実際の値を確かめて決める。
+    確かめる間だけ `LOG_CLIENT_IP_DEBUG=1` を付けると `POST /video-jobs` ごとに `[client-ip-debug]` の行
+    （生の `X-Forwarded-For`・接続元・hops・選ばれた IP）が出る。**確認が終わったら外す**（環境変数を消す。手順は `docs/video-cutout-deploy.md`）
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）
 

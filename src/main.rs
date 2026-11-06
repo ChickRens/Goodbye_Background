@@ -103,6 +103,10 @@ async fn main() {
     let video = Arc::new(VideoCutoutApp::new(video_quota, VideoCutoutConfig::from_env()));
     if video.is_enabled() {
         println!("動画切り抜き: 有効");
+        if video.log_client_ip_debug() {
+            // 一時的な確認用。TRUSTED_PROXY_HOPS を決めたら LOG_CLIENT_IP_DEBUG を外す
+            println!("動画切り抜き: IP の確認用ログ（[client-ip-debug]）を出します");
+        }
     } else {
         println!("動画切り抜き: 無効（環境変数が足りないため、動画の API は 503 を返す）");
     }

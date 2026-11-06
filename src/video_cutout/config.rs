@@ -1,6 +1,6 @@
 //! 動画切り抜きの設定（環境変数。仕様 §4.7）。
 //!
-//! `TRUSTED_PROXY_HOPS` 以外が 1 つでも欠けて（空文字も欠けている扱い）いたら `None` を返し、
+//! `TRUSTED_PROXY_HOPS`・`LOG_CLIENT_IP_DEBUG`（どちらも任意）以外が 1 つでも欠けて（空文字も欠けている扱い）いたら `None` を返し、
 //! 動画のルートは 503 `VIDEO_CUTOUT_DISABLED` になる（画像機能はそのまま動く）。
 
 pub struct VideoCutoutConfig {
@@ -17,6 +17,10 @@ pub struct VideoCutoutConfig {
     pub public_base_url: String,
     /// `X-Forwarded-For` を右から何番目まで信頼するか（`presentation::client_ip`）。既定 0 = 接続元を使う。
     pub trusted_proxy_hops: usize,
+    /// 一時的な確認用。`LOG_CLIENT_IP_DEBUG` がちょうど `"1"` のときだけ、`POST /video-jobs` で
+    /// IP の取り方を 1 行ログに出す（`presentation::client_ip::client_ip_debug_line`）。任意（無くても動画は有効）。
+    /// `TRUSTED_PROXY_HOPS` の確認が終わったら外す。
+    pub log_client_ip_debug: bool,
 }
 
 impl VideoCutoutConfig {
@@ -51,6 +55,7 @@ impl VideoCutoutConfig {
             worker_callback_secret: required("WORKER_CALLBACK_SECRET")?,
             public_base_url: required("PUBLIC_BASE_URL")?,
             trusted_proxy_hops,
+            log_client_ip_debug: var("LOG_CLIENT_IP_DEBUG").as_deref() == Some("1"),
         })
     }
 }
@@ -122,5 +127,23 @@ mod config_test {
         let mut vars = all_vars();
         vars.insert("TRUSTED_PROXY_HOPS", "one".to_string());
         assert!(VideoCutoutConfig::from_vars(move |k| vars.get(k).cloned()).is_none());
+    }
+
+    #[test]
+    fn config_enables_client_ip_debug_only_with_exactly_one() {
+        for (value, expected) in [
+            (None, false),
+            (Some("1"), true),
+            (Some("true"), false),
+            (Some(" 1"), false),
+            (Some("0"), false),
+        ] {
+            let mut vars = all_vars();
+            if let Some(v) = value {
+                vars.insert("LOG_CLIENT_IP_DEBUG", v.to_string());
+            }
+            let config = VideoCutoutConfig::from_vars(move |k| vars.get(k).cloned()).unwrap();
+            assert_eq!(config.log_client_ip_debug, expected, "{value:?}");
+        }
     }
 }
