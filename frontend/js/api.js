@@ -243,3 +243,61 @@ export async function getCompletedImage(imageId) {
   }
   return res.blob();
 }
+// ---------------------------------------------------------------------------
+// 動画の切り抜き（video.html から使う）
+// エラーは { code } の JSON。err.code の文言は js/video/messages.js が持つ。
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /video-jobs
+ * request : { size_bytes, content_type, start_ms, end_ms }
+ *   - content_type は "video/mp4" か "video/quicktime"。返ってくる upload_url の署名に含まれるので、
+ *     PUT するときも同じ文字列を Content-Type に付けること（js/video/upload.js）
+ * response: 201 { job_id, upload_url, remaining_today }
+ *   - この時点では回数を消費しない（消費は /start のとき）
+ */
+export async function createVideoJob({ sizeBytes, contentType, startMs, endMs }) {
+  const res = await postJson('/video-jobs', {
+    size_bytes: sizeBytes,
+    content_type: contentType,
+    start_ms: startMs,
+    end_ms: endMs,
+  });
+  const data = await parseJsonOrThrow(res);
+  return { jobId: data.job_id, uploadUrl: data.upload_url, remainingToday: data.remaining_today };
+}
+
+/**
+ * POST /video-jobs/{id}/start
+ * request : { points: [{ x, y, label: "include" | "exclude" }], background: "green" | "blue" | "magenta" }
+ *   - x, y は動画フレームに対する 0〜1 の正規化座標（プレビュー画像の幅・高さで割ったもの）
+ * response: 202 { phase: "queued" | "failed", failure_code, remaining_today }
+ */
+export async function startVideoJob(jobId, { points, background }) {
+  const res = await postJson(`/video-jobs/${encodeURIComponent(jobId)}/start`, { points, background });
+  const data = await parseJsonOrThrow(res);
+  return { phase: data.phase, failureCode: data.failure_code, remainingToday: data.remaining_today };
+}
+
+/**
+ * GET /video-jobs/{id}
+ * response: 200 { phase, progress, failure_code, quota_refunded, download_url, remaining_today }
+ *   - phase: created | queued | downloading | tracking | finishing | done | failed
+ *   - progress は tracking のときだけ 0〜1。download_url は done のときだけ（10 分有効）
+ *   - 404 はサーバーの再起動などでジョブが無い（err.status === 404）
+ */
+export async function getVideoJob(jobId) {
+  const res = await request(`/video-jobs/${encodeURIComponent(jobId)}`, {
+    method: 'GET',
+    headers: buildHeaders(),
+  });
+  const data = await parseJsonOrThrow(res);
+  return {
+    phase: data.phase,
+    progress: data.progress,
+    failureCode: data.failure_code,
+    quotaRefunded: data.quota_refunded,
+    downloadUrl: data.download_url,
+    remainingToday: data.remaining_today,
+  };
+}

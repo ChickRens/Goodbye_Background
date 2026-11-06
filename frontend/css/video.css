@@ -1,0 +1,246 @@
+/* ==========================================================
+   動画の切り抜きページ(video.html)専用のスタイル。style.css の後に読み込む。
+   色は tokens.css の変数を使う。背景色の見本 3 色だけは、ワーカーが塗る色
+   （src/video_cutout/job/background.rs の rgb）そのままなのでここに直接書く。
+   ========================================================== */
+
+.video-page {
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.video-intro {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.video-title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+}
+
+.video-remaining {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--secondary);
+    font-weight: 600;
+}
+
+.video-step {
+    background: var(--bg-light);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.video-step-title {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.video-step-no {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--bg-dark);
+    font-size: 0.8rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.video-select {
+    min-height: 96px;
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    padding: var(--space-4);
+    transition: border-color 0.15s ease;
+}
+
+.video-select:hover {
+    border-color: var(--primary);
+}
+
+.video-select:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.video-select-note {
+    font-size: 0.78rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
+.video-note {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+.video-alert {
+    margin: 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--danger);
+    color: var(--card-text);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.video-player {
+    width: 100%;
+    max-height: 50vh;
+    background: var(--bg-dark);
+    border-radius: var(--radius-md);
+    display: block;
+}
+
+.range-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.range-field label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.range-field output {
+    color: var(--text);
+    font-family: var(--font-mono);
+    margin-left: var(--space-2);
+}
+
+.range-field input[type="range"] {
+    width: 100%;
+    min-height: var(--touch-target);
+    accent-color: var(--primary);
+}
+
+.video-actions {
+    display: flex;
+    gap: var(--space-2);
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.video-progress {
+    width: 100%;
+    height: 10px;
+    accent-color: var(--primary);
+}
+
+.video-canvas-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-dark);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+    min-height: 120px;
+}
+
+#frame-canvas {
+    max-width: 100%;
+    max-height: 60vh;
+    touch-action: none; /* スマホでのスクロール/ズーム誤爆を防ぐ */
+    border-radius: var(--radius-sm);
+    cursor: crosshair;
+}
+
+.bg-options {
+    margin: 0;
+    padding: 0;
+    border: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.bg-options legend {
+    padding: 0;
+    margin-bottom: var(--space-2);
+}
+
+.bg-option {
+    min-height: var(--touch-target);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.bg-option:has(input:checked) {
+    border-color: var(--primary);
+    background: var(--bg);
+}
+
+.bg-option input {
+    accent-color: var(--primary);
+    margin: 0;
+}
+
+.bg-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid var(--border-muted);
+}
+
+.bg-green { background: rgb(0 255 0); }
+.bg-blue { background: rgb(0 0 255); }
+.bg-magenta { background: rgb(255 0 255); }
+
+.video-send,
+.video-download {
+    width: 100%;
+    text-decoration: none;
+}
+
+.video-job-status {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+#job-done {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}

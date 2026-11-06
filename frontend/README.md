@@ -8,6 +8,8 @@
 - `index.html` … 機能紹介ページ（ランディングページ）。ここが入口。
 - `app.html` … アプリ本体（Upload → Infer → Edit → Save の実際の編集画面）。
   `index.html` の「アプリを使ってみる」「アプリを開く」ボタンから遷移する。
+- `video.html` … 動画の切り抜き（10 秒まで・1日3回まで）。`index.html` のヘッダーの「動画」と
+  末尾のリンクから遷移する。favicon は `video-favicon.png`。流れは後述「動画の切り抜き（video.html）」。
 
 ## ファイル構成
 
@@ -18,6 +20,7 @@ css/
   tokens.css           メインのカラーパレット（ユーザー指定）
   checker-colors.css   市松模様専用のグレー2色（tokens.cssには無いため別ファイル）
   style.css            アプリ本体(app.html)のレイアウト・コンポーネントのスタイル
+  video.css            動画の切り抜きページ(video.html)専用のスタイル（style.css の後に読む）
   landing.css          機能紹介ページ(index.html)専用のスタイル
   landing-additions.css landing.css の後に読み込む追加分（スキップボタン・使い方・文書ページ）。
                        index.html / privacy.html の両方が読む
@@ -32,6 +35,14 @@ js/
   editor.js    単一の大きな編集画面（ポイント編集・undo/redo・保存）
   canvas.js    canvas描画（画像・市松模様・ポイントマーカー）
   toast.js     エラー等の通知カード
+  video/       動画の切り抜きページ(video.html)専用（後述「動画の切り抜き」）
+    page.js      エントリーポイント。画面の流れと送信ボタンの有効/無効
+    range.js     範囲の丸め込み(clampRange)・開始位置のフレームの切り出し(captureFrame)
+    preview.js   開始フレームのプレビュー（既存の /upload・/segment・/undo・/redo）と toNormalized
+    upload.js    署名付き URL への PUT（XMLHttpRequest で進捗を出す）
+    job.js       ジョブの状態のポーリング(pollJob)
+    messages.js  失敗コード・状態・エラーコード → 日本語の文言
+    selftest.html 純粋な関数(clampRange / toNormalized)の自己テスト。ブラウザで開いて確かめる
   intro.js     機能紹介ページ(index.html)のオープニング動画と背景動画ループ
                （app.html では使わない。app.js とは無関係に index.html から単独で読み込む）
 assets/        画像・動画
@@ -179,6 +190,51 @@ assets/        画像・動画
 常に1枚だが、裏ではA画像の処理が進行中のままB画像に表示を切り替える、
 といったことが起こり得る——その場合でもA画像の処理はA画像のセッションの
 `busy` だけを見ているので、B画像の操作をブロックしない。
+
+## 動画の切り抜き（video.html / js/video/*）
+
+画面は縦に並んだ 6 つの手順（仕様: `docs/superpowers/specs/2026-11-05-video-cutout-design.md` §3・§7）。
+
+1. **動画を選ぶ** … `<input type="file" accept="video/*">`。Content-Type は 1 回だけ決める:
+   `file.type` が `video/mp4` / `video/quicktime` ならそれ、無ければ拡張子（`.mp4` `.m4v` → `video/mp4`、
+   `.mov` → `video/quicktime`）、どちらでもなければその場で断る。200MB を超えるものもその場で断る。
+2. **範囲を選ぶ** … `<video>` とスライダー 2 本。`clampRange` で「開始 0〜長さ、終了は 開始〜min(開始+10 秒, 長さ)」
+   に丸める。「この範囲で決める」で `POST /video-jobs`。**ジョブを作った後は範囲を変えさせない**。
+3. **アップロード** … 返ってきた `upload_url` に `XMLHttpRequest` で PUT（進捗バー）。
+   **Content-Type は 1. で決めた文字列をそのまま付ける**（署名の一部なので、違うと R2 が 403 を返す）。
+   R2 は別オリジンなので `client-id` は付けない。失敗したら「アップロードをやり直す」（URL は 15 分有効）。
+4. **残す所をタップ**（3. と並行）… `captureFrame` で開始位置のフレームを canvas に描き、長辺 2000px 以下に
+   縮小して PNG にする（既存の `/upload` は 10MB まで）。それを `frame.png` として既存の `/upload` に送り、
+   タップごとに `/segment`、取り消しは `/undo`・`/redo`（描画は既存の `canvas.js`）。「プレビューは目安です」と表示。
+   点は 8 個まで（サーバーの上限）。
+5. **背景色を選んで送信** … グリーン（既定）/ ブルー / マゼンタ。送信ボタンが押せるのは
+   「アップロード完了」かつ「点が 1 つ以上」かつ「プレビューが処理中でない」かつ「まだ送っていない」とき。
+   送るのは undo/redo を反映した今の点の一覧を `toNormalized(プレビューx, プレビューy, プレビュー画像の幅, 高さ)`
+   で 0〜1 にしたもの（`label` は含める → `include`、除外する → `exclude`）。
+6. **結果** … `pollJob` が 1 秒ごとに `GET /video-jobs/{id}`。タブが表示に戻ったら（`visibilitychange`）すぐ 1 回取る。
+   `queued` は「準備中（GPU を起動しています）」、`tracking` は「処理中 NN%」。`done` で結果の再生とダウンロード
+   （URL は 10 分有効）、`failed` は失敗コードごとの文言と「回数は戻りました / 戻りません」。
+   GET が 404 なら「サーバーが再起動したため、やり直してください」を出して止める。
+
+残り回数は `POST /video-jobs` と GET の `remaining_today` で更新する（その前は「1日3回まで」とだけ出す。
+作る前に残りを返す API は無い）。0 になったら動画を選べなくする。送信後は結果が出るまで別の動画を選ばせない。
+
+### 動画の API（js/api.js）
+
+エラーは他の API と同じく `{ code }`。文言は `js/video/messages.js` が持つ。
+
+| メソッド | パス | リクエスト | レスポンス |
+|---|---|---|---|
+| POST | `/video-jobs` | `{ size_bytes, content_type, start_ms, end_ms }` | 201 `{ job_id, upload_url, remaining_today }` |
+| PUT | `upload_url`（R2 の署名付き URL） | 動画そのもの。`Content-Type` は申告したものと同じ | 200 |
+| POST | `/video-jobs/{id}/start` | `{ points: [{ x, y, label }], background }` | 202 `{ phase, failure_code, remaining_today }` |
+| GET | `/video-jobs/{id}` | なし | 200 `{ phase, progress, failure_code, quota_refunded, download_url, remaining_today }` |
+
+- エラーコード: 400 `INVALID_REQUEST_BODY` / `INVALID_RANGE` / `INVALID_POINTS` / `TOO_LARGE` /
+  `UNSUPPORTED_CONTENT_TYPE` / `MISSING_CLIENT_ID`、404 `VIDEO_JOB_NOT_FOUND`、409 `UPLOAD_NOT_FOUND` /
+  `VIDEO_JOB_INVALID_STATE`、429 `QUOTA_EXCEEDED`、503 `VIDEO_CUTOUT_DISABLED`（動画の環境変数が無いとき）。
+- 回数を使うのは `/start` のときだけ（作成・アップロード・プレビューでは減らない）。
+- `phase`: `created` / `queued` / `downloading` / `tracking`（`progress` 0〜1）/ `finishing` / `done` / `failed`。
 
 ## エディタの見た目（透過領域の可視化、js/canvas.js）
 

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>動画ページの自己テスト</title>
+<style>
+  body { font-family: system-ui, sans-serif; padding: 16px; }
+  .ok { color: #2a7a4b; }
+  .ng { color: #b3261e; font-weight: bold; }
+</style>
+</head>
+<body>
+<!--
+  フロントにはテストの仕組みが無いので、純粋な関数だけをここで確かめる。
+  ブラウザで開くか、Playwright で開いて console に assert の失敗が無いことを見る。
+  （#summary の data-failures に失敗件数が入る）
+-->
+<h1>動画ページの自己テスト</h1>
+<ul id="results"></ul>
+<p id="summary"></p>
+<script type="module">
+  import { clampRange } from './range.js';
+  import { toNormalized } from './preview.js';
+
+  const cases = [
+    ['clampRange(0, 12000, 30000)', () => clampRange(0, 12000, 30000), { startMs: 0, endMs: 10000 }],
+    ['clampRange(25000, 31000, 30000)', () => clampRange(25000, 31000, 30000), { startMs: 25000, endMs: 30000 }],
+    ['clampRange(1000, 5000, 30000)', () => clampRange(1000, 5000, 30000), { startMs: 1000, endMs: 5000 }],
+    ['clampRange(-500, 3000, 30000)', () => clampRange(-500, 3000, 30000), { startMs: 0, endMs: 3000 }],
+    ['clampRange(5000, 2000, 30000)', () => clampRange(5000, 2000, 30000), { startMs: 5000, endMs: 5000 }],
+    ['clampRange(0, 6000, 30000, 5000)', () => clampRange(0, 6000, 30000, 5000), { startMs: 0, endMs: 5000 }],
+    ['toNormalized(300, 150, 600, 300)', () => toNormalized(300, 150, 600, 300), { x: 0.5, y: 0.5 }],
+    ['toNormalized(-5, 400, 600, 300)', () => toNormalized(-5, 400, 600, 300), { x: 0, y: 1 }],
+    ['toNormalized(600, 0, 600, 300)', () => toNormalized(600, 0, 600, 300), { x: 1, y: 0 }],
+  ];
+
+  const list = document.getElementById('results');
+  let failures = 0;
+  for (const [name, run, expected] of cases) {
+    let actual;
+    try {
+      actual = run();
+    } catch (err) {
+      actual = { error: String(err) };
+    }
+    const pass = JSON.stringify(actual) === JSON.stringify(expected);
+    console.assert(pass, `${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    if (!pass) failures += 1;
+    const li = document.createElement('li');
+    li.className = pass ? 'ok' : 'ng';
+    li.textContent = `${pass ? 'OK' : 'NG'} ${name} → ${JSON.stringify(actual)}`;
+    list.appendChild(li);
+  }
+  const summary = document.getElementById('summary');
+  summary.dataset.failures = String(failures);
+  summary.textContent = failures === 0 ? `全 ${cases.length} 件 OK` : `${failures} 件失敗`;
+</script>
+</body>
+</html>
