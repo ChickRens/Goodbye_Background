@@ -60,7 +60,7 @@ Python ワーカーはポートの向こう側、既存の画像用 trait に動
 | D2 | 合成の場所 | GPU ワーカーで推論・合成・エンコードまで行う | 端末エンコード（iOS 18 Safari）の未確認リスクを MVP から外す。差額は 1 本 +$0.001 程度 |
 | D3 | ファイルの通り道 | Cloudflare R2 + 署名付き URL。Rust は動画の中身に触れない | 小さな CPU サーバーの帯域・メモリが動画の大きさに引っ張られない |
 | D4 | fps | 全フレーム推論。上限 30fps（60fps は 30fps に落とす） | 間引き＋補間は IoU 0.73 まで崩れた（`report.txt`） |
-| D5 | GPU 事業者 | Modal（L4）。中核は事業者に依存しない Python パッケージ、Modal は薄いアダプタ | 月 $30 の無料クレジットで月数千本まで実質無料 |
+| D5 | GPU 事業者 | Modal（GPU は L4 → A10G → T4 の空いている順。計測で L4 だけだと割り当て待ちが数分〜10 分以上になったため）。中核は事業者に依存しない Python パッケージ、Modal は薄いアダプタ | 月 $30 の無料クレジットで月数千本まで実質無料 |
 | D6 | 進捗の伝え方 | ワーカー → Rust に HMAC 署名付きで通知。スマホは Rust を 1 秒ごとにポーリング | iOS Safari でタブを裏に回しても復帰できる。Rust は Modal の API を知らない |
 | D7 | ジョブ状態の保存 | ジョブはインメモリ（`TtlStore`）。再起動・0 台への縮小で消えるのを許容。**1 日の回数だけは既存の DB（本番は PostgreSQL）に保存** | ジョブ処理中はポーリングでインスタンスが生きている。回数は 0 台への縮小のたびにリセットされると制限にならない |
 | D8 | プレビュー | 既存の画像切り抜き（CPU、SAM2.1 hiera_small）の `/upload` と `/segment` を使い回す | 追加原価ゼロで「対象の取り違え」を防げる。細部の不一致は許容し「目安」と表示 |
@@ -379,7 +379,7 @@ contracts/video_cutout/
 - イメージ: Debian + ffmpeg（`zscale` 入り）+ `onnxruntime-gpu` + numpy。モデルの 5 つの ONNX と `constants.json` は
   **ビルド時に Hugging Face からリビジョンを固定して**取り込む（起動時にダウンロードしない）。
 - `@modal.enter` で ONNX セッション（CUDA EP）を読み込む。
-- 関数: GPU=L4、`timeout=300`、`retries=0`、`scaledown_window` はまず標準の 60 秒で始め、計測で調整する。
+- 関数: GPU=`["L4", "A10G", "T4"]`（フォールバック。`docs/video-cutout-measurements.md` の計測による）、`timeout=300`、`retries=0`、`scaledown_window` はまず標準の 60 秒で始め、計測で調整する。
 - Web エンドポイント: プロキシ認証（`Modal-Key` / `Modal-Secret`）を必須にし、依頼を検証して `spawn` し、すぐ 202 を返す。
 - `WORKER_CALLBACK_SECRET` は Modal の Secret に置く。
 
