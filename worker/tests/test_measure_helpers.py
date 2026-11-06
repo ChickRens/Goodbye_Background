@@ -6,6 +6,7 @@ from measure.measure_stats import (
     estimate_cost_usd,
     format_probe_report,
     format_report,
+    probe_breakdown,
     probe_verdict,
     summarize_ms,
 )
@@ -135,7 +136,8 @@ def test_format_probe_report_has_row_per_round_and_probe():
     assert tiny[2] == "200.0" and tiny[3] == "201.0" and tiny[4] == "NVIDIA L4"
     assert "モデル読込 1.2 秒" in text
     assert "判定" in text
-    assert "時計" in text
+    assert "時計" in text and "w32tm /resync" in text
+    assert "参考" in text  # CPU の probe は参考値
 
 
 def test_format_probe_report_failed_probe_shows_dash_and_note():
@@ -144,23 +146,55 @@ def test_format_probe_report_failed_probe_shows_dash_and_note():
     assert row[2] == "-" and row[3] == "3.0" and "失敗: boom" in row[-1]
 
 
+def _rows(tiny, cuda, slim=None, cpu=5.0, load=2.0):
+    rows = []
+    for r, (t, c) in enumerate(zip(tiny, cuda), start=1):
+        rows.append(_probe(r, "gpu_tiny_image", t))
+        rows.append({**_probe(r, "gpu_cuda_image", c), "model_load_s": load})
+        if slim is not None:
+            rows.append({**_probe(r, "gpu_slim_image", slim[r - 1]), "model_load_s": load + 1.0})
+        rows.append(_probe(r, "cpu_cuda_image", cpu))
+    return rows
+
+
+def test_probe_breakdown_uses_differences_of_medians():
+    b = probe_breakdown(_rows([100.0, 300.0, 120.0], [150.0, 400.0, 160.0], [110.0, 320.0, 125.0]))
+    assert b["gpu_wait_s"] == 120.0
+    assert b["cuda_extra_s"] == 40.0  # 160 − 120
+    assert b["slim_extra_s"] == 5.0  # 125 − 120
+    assert b["cuda_model_load_s"] == 2.0 and b["slim_model_load_s"] == 3.0
+
+
+def test_probe_breakdown_cancels_constant_clock_skew():
+    a = probe_breakdown(_rows([100.0], [160.0]))
+    skewed = probe_breakdown(_rows([107.0], [167.0]))  # 手元の時計が 7 秒遅れていた
+    assert a["cuda_extra_s"] == skewed["cuda_extra_s"] == 60.0
+
+
+def test_probe_verdict_prints_breakdown_lines():
+    v = probe_verdict(_rows([200.0], [230.0], [205.0]))
+    assert "GPU の割り当て待ち（tiny）: 200.0 秒" in v
+    assert "CUDA イメージの上乗せ: 30.0 秒" in v
+    assert "slim イメージの上乗せ: 5.0 秒" in v
+
+
 def test_probe_verdict_gpu_wait_dominates():
-    rows = [_probe(r, "cpu_cuda_image", 8.0) for r in (1, 2, 3)] + [
-        _probe(r, "gpu_tiny_image", s) for r, s in ((1, 150.0), (2, 300.0), (3, 90.0))
-    ]
-    assert "GPU の割り当て待ちが主因" in probe_verdict(rows)
+    assert "判定: GPU の割り当て待ちが主因" in probe_verdict(_rows([200.0], [230.0]))
 
 
-def test_probe_verdict_image_start_dominates():
-    rows = [_probe(1, "cpu_cuda_image", 200.0), _probe(1, "gpu_tiny_image", 10.0)]
-    assert "イメージの起動が主因" in probe_verdict(rows)
+def test_probe_verdict_image_dominates():
+    assert "判定: イメージの起動が主因" in probe_verdict(_rows([20.0], [220.0]))
 
 
-def test_probe_verdict_similar_is_inconclusive():
-    rows = [_probe(1, "cpu_cuda_image", 100.0), _probe(1, "gpu_tiny_image", 120.0)]
-    v = probe_verdict(rows)
-    assert "主因" not in v.replace("どちらが主因とも言えない", "")
+def test_probe_verdict_both_small():
+    assert "判定: どちらも小さい（今回は速かった）" in probe_verdict(_rows([10.0], [25.0]))
 
 
-def test_probe_verdict_missing_data():
-    assert "判定できない" in probe_verdict([_probe(1, "cpu_cuda_image", None)])
+def test_probe_verdict_both_matter():
+    assert "判定: 両方が効いている" in probe_verdict(_rows([100.0], [250.0]))
+
+
+def test_probe_verdict_ignores_cpu_probe_and_needs_gpu_values():
+    v = probe_verdict([_probe(1, "cpu_cuda_image", 500.0), _probe(1, "gpu_tiny_image", 10.0)])
+    assert "判定: 判定できない" in v
+    assert "slim イメージの上乗せ: - 秒" in v

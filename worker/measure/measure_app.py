@@ -4,7 +4,7 @@
 デコード → 推論 → 合成 + ロゴ → エンコード を 1 本通し、工程ごとの時間を返す。
 使い方は同じフォルダの README.md を参照。
 
-    modal run worker/measure/measure_app.py --video C:\\path\\to\\clip.mov --x 0.5 --y 0.5 --image slim
+    modal run worker/measure/measure_app.py::main --video C:\\path\\to\\clip.mov --x 0.5 --y 0.5 --image slim
     modal run worker/measure/measure_app.py::probe --rounds 3   # コールドスタートの原因の切り分け
 """
 
@@ -248,10 +248,18 @@ _PROBE_SCALEDOWN_S = 2
 PROBE_ROUND_INTERVAL_S = 90
 
 
-@app.function(image=cuda_image, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
-def probe_cpu_cuda_image() -> dict:
-    """大きい CUDA イメージを GPU なしで起動する（= イメージの起動にかかる時間だけを見る）。"""
-    return {"imported_at": _MODULE_IMPORTED_AT, "gpu_name": "-", "note": ""}
+def _probe_load_models() -> dict:
+    """GPU 上で ONNX のセッションを CUDA で作る（CUDA / cuDNN のライブラリを実際に読ませる）。"""
+    imported_at = _MODULE_IMPORTED_AT  # 読み込みの前に控える（呼び出し→起動にモデル読込を混ぜない）
+    t0 = time.time()
+    from cutout.models import load_sessions
+
+    # device="cuda" は CUDA EP が先頭でなければ例外になる（= CUDA / cuDNN が読めていることの確認）
+    load_sessions(MODEL_DIR, "cuda")
+    model_load_s = time.time() - t0
+    ffmpeg_version, zscale = _ffmpeg_info()
+    note = f"モデル読込 {model_load_s:.1f} 秒 / zscale {'あり' if zscale else 'なし'} / {ffmpeg_version}"
+    return {"imported_at": imported_at, "gpu_name": _gpu_name(), "note": note, "model_load_s": model_load_s}
 
 
 @app.function(image=tiny_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
@@ -260,31 +268,36 @@ def probe_gpu_tiny_image() -> dict:
     return {"imported_at": _MODULE_IMPORTED_AT, "gpu_name": _gpu_name(), "note": ""}
 
 
+@app.function(image=cuda_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
+def probe_gpu_cuda_image() -> dict:
+    """1 回目の計測と同じ CUDA イメージで GPU を取り、モデルを CUDA で読む（最小イメージとの差 = このイメージの上乗せ）。"""
+    return _probe_load_models()
+
+
 @app.function(image=slim_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
 def probe_gpu_slim_image() -> dict:
-    """軽いイメージで GPU を取り、ONNX のセッションを CUDA で作る（= 軽いイメージで本番どおり動くことの確認）。"""
-    imported_at = _MODULE_IMPORTED_AT
-    t0 = time.time()
-    from cutout.models import load_sessions
-
-    # device="cuda" は CUDA EP が先頭でなければ例外になる（= pip の CUDA / cuDNN が読めていることの確認）
-    load_sessions(MODEL_DIR, "cuda")
-    model_load_s = time.time() - t0
-    ffmpeg_version, zscale = _ffmpeg_info()
-    note = f"モデル読込 {model_load_s:.1f} 秒 / zscale {'あり' if zscale else 'なし'} / {ffmpeg_version}"
-    return {"imported_at": imported_at, "gpu_name": _gpu_name(), "note": note, "model_load_s": model_load_s}
+    """軽いイメージで GPU を取り、モデルを CUDA で読む（= 軽いイメージで本番どおり動くことの確認と、その上乗せ）。"""
+    return _probe_load_models()
 
 
+@app.function(image=cuda_image, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
+def probe_cpu_cuda_image() -> dict:
+    """CUDA イメージを GPU なしで起動する（参考値。CUDA のライブラリを読まないので判定には使わない）。"""
+    return {"imported_at": _MODULE_IMPORTED_AT, "gpu_name": "-", "note": "参考（CUDA のライブラリを読まない）"}
+
+
+# 呼ぶ順番。GPU ありの 3 つを先に、参考の CPU を最後に
 PROBES = {
-    "cpu_cuda_image": probe_cpu_cuda_image,
     "gpu_tiny_image": probe_gpu_tiny_image,
+    "gpu_cuda_image": probe_gpu_cuda_image,
     "gpu_slim_image": probe_gpu_slim_image,
+    "cpu_cuda_image": probe_cpu_cuda_image,
 }
 
 
 @app.local_entrypoint()
 def probe(rounds: int = 3) -> None:
-    """3 つの小さな関数を順に呼び、呼び出し→コンテナ起動の秒を比べる。回の間は 90 秒あけてコンテナを落とす。"""
+    """4 つの小さな関数を順に呼び、呼び出し→コンテナ起動の秒を比べる。回の間は 90 秒あけてコンテナを落とす。"""
     sys.path.insert(0, str(HERE))
     from measure_stats import format_probe_report
 
@@ -294,19 +307,22 @@ def probe(rounds: int = 3) -> None:
             print(f"  コンテナが落ちるのを {PROBE_ROUND_INTERVAL_S} 秒待ちます…")
             time.sleep(PROBE_ROUND_INTERVAL_S)
         for key, fn in PROBES.items():
+            print(f"  {rnd}/{rounds} 回目 {key}: 呼び出し中…（コールドなので数分かかることがある）", flush=True)
             call_started_at = time.time()
             t = time.perf_counter()
             try:
                 res = fn.remote()
                 to_start = res["imported_at"] - call_started_at
-                gpu_name, note = res["gpu_name"], res["note"]
+                gpu_name, note, model_load_s = res["gpu_name"], res["note"], res.get("model_load_s")
             except Exception as e:  # 1 つ失敗しても表は出す
-                to_start, gpu_name, note = None, "-", f"失敗: {type(e).__name__}: {e}"
+                to_start, gpu_name, note, model_load_s = None, "-", f"失敗: {type(e).__name__}: {e}", None
             wall = time.perf_counter() - t
-            rows.append(
-                {"round": rnd, "probe": key, "call_to_start_s": to_start, "wall_s": wall, "gpu_name": gpu_name, "note": note}
-            )
-            print(f"  {rnd} 回目 {key}: {wall:.1f} 秒")
+            rows.append({
+                "round": rnd, "probe": key, "call_to_start_s": to_start, "wall_s": wall,
+                "gpu_name": gpu_name, "note": note, "model_load_s": model_load_s,
+            })
+            start_text = "-" if to_start is None else f"{to_start:.1f}"
+            print(f"  {rnd}/{rounds} 回目 {key}: 終了 全体 {wall:.1f} 秒 / 呼び出し→起動 {start_text} 秒 / {gpu_name}", flush=True)
 
     print()
     print(format_probe_report(rows))

@@ -49,7 +49,8 @@ def _call_to_start(call_started_at: float | None, module_imported_at: float | No
 
 _CLOCK_NOTE = (
     "※ 呼び出し→コンテナ起動 = コンテナの時計での読み込み時刻 − 手元の PC の時計での呼び出し時刻。"
-    "手元の PC の時計のずれ（数秒）がそのまま入る。"
+    "手元の PC の時計のずれ（数秒）がそのまま入る（気になるなら計測前に管理者の PowerShell で `w32tm /resync`）。"
+    "2 つの値の差で比べれば、ずれは打ち消される。"
 )
 
 
@@ -123,50 +124,76 @@ def format_report(video_name: str, runs: list[dict], image: str | None = None) -
         f"※ 推定費用は GPU 秒 × L4 単価 ${L4_USD_PER_S}/秒 の概算。コールドの回は起動→準備完了の秒を足している。"
         "Python が動く前のコンテナ起動分・待機（scaledown_window 60 秒）分・CPU とメモリ分は含まない。"
         "L4 以外の GPU に割り当たった回は単価が違う。",
+        "※ 計測の呼び出し→コンテナ起動 には、手元の PC からの動画のアップロード時間が入ることがある（probe の値は動画を送らないので入らない）。",
         _CLOCK_NOTE,
     ]
     return "\n".join(lines)
 
 
-# 原因の切り分け（probe）で呼ぶ 3 つの小さな関数
+# 原因の切り分け（probe）で呼ぶ 4 つの小さな関数（この順に呼ぶ）
 PROBE_LABELS = {
-    "cpu_cuda_image": "CUDA イメージ・GPU なし",
     "gpu_tiny_image": "最小イメージ・GPU あり",
+    "gpu_cuda_image": "CUDA イメージ・GPU あり",
     "gpu_slim_image": "slim イメージ・GPU あり",
+    "cpu_cuda_image": "CUDA イメージ・GPU なし（参考）",
 }
 
-# 「≫」とみなす条件: 大きい方が小さい方の 2 倍以上、かつ 20 秒以上の差
+# 判定のしきい値: どちらも これ未満なら「小さい」。主因 = もう一方の 2 倍以上
+_SMALL_S = 30.0
 _DOMINANCE_RATIO = 2.0
-_DOMINANCE_MIN_DIFF_S = 20.0
 
 
-def _median_start(rows: list[dict], probe: str) -> float | None:
-    values = [r["call_to_start_s"] for r in rows if r["probe"] == probe and r["call_to_start_s"] is not None]
+def _median(rows: list[dict], probe: str, key: str) -> float | None:
+    values = [r[key] for r in rows if r["probe"] == probe and r.get(key) is not None]
     return statistics.median(values) if values else None
 
 
+def probe_breakdown(rows: list[dict]) -> dict:
+    """呼び出し→起動の中央値から、GPU の割り当て待ちと各イメージの上乗せ（秒）を出す。
+
+    GPU の割り当て待ち ≒ 最小イメージ・GPU あり。イメージの上乗せ ≒ そのイメージ・GPU あり − 最小イメージ・GPU あり。
+    差を取るので、手元の PC の時計のずれは打ち消される。
+    """
+    tiny = _median(rows, "gpu_tiny_image", "call_to_start_s")
+    cuda = _median(rows, "gpu_cuda_image", "call_to_start_s")
+    slim = _median(rows, "gpu_slim_image", "call_to_start_s")
+    return {
+        "gpu_wait_s": tiny,
+        "cuda_extra_s": cuda - tiny if cuda is not None and tiny is not None else None,
+        "slim_extra_s": slim - tiny if slim is not None and tiny is not None else None,
+        "cuda_model_load_s": _median(rows, "gpu_cuda_image", "model_load_s"),
+        "slim_model_load_s": _median(rows, "gpu_slim_image", "model_load_s"),
+    }
+
+
 def probe_verdict(rows: list[dict]) -> str:
-    """GPU なしで CUDA イメージを起動した待ちと、最小イメージで GPU を取った待ち（中央値）を比べた判定の一行。"""
-    image_s = _median_start(rows, "cpu_cuda_image")
-    gpu_s = _median_start(rows, "gpu_tiny_image")
-    if image_s is None or gpu_s is None:
-        return "判定: 判定できない（CUDA イメージ・GPU なし と 最小イメージ・GPU あり の両方の値が要る）"
-    detail = f"（中央値: GPU の割り当て待ち {gpu_s:.1f} 秒 / CUDA イメージの起動 {image_s:.1f} 秒）"
-
-    def dominates(big: float, small: float) -> bool:
-        return big >= small * _DOMINANCE_RATIO and big - small >= _DOMINANCE_MIN_DIFF_S
-
-    if dominates(gpu_s, image_s):
-        return "判定: GPU の割り当て待ちが主因" + detail
-    if dominates(image_s, gpu_s):
-        return "判定: イメージの起動が主因" + detail
-    return "判定: どちらが主因とも言えない（差が小さいか、両方が効いている）" + detail
+    """GPU の割り当て待ちと CUDA イメージの上乗せを比べた判定（複数行）。"""
+    b = probe_breakdown(rows)
+    lines = [
+        f"GPU の割り当て待ち（tiny）: {_f(b['gpu_wait_s'])} 秒",
+        f"CUDA イメージの上乗せ: {_f(b['cuda_extra_s'])} 秒（別にモデル読込 {_f(b['cuda_model_load_s'])} 秒）",
+        f"slim イメージの上乗せ: {_f(b['slim_extra_s'])} 秒（別にモデル読込 {_f(b['slim_model_load_s'])} 秒）",
+    ]
+    gpu, image = b["gpu_wait_s"], b["cuda_extra_s"]
+    if gpu is None or image is None:
+        verdict = "判定できない（最小イメージ・GPU あり と CUDA イメージ・GPU あり の両方の値が要る）"
+    elif gpu < _SMALL_S and image < _SMALL_S:
+        verdict = "どちらも小さい（今回は速かった）"
+    elif gpu >= image * _DOMINANCE_RATIO:
+        verdict = "GPU の割り当て待ちが主因"
+    elif image >= gpu * _DOMINANCE_RATIO:
+        verdict = "イメージの起動が主因"
+    else:
+        verdict = "両方が効いている（どちらが主因とも言えない）"
+    lines.append(f"判定: {verdict}")
+    return "\n".join(lines)
 
 
 def format_probe_report(rows: list[dict]) -> str:
     """probe の結果表（オーナーがチャットに貼る）。
 
-    rows の要素: {"round", "probe"（PROBE_LABELS のキー）, "call_to_start_s"（None 可）, "wall_s", "gpu_name", "note"}
+    rows の要素: {"round", "probe"（PROBE_LABELS のキー）, "call_to_start_s"（None 可）, "wall_s", "gpu_name", "note",
+                 "model_load_s"（GPU ありの CUDA / slim のみ。無くてもよい）}
     """
     lines = [
         "## 原因の切り分け（probe）",
@@ -183,8 +210,10 @@ def format_probe_report(rows: list[dict]) -> str:
         "",
         probe_verdict(rows),
         "",
-        "※ CUDA イメージ・GPU なし = 大きいイメージの起動だけ / 最小イメージ・GPU あり = GPU の割り当て待ちだけ /"
-        " slim イメージ・GPU あり = 新しい軽いイメージで本番に近い起動。",
+        "※ 最小イメージ・GPU あり = GPU の割り当て待ちだけ。CUDA / slim イメージ・GPU あり − それ = イメージの起動の上乗せ"
+        "（どれも呼び出し→起動の中央値）。モデル読込（CUDA / cuDNN のライブラリを実際に読む時間）は別に出している。",
+        "※ CUDA イメージ・GPU なし は参考値（CUDA のライブラリを読まないので、イメージの重さが出きらないことがある）。判定には使わない。",
+        "※ 上乗せは差なので、手元の PC の時計のずれは打ち消される。",
         _CLOCK_NOTE.replace("呼び出し→コンテナ起動", "呼び出し→起動"),
     ]
     return "\n".join(lines)
