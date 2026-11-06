@@ -22,11 +22,15 @@ axum Router (presentation/router.rs)
    │     ▼
    │  Repository / Storage (全て TtlStore = DashMap + 最終アクセス時刻)
    │  Generator (WebP エンコード, リサイズ) / Sam2Segmenter (ONNX Runtime)
+   ├─ api/handler/video_cutout/*  (動画。async のまま。spawn_blocking しない)
+   │     ▼
+   │  VideoCutoutApp (composition/video_wiring.rs) … 動画のユースケースのファサード（§9）
    └─ fallback: ServeDir("frontend")
 ```
 
 バックグラウンドタスク:
 - GC: 60 秒ごとに `App::cleanup` → `DeleteExpiredEntriesUseCase` → 各ストアの `delete_expired`
+- 動画の GC（補助）: 60 秒ごとに `VideoCutoutApp::cleanup_video_jobs`（本命は動画 API の処理中の実行。§9）
 - 利用ログ: `UsageRecorder` のチャネルを受信して INSERT
 
 ---
@@ -242,3 +246,54 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 15. ログが `println!` / `eprintln!`（リクエストごとに座標や処理時間が出る）。`tracing` への移行を推奨。
 16. `SQLiteUsageRecorder` と `PostgresUsageRecorder` がプレースホルダ以外同一の重複コード。
 17. `desktop.ini`（OneDrive の設定ファイル）がコミットされている。
+
+---
+
+## 9. 動画切り抜き（video_cutout）
+
+仕様は `docs/superpowers/specs/2026-11-05-video-cutout-design.md`。重い処理（SAM2 の追跡・エンコード）は
+Modal 上の Python ワーカーで行い、Rust 側はジョブの管理・回数制限・署名付き URL の発行だけを行う。
+
+### 9.1 構成
+
+```
+ブラウザ ──POST /video-jobs──────────► CreateVideoJob（回数 > 0 を確認、Created で保存）→ 201 {job_id, upload_url}
+   │──PUT upload_url（動画本体）──────► Cloudflare R2（サーバーを経由しない）
+   │──POST /video-jobs/{id}/start ────► StartVideoJob（R2 に HEAD → 回数を消費 → Queued → Modal に投入）→ 202
+   │──GET /video-jobs/{id}（1 秒ごと）► GetVideoJob（期限切れなら Failed(timeout)、Done なら download_url）→ 200
+Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）──► ReportVideoJobEvent → 204
+```
+
+- ファサードは画像の `App` とは別の `VideoCutoutApp`（`composition/video_wiring.rs`）。`App::new` は SAM2 のモデルを
+  読むため、動画だけをモデル無しで組み立て・テストできるように分けた（設計判断 R4）。ハンドラは
+  `State<Arc<VideoCutoutApp>>` を取り、そのメソッドだけを呼ぶ
+- 動画の環境変数（`.env.example`）が 1 つでも欠けると `VideoCutoutApp` は空になり、動画の 4 ルートは
+  本文を読む前に 503 `VIDEO_CUTOUT_DISABLED` を返す。画像機能はそのまま動く
+- ポート（`VideoObjectStorage` = R2、`CutoutWorker` = Modal、`DailyQuota` = 利用ログと同じ DB）は非同期の trait。
+  ネットワーク待ちだけなので `spawn_blocking` は使わない
+- ジョブはインメモリ（`VideoJobRepositoryInMemory`）。TtlStore の GC ではなく、状態ごとの期限（仕様 §5.2）で
+  `DeleteExpiredVideoJobsUseCase` が消す。Cloud Run はリクエストベースの CPU で裏のタスクがほとんど進まないため、
+  動画 API の各メソッドの先頭で `VideoCleanupThrottle`（60 秒に 1 回）が許せば await して実行する
+- ジョブの取得 → 変更 → 保存は `VideoJobLocks`（ジョブ単位の `tokio::sync::Mutex`）で囲む
+
+### 9.2 利用ログ・認証・IP
+
+| ルート | 利用ログ | 認証 |
+|---|---|---|
+| `POST /video-jobs` | 記録（`create-video-job`） | `client-id` ヘッダー（無い・UUID でない → 400 `MISSING_CLIENT_ID`） |
+| `POST /video-jobs/{id}/start` | 記録（`start-video-job`） | 持ち主の `client-id` |
+| `GET /video-jobs/{id}` | 記録しない（ポーリング） | 持ち主の `client-id` |
+| `POST /internal/video-jobs/{id}/events` | 記録しない | HMAC-SHA256（401 `INVALID_SIGNATURE`）。パスと本文の `job_id` が違えば 400 `JOB_ID_MISMATCH` |
+
+- `router.rs` の `video_routes` が（記録する, しない）の 2 つの Router を返し、`route` が `track_usage` の前と後に merge する
+- 回数制限（1 日 3 回）は `client-id` と IP の 2 系統。IP は `presentation/client_ip.rs`: `TRUSTED_PROXY_HOPS` = 0 なら
+  接続元（`ConnectInfo`。そのため serve は `into_make_service_with_connect_info`）、N ≥ 1 なら `X-Forwarded-For` の右から N 番目。
+  左端は偽装できるので使わない。Cloud Run で 0 のままだと全員が同じ内部アドレスになり、全員で 1 日 3 回になる
+- 他人のジョブは 404（存在しないものとして扱う）
+
+### 9.3 運用上の制約
+
+- **Cloud Run の最大インスタンス数は 1 のまま変えない**。ジョブがインメモリなので、2 台以上にするとポーリングや
+  通知が別の台に届いて 404 になる
+- R2 の削除などの後処理はレスポンスを返す前に await する（`tokio::spawn` に任せると CPU が割り当てられず進まない）
+- サーバーの再起動・0 台への縮小でジョブは消える（回数は DB にあるので返却されない。まれなので許容）

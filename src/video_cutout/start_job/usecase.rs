@@ -112,7 +112,10 @@ impl StartVideoJobUseCase {
             // 申告より大きいファイルが置かれた。回数は消費しない
             self.fail(&mut job, FailureCode::TooLarge, now_ms).await;
             let remaining_today = self.quota.remaining(&keys, day).await?;
-            return Ok(StartVideoJobOutput { remaining_today });
+            return Ok(StartVideoJobOutput {
+                phase: job.phase,
+                remaining_today,
+            });
         }
 
         let remaining_today = self.quota.try_consume(&keys, day).await?;
@@ -125,7 +128,10 @@ impl StartVideoJobUseCase {
 
         let request = self.worker_request(&job);
         match self.worker.dispatch(&request).await {
-            Ok(()) => Ok(StartVideoJobOutput { remaining_today }),
+            Ok(()) => Ok(StartVideoJobOutput {
+                phase: job.phase,
+                remaining_today,
+            }),
             Err(e) => {
                 println!("ワーカーへの投入に失敗 job={}: {:?}", job.id.value(), e);
                 let refunded = match self.quota.refund(&keys, day).await {
@@ -143,7 +149,10 @@ impl StartVideoJobUseCase {
                 } else {
                     remaining_today
                 };
-                Ok(StartVideoJobOutput { remaining_today })
+                Ok(StartVideoJobOutput {
+                    phase: job.phase,
+                    remaining_today,
+                })
             }
         }
     }
@@ -201,6 +210,7 @@ mod start_video_job_usecase_test {
         let id = h.created_job().await;
         let out = h.start.execute(start_input(id)).await.unwrap();
         assert_eq!(out.remaining_today, 2);
+        assert_eq!(out.phase, JobPhase::Queued);
         assert_eq!(h.remaining().await, 2);
 
         let job = h.repository.get(&id).unwrap();
@@ -283,6 +293,7 @@ mod start_video_job_usecase_test {
         let out = h.start.execute(start_input(id)).await.unwrap();
         assert_eq!(h.phase(id), JobPhase::Failed(FailureCode::DispatchFailed));
         assert_eq!(h.remaining().await, 3);
+        assert_eq!(out.phase, JobPhase::Failed(FailureCode::DispatchFailed));
         assert_eq!(out.remaining_today, 3);
         let job = h.repository.get(&id).unwrap();
         assert!(job.quota_consumed && job.quota_refunded);
@@ -321,6 +332,7 @@ mod start_video_job_usecase_test {
         let out = h.start.execute(start_input(id)).await.unwrap();
         assert_eq!(h.phase(id), JobPhase::Failed(FailureCode::TooLarge));
         assert_eq!(h.remaining().await, 3);
+        assert_eq!(out.phase, JobPhase::Failed(FailureCode::TooLarge));
         assert_eq!(out.remaining_today, 3);
         assert!(h.worker.dispatched.lock().unwrap().is_empty());
         let job = h.repository.get(&id).unwrap();

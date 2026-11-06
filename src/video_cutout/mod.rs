@@ -2,8 +2,10 @@
 
 pub mod clock;
 pub mod clock_impl;
+pub mod config;
 pub mod create_job;
 pub mod delete_expired_jobs;
+pub mod error;
 pub mod finish;
 pub mod get_job;
 pub mod job;

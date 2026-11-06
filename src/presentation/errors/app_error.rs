@@ -1,6 +1,6 @@
 //! ハンドラが返す最上位のエラー型 `AppError` と、その HTTP レスポンスへの変換。
 //!
-//! `AppError` = ユースケース由来（`ApplicationError`）+ HTTP 層由来（`PresentationError`）。
+//! `AppError` = ユースケース由来（`ApplicationError`）+ HTTP 層由来（`PresentationError`、動画のハンドラの `VideoHandlerError`）。
 //! どちらも `From` があるので、ハンドラ内では `?` だけで変換できる。
 
 use axum::{
@@ -10,6 +10,7 @@ use axum::{
 };
 
 use crate::{
+    api::handler::video_cutout::error::VideoHandlerError,
     application::error::ApplicationError,
     common::traits::{Cause, Code, ErrorType, ErrorTypeProvider},
     parent_error,
@@ -22,6 +23,7 @@ parent_error!(
     pub enum AppError {
         ApplicationError(ApplicationError),
         Presentation(PresentationError),
+        VideoHandler(VideoHandlerError),
     }
 );
 

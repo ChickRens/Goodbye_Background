@@ -45,6 +45,8 @@ impl SQLiteUsageRecorder {
                     UsageOperation::Undo => "undo".to_string(),
                     UsageOperation::GetPreview => "get-preview".to_string(),
                     UsageOperation::GetCompleted => "get-completed".to_string(),
+                    UsageOperation::CreateVideoJob => "create-video-job".to_string(),
+                    UsageOperation::StartVideoJob => "start-video-job".to_string(),
                     UsageOperation::Unknown(err) => err.to_owned(),
                 };
 
@@ -102,6 +104,8 @@ impl PostgresUsageRecorder {
                     UsageOperation::Undo => "undo".to_string(),
                     UsageOperation::GetPreview => "get-preview".to_string(),
                     UsageOperation::GetCompleted => "get-completed".to_string(),
+                    UsageOperation::CreateVideoJob => "create-video-job".to_string(),
+                    UsageOperation::StartVideoJob => "start-video-job".to_string(),
                     UsageOperation::Unknown(err) => err.to_owned(),
                 };
 

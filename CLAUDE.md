@@ -35,7 +35,8 @@ docker compose up --build
   ort-sys のダウンロードが通らない環境では、PyPI の `onnxruntime==1.24.2` の wheel から
   `libonnxruntime.so.1.24.2` を取り出し、`ORT_LIB_LOCATION=<dir> ORT_PREFER_DYNAMIC_LINK=1
   LD_LIBRARY_PATH=<dir> cargo test` で動的リンクできる
-- 現状 `cargo check` で 15 件の既存警告（未使用関数・ライフタイム省略など）が出るのが正常
+- 現状 `cargo check` で 19 件の既存警告（未使用関数・ライフタイム省略など。うち 4 件は動画のテスト用の
+  `FakeVideoClock` / `signature::sign` / `ClipRange::duration_ms`）が出るのが正常
 
 ## ディレクトリ構成（src/）
 
@@ -43,8 +44,11 @@ docker compose up --build
 main.rs              起動・DB 接続・GC タスク・axum serve
 config.rs            定数（MAX_HISTORY=40, CLEANUP_INTERVAL=60s, TTL_SEC=10min）
 composition/wiring.rs  ★ DI。全オブジェクトの生成と配線。App = ハンドラから見たファサード
-presentation/        router（ルート定義）, AppError→HTTP 変換, 利用ログミドルウェア
+composition/video_wiring.rs  動画切り抜きの DI。VideoCutoutApp = 動画のハンドラから見たファサード
+presentation/        router（ルート定義）, AppError→HTTP 変換, 利用ログミドルウェア, client_ip（回数制限用の IP）
 api/handler/image_cutout/<ep>/  画像切り抜きのエンドポイントごとの handler.rs / request.rs / response.rs
+api/handler/video_cutout/<ep>/  動画切り抜きのエンドポイント（create_job / start_job / get_job / report_event）
+video_cutout/        動画切り抜き機能（ジョブ・回数制限・R2/Modal のポート・ユースケース・config.rs）
 image_cutout/        画像切り抜き機能（既存の画像機能は全てここ）
   image_io/          ユースケース: upload / get_preview / get_completed
   editing/           ユースケース: prepare_segment / segment / undo / redo / save
@@ -70,9 +74,18 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 - **エラー**: 必ず `common/macros.rs` のマクロで定義する。HTTP ステータスと返すコード文字列は
   末端（leaf）で決まり、親エラーは委譲するだけ。新しいユースケースを足したら
   `application/error.rs` の `ApplicationError` にも variant を追加する
-- **重い処理は `spawn_blocking`**: segment/undo/redo/save/upload ハンドラはそうしている。新規 API も同様に
+- **重い処理は `spawn_blocking`**: segment/undo/redo/save/upload ハンドラはそうしている。新規 API も同様に。
+  **例外は動画**: 動画のポート（R2・Modal・回数の DB）はネットワーク待ちだけの非同期 trait なので、
+  動画のハンドラは `spawn_blocking` を使わずそのまま await する（ブロッキング用スレッドを待ちで占有しないため）
+- **動画のファサードは `VideoCutoutApp`**（`composition/video_wiring.rs`）。画像の `App` には動画のメソッドを足さない。
+  `App::new` は SAM2 のモデルを読むので、動画をモデル無しで組み立て・テストできるよう分けている（設計判断 R4）。
+  ルーターのテストは `VideoCutoutApp::for_test`（偽の R2/ワーカー/回数/時計）で組む
 - **新しい API ルートを追加したら**: `presentation/router.rs`、`analytics/usage_tracking/operation.rs`、
   `analytics/usage_tracking/recorder.rs`（2箇所の文字列変換）、`frontend/js/api.js` を更新
+- **動画のルートを追加したら**: `presentation/router.rs` の `video_routes` に足す。利用ログに記録するものは
+  1 つ目の Router（`track_usage` の前に merge される）に入れて `operation.rs` / `recorder.rs` も更新、
+  記録しないもの（ポーリング・内部の通知）は 2 つ目の Router に入れる。ハンドラは `api/handler/video_cutout/<ep>/`、
+  メソッドは `VideoCutoutApp` に足し、先頭で `maybe_cleanup()` を呼ぶ
 - **ストアの値は不変**: `get` で `Arc<V>` を取り、clone して変更し、`save/insert` で丸ごと置き換える
 - テストは各ファイル末尾の `#[cfg(test)] mod xxx_test`。時刻が絡むものは `FakeClock` を使う
 - 既存コメント・ドキュメントは日本語。追記も日本語で揃える
@@ -102,6 +115,10 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
     変えるときは `image_cutout/image/completed/generator/generator.rs` の計測表を参照
 13. **マイグレーションは DB ごと**: `migrations/sqlite/` と `migrations/postgres/` の両方に追加する。
     適用済みのファイルは絶対に書き換えない（sqlx のチェックサム不一致で起動しなくなる）
+14. **Cloud Run の最大インスタンス数は 1 のまま変えない**: 動画ジョブはインメモリなので、2 台以上にすると
+    ポーリングやワーカーの通知が別の台に届いて 404 になる（docs/ARCHITECTURE.md §9）
+15. **`TRUSTED_PROXY_HOPS`**: 回数制限の IP を `X-Forwarded-For` の右から何番目で取るか（`presentation/client_ip.rs`）。
+    0 = 接続元。Cloud Run で 0 のままだと全員が同じ IP になり、全員で 1 日 3 回になる。本番で実際の値を確かめて決める
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）
 
