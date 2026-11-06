@@ -14,6 +14,9 @@ use crate::{
         upload::error::UploadUseCaseError,
     },
     parent_error,
+    video_cutout::{
+        create_job::error::CreateVideoJobError, start_job::error::StartVideoJobError,
+    },
 };
 
 parent_error!(
@@ -26,5 +29,7 @@ parent_error!(
         SaveUseCase(SaveUseCaseError),
         GetCompletedUseCase(GetCompletedUseCaseError),
         PrepareSegmentUseCase(PrepareSegmentUseCaseError),
+        CreateVideoJobUseCase(CreateVideoJobError),
+        StartVideoJobUseCase(StartVideoJobError),
     }
 );

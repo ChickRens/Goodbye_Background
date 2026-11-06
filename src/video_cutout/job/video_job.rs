@@ -11,6 +11,9 @@ use crate::video_cutout::job::{
 
 const MINUTE_MS: u64 = 60_000;
 
+/// 入力動画の上限サイズ（200MB）。作成時の申告・開始時の HEAD・ワーカーのダウンロードで使う。
+pub const MAX_INPUT_BYTES: u64 = 209_715_200;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct JobResult {
     pub frames: u32,
