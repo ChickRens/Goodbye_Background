@@ -4,12 +4,12 @@
 //! 新しいユースケースを追加したら、ここにも variant を足すこと（足さないと `?` が通らない）。
 
 use crate::{
-    editing::{
+    image_cutout::editing::{
         prepare_segment::error::PrepareSegmentUseCaseError, redo::error::RedoUseCaseError,
         save::error::SaveUseCaseError, segment::error::SegmentUseCaseError,
         undo::error::UndoUseCaseError,
     },
-    image_io::{
+    image_cutout::image_io::{
         get_completed::error::GetCompletedUseCaseError, get_preview::error::GetPreviewUseCaseError,
         upload::error::UploadUseCaseError,
     },

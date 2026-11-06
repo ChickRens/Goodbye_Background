@@ -1,0 +1,21 @@
+//! セグメンタの出力: アルファにマスクを適用した生 RGBA（元画像サイズ）。ID はまだ無い。
+
+use crate::image_cutout::image::image::{raw_data::ImageData, size::ImageSize};
+
+pub struct SegmentedImage {
+    image: ImageData,
+    size: ImageSize,
+}
+
+impl SegmentedImage {
+    pub fn new(image: ImageData, image_size: ImageSize) -> Self {
+        Self {
+            image,
+            size: image_size,
+        }
+    }
+
+    pub fn into_image_and_size(self) -> (ImageData, ImageSize) {
+        (self.image, self.size)
+    }
+}

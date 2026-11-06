@@ -44,14 +44,15 @@ main.rs              起動・DB 接続・GC タスク・axum serve
 config.rs            定数（MAX_HISTORY=40, CLEANUP_INTERVAL=60s, TTL_SEC=10min）
 composition/wiring.rs  ★ DI。全オブジェクトの生成と配線。App = ハンドラから見たファサード
 presentation/        router（ルート定義）, AppError→HTTP 変換, 利用ログミドルウェア
-api/handler/<ep>/    エンドポイントごとの handler.rs / request.rs / response.rs
-image_io/            ユースケース: upload / get_preview / get_completed
-editing/             ユースケース: prepare_segment / segment / undo / redo / save
-  segmenter/         ★ SAM2 推論（segmenter_sam2.rs）と前後処理（mask_resizer/smoother/applier）
-  session/           編集セッション（SAM2 特徴量 + ポイント履歴 + マスク履歴）とセッション単位のロック
-image/               画像ドメイン: original / segmenter_input / preview / completed
-point/               クリック座標・ラベル・undo/redo 履歴
-session/             セッション（session_id → 元画像 image_id の対応）
+api/handler/image_cutout/<ep>/  画像切り抜きのエンドポイントごとの handler.rs / request.rs / response.rs
+image_cutout/        画像切り抜き機能（既存の画像機能は全てここ）
+  image_io/          ユースケース: upload / get_preview / get_completed
+  editing/           ユースケース: prepare_segment / segment / undo / redo / save
+    segmenter/       ★ SAM2 推論（segmenter_sam2.rs）と前後処理（mask_resizer/smoother/applier）
+    session/         編集セッション（SAM2 特徴量 + ポイント履歴 + マスク履歴）とセッション単位のロック
+  image/             画像ドメイン: original / segmenter_input / preview / completed
+  point/             クリック座標・ラベル・undo/redo 履歴
+  session/           セッション（session_id → 元画像 image_id の対応）
 maintenance/         TtlStore（全ストアの実体）と期限切れ削除ユースケース
 migrations/{sqlite,postgres}/  利用ログテーブルのマイグレーション（起動時に自動適用。src の外）
 analytics/           利用ログの記録（mpsc チャネル → バックグラウンドで INSERT）
@@ -64,7 +65,7 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
   ハンドラはユースケースを直接触らず `App` のメソッドだけを呼ぶ
 - **1 ユースケース = 1 ディレクトリ**: `input.rs` / `output.rs` / `error.rs` / `usecase.rs` / `mod.rs`
 - **trait とその実装はファイルを分ける**: 通常は `xxx.rs` が trait、`xxx_impl.rs` が実装。
-  例外: `image/completed/generator/` だけ逆（`generator.rs` が実装、`generator_impl.rs` が trait）
+  例外: `image_cutout/image/completed/generator/` だけ逆（`generator.rs` が実装、`generator_impl.rs` が trait）
 - **依存は `Arc<dyn Trait>`** で注入する。ストアは `Arc` で共有されている（wiring.rs で確認）
 - **エラー**: 必ず `common/macros.rs` のマクロで定義する。HTTP ステータスと返すコード文字列は
   末端（leaf）で決まり、親エラーは委譲するだけ。新しいユースケースを足したら
@@ -98,7 +99,7 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
     縮小した元画像を `segment_fast` の `output_image` に渡す。フル解像度で処理するのは save（resegment）だけ。
     座標変換には `original_image` のサイズを使うので、2つを取り違えないこと
 12. **保存用 WebP は quality 95 / method 2**（オーナー判断: 速度とファイルサイズの中間）。
-    変えるときは `image/completed/generator/generator.rs` の計測表を参照
+    変えるときは `image_cutout/image/completed/generator/generator.rs` の計測表を参照
 13. **マイグレーションは DB ごと**: `migrations/sqlite/` と `migrations/postgres/` の両方に追加する。
     適用済みのファイルは絶対に書き換えない（sqlx のチェックサム不一致で起動しなくなる）
 

@@ -4,7 +4,7 @@ use axum::{Router, extract::DefaultBodyLimit, middleware::from_fn_with_state, ro
 use tower_http::services::ServeDir;
 
 use crate::{
-    api::handler::{
+    api::handler::image_cutout::{
         get_completed::handler::get_completed_image, get_preview::handler::get_preview,
         redo::handler::redo, save::handler::save, segment::handler::segment, undo::handler::undo,
         upload::handler::upload,

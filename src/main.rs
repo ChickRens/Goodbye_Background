@@ -18,13 +18,9 @@ mod application;
 mod common;
 mod composition;
 mod config;
-mod editing;
-mod image;
-mod image_io;
+mod image_cutout;
 mod maintenance;
-mod point;
 mod presentation;
-mod session;
 
 use std::{env, process, sync::Arc, time::Duration};
 

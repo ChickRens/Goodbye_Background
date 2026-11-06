@@ -12,11 +12,11 @@
    ▼
 axum Router (presentation/router.rs)
    ├─ middleware: track_usage ──────────────► UsageRecorder ─(mpsc)─► SQLite / Postgres
-   ├─ api/handler/*  (リクエスト → Input 変換, spawn_blocking)
+   ├─ api/handler/image_cutout/*  (リクエスト → Input 変換, spawn_blocking)
    │     ▼
    │  App (composition/wiring.rs)  … 全ユースケースのファサード
    │     ▼
-   │  UseCase (image_io/*, editing/*)
+   │  UseCase (image_cutout/image_io/*, image_cutout/editing/*)
    │     ▼
    │  Service (PreviewService, SegmentService, PrepareSegmentService, CompletedService)
    │     ▼
@@ -192,7 +192,7 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 1. **編集セッションのメモリリーク**: `SAM2EditingSessionRepository` を `DeleteExpiredEntriesUseCase` に
    `Arc<dyn DeleteExpiredRepository>` として渡し、GC 対象にした。テスト:
    `delete_expired_entries_usecase_test::execute_removes_expired_editing_sessions`
-2. **マスクのロジットを確率として扱っていた件**: `editing/segmenter/mask_activation.rs` を追加し、
+2. **マスクのロジットを確率として扱っていた件**: `image_cutout/editing/segmenter/mask_activation.rs` を追加し、
    リサイズ後・平滑化/適用前に sigmoid を掛けるようにした。履歴に保存する前回マスクはロジットのまま。
    テスト: `sam2_test::generate_image_fast_converts_mask_logits_to_alpha`,
    `sam2_test::generate_image_high_quality_treats_zero_logit_as_half_transparent`,
@@ -201,7 +201,7 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
      グラデーションになる。境界の幅は「マスク 1px = 元画像の 長辺/256 px」に比例して広がるので、
      大きい画像ではエッジが柔らかくなりすぎる可能性がある（実モデルでの見た目は未検証）
    - 残課題: `mask_smoother` の `confidence` ブレンドは確率入力では実質効いていない（同ファイルのコメント参照）
-3. **同一セッションの並行更新**: `editing/session/lock.rs` の `EditingSessionLocks`（セッションごとの
+3. **同一セッションの並行更新**: `image_cutout/editing/session/lock.rs` の `EditingSessionLocks`（セッションごとの
    Mutex を `TtlStore` に保持、GC 対象）を追加し、`SegmentServiceImpl` の各操作全体をロックで囲んだ。
    テスト: `segment_service_test::concurrent_segments_on_same_session_keep_all_points`（偽セグメンタ使用）
 4. **DB マイグレーション**: `migrations/sqlite/` と `migrations/postgres/` に分割し、両方とも起動時に適用。
@@ -236,7 +236,7 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 9. 仕様（`rule.txt`）と実装の差: 最大 3000px ↔ 8000px、寿命 30 分 ↔ 10 分、保存後 10 分で削除 ↔ 特別扱い無し。
 10. `frontend/README.md` の API 表で `/get-preview` が `image/png` となっているが実際は `image/webp`。
 11. `Sam2Segmenter::new(model_dir)` なのに `image_pe.bin` だけ `"models/image_pe.bin"` 固定。
-12. `image/completed/generator/` の trait/実装ファイル名が他と逆。
+12. `image_cutout/image/completed/generator/` の trait/実装ファイル名が他と逆。
 13. `RedoUseCaseError::SegmenterInputStorage` は生成されない死んだ variant。
 14. `App::new` は `Result` を返すが、失敗は全て `expect` で panic する。
 15. ログが `println!` / `eprintln!`（リクエストごとに座標や処理時間が出る）。`tracing` への移行を推奨。
