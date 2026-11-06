@@ -56,6 +56,10 @@ impl GetVideoJobUseCase {
         &self,
         input: GetVideoJobInput,
     ) -> Result<GetVideoJobOutput, GetVideoJobError> {
+        // 無い ID のロックを作らない（ポーリングで無制限に増えるため）。ロック内でもう一度取り直す
+        if self.repository.get(&input.job_id).is_none() {
+            return Err(VideoJobError::NotFound.into());
+        }
         let lock = self.locks.lock_for(&input.job_id);
         let _guard = lock.lock_owned().await;
 
@@ -68,7 +72,7 @@ impl GetVideoJobUseCase {
 
         let now_ms = self.clock.now_ms();
         let mut job = VideoJob::clone(&job);
-        if is_in_progress(&job.phase) && job.deadline_ms() < now_ms {
+        if job.phase.is_in_progress() && job.deadline_ms() < now_ms {
             job = finish_job(
                 job,
                 JobPhase::Failed(FailureCode::Timeout),
@@ -105,11 +109,6 @@ impl GetVideoJobUseCase {
             remaining_today,
         })
     }
-}
-
-/// 進行中（`Queued`〜`Finishing`）か。期限を過ぎたら `Failed(timeout)` にする対象。
-pub fn is_in_progress(phase: &JobPhase) -> bool {
-    !matches!(phase, JobPhase::Created) && !phase.is_terminal()
 }
 
 #[cfg(test)]
@@ -192,6 +191,18 @@ mod get_video_job_usecase_test {
         let out = h.get.execute(get_input(id)).await.unwrap();
         assert_eq!(out.phase, JobPhase::Created);
         assert!(h.storage.deleted().is_empty());
+    }
+
+    #[tokio::test]
+    async fn unknown_job_does_not_create_lock() {
+        let h = harness();
+        for _ in 0..3 {
+            assert!(matches!(
+                h.get.execute(get_input(VideoJobId::new_random())).await,
+                Err(GetVideoJobError::Job(VideoJobError::NotFound))
+            ));
+        }
+        assert_eq!(h.locks.len(), 0);
     }
 
     #[tokio::test]

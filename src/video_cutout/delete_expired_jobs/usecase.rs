@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use crate::video_cutout::{
     finish::finish_job,
-    get_job::usecase::is_in_progress,
     job::{
         locks::VideoJobLocks,
         phase::{FailureCode, JobPhase},
@@ -56,7 +55,7 @@ impl DeleteExpiredVideoJobsUseCase {
                 continue;
             }
 
-            if is_in_progress(&job.phase) {
+            if job.phase.is_in_progress() {
                 finish_job(
                     VideoJob::clone(&job),
                     JobPhase::Failed(FailureCode::Timeout),
@@ -78,6 +77,8 @@ impl DeleteExpiredVideoJobsUseCase {
             }
             processed += 1;
         }
+        // ジョブが無いのに残ったロック（存在確認とロック作成の間に消された場合など）を掃除する
+        self.locks.retain_ids(|id| self.repository.get(id).is_some());
         processed
     }
 }
@@ -155,6 +156,19 @@ mod delete_expired_video_jobs_usecase_test {
         assert!(h.repository.get(&h.id).is_none());
         assert!(h.storage.deleted().contains(&h.output_key()));
         assert_eq!(h.remaining().await, 3);
+    }
+
+    #[tokio::test]
+    async fn cleanup_removes_orphan_locks_and_keeps_live_ones() {
+        let h = started_job().await;
+        let orphan = crate::video_cutout::job::id::VideoJobId::new_random();
+        h.locks.lock_for(&orphan);
+        let live_before = h.locks.lock_for(&h.id);
+        assert_eq!(h.locks.len(), 2);
+        assert_eq!(h.cleanup().await, 0);
+        assert_eq!(h.locks.len(), 1);
+        // 生きているジョブのロックは同じ Mutex のまま
+        assert!(Arc::ptr_eq(&live_before, &h.locks.lock_for(&h.id)));
     }
 
     #[tokio::test]

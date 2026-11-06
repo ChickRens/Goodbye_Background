@@ -23,6 +23,16 @@ impl VideoJobLocks {
     pub fn remove(&self, id: &VideoJobId) {
         self.locks.remove(id);
     }
+
+    /// `keep` が `false` を返した ID のロックを消す（ジョブが既に無い ID のロックを掃除するため）。
+    pub fn retain_ids(&self, keep: impl Fn(&VideoJobId) -> bool) {
+        self.locks.retain(|id, _| keep(id));
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.locks.len()
+    }
 }
 
 #[cfg(test)]
@@ -45,5 +55,18 @@ mod video_job_locks_test {
         assert!(l.lock_for(&b).try_lock().is_ok());
         l.remove(&a);
         assert!(l.lock_for(&a).try_lock().is_ok());
+    }
+
+    #[test]
+    fn retain_ids_drops_rejected_ids() {
+        let l = VideoJobLocks::new();
+        let (a, b) = (VideoJobId::new_random(), VideoJobId::new_random());
+        l.lock_for(&a);
+        l.lock_for(&b);
+        l.retain_ids(|id| *id == a);
+        assert_eq!(l.len(), 1);
+        let kept = l.lock_for(&a);
+        assert_eq!(l.len(), 1);
+        drop(kept);
     }
 }

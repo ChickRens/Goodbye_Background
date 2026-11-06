@@ -77,6 +77,10 @@ impl StartVideoJobUseCase {
         input: StartVideoJobInput,
     ) -> Result<StartVideoJobOutput, StartVideoJobError> {
         // HEAD とワーカー投入（非同期の待ち）をまたいで、取得 → 変更 → 保存を直列化する
+        // 無い ID のロックを作らない（消す人がいないため）。ロック内でもう一度取り直す
+        if self.repository.get(&input.job_id).is_none() {
+            return Err(VideoJobError::NotFound.into());
+        }
         let lock = self.locks.lock_for(&input.job_id);
         let _guard = lock.lock_owned().await;
 
@@ -298,6 +302,16 @@ mod start_video_job_usecase_test {
             Err(StartVideoJobError::Job(VideoJobError::NotFound))
         ));
         assert_eq!(h.phase(id), JobPhase::Created);
+    }
+
+    #[tokio::test]
+    async fn unknown_job_does_not_create_lock() {
+        let h = harness();
+        assert!(matches!(
+            h.start.execute(start_input(VideoJobId::new_random())).await,
+            Err(StartVideoJobError::Job(VideoJobError::NotFound))
+        ));
+        assert_eq!(h.locks.len(), 0);
     }
 
     #[tokio::test]

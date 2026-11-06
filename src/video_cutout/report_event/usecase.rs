@@ -1,6 +1,7 @@
 //! ワーカー通知の反映（仕様 §4.5 `ReportVideoJobEvent`）。
 //!
-//! ジョブ単位のロックを持ったまま状態を進める。前に進まない通知（順番の入れ替わり・最終状態の後に届いたもの）は無視する。
+//! ジョブ単位のロックを持ったまま状態を進める。進行中のまま期限（§5.2）を過ぎていれば、通知の内容にかかわらず
+//! `Failed(timeout)` にする（取得・期限処理のどちらが先に走っても結果が同じになるように）。前に進まない通知（順番の入れ替わり・最終状態の後に届いたもの）は無視する。
 //! `Done` / `Failed` になったら入力ファイルを削除し、`Failed` は仕様 §5.1 の表に従って回数を返す（`finish_job`）。
 
 use std::sync::Arc;
@@ -9,7 +10,10 @@ use crate::video_cutout::{
     clock::VideoClock,
     finish::finish_job,
     job::{
-        error::VideoJobError, locks::VideoJobLocks, repository::VideoJobRepository,
+        error::VideoJobError,
+        locks::VideoJobLocks,
+        phase::{FailureCode, JobPhase},
+        repository::VideoJobRepository,
         video_job::VideoJob,
     },
     quota::daily_quota::DailyQuota,
@@ -49,6 +53,10 @@ impl ReportVideoJobEventUseCase {
         &self,
         input: ReportVideoJobEventInput,
     ) -> Result<ReportVideoJobEventOutput, ReportVideoJobEventError> {
+        // 無い ID のロックを作らない（消す人がいないため）。ロック内でもう一度取り直す
+        if self.repository.get(&input.job_id).is_none() {
+            return Err(VideoJobError::NotFound.into());
+        }
         let lock = self.locks.lock_for(&input.job_id);
         let _guard = lock.lock_owned().await;
 
@@ -56,12 +64,25 @@ impl ReportVideoJobEventUseCase {
             .repository
             .get(&input.job_id)
             .ok_or(VideoJobError::NotFound)?;
+        let now_ms = self.clock.now_ms();
+        // 期限を過ぎた進行中のジョブは、通知より先にタイムアウトさせる（取得・期限処理と結果を揃えるため）
+        if job.phase.is_in_progress() && job.deadline_ms() < now_ms {
+            finish_job(
+                VideoJob::clone(&job),
+                JobPhase::Failed(FailureCode::Timeout),
+                now_ms,
+                self.repository.as_ref(),
+                self.storage.as_ref(),
+                self.quota.as_ref(),
+            )
+            .await;
+            return Ok(());
+        }
         // 前に進まない通知（順番の入れ替わり、最終状態の後に遅れて届いたもの）は何もしない
         let Some(next) = job.phase.advance(input.event.phase.to_job_phase()) else {
             return Ok(());
         };
 
-        let now_ms = self.clock.now_ms();
         let mut job = VideoJob::clone(&job);
         if next.is_terminal() {
             job.result = input.event.phase.result();
@@ -184,6 +205,27 @@ mod report_video_job_event_usecase_test {
     }
 
     #[tokio::test]
+    async fn event_after_deadline_times_out_instead_of_advancing() {
+        let h = started_job().await;
+        h.clock.advance(5 * 60_000 + 1);
+        h.report(done()).await;
+        let job = h.repository.get(&h.id).unwrap();
+        assert_eq!(job.phase, JobPhase::Failed(FailureCode::Timeout));
+        assert!(job.quota_refunded && job.result.is_none());
+        assert_eq!(job.last_event_at_ms, h.clock_now());
+        assert_eq!(h.remaining().await, 3);
+        assert_eq!(h.storage.deleted(), vec![h.input_key()]);
+    }
+
+    #[tokio::test]
+    async fn event_just_at_deadline_still_advances() {
+        let h = started_job().await;
+        h.clock.advance(5 * 60_000);
+        h.report(tracking(0.1)).await;
+        assert_eq!(h.repository.get(&h.id).unwrap().phase, JobPhase::Tracking(0.1));
+    }
+
+    #[tokio::test]
     async fn unknown_job_is_not_found() {
         let h = started_job().await;
         let input = ReportVideoJobEventInput {
@@ -197,5 +239,7 @@ mod report_video_job_event_usecase_test {
             h.report_uc.execute(input).await,
             Err(ReportVideoJobEventError::Job(VideoJobError::NotFound))
         ));
+        // 開始済みジョブのロックだけが残り、無い ID のロックは作られない
+        assert_eq!(h.locks.len(), 1);
     }
 }

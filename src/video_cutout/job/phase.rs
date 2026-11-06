@@ -61,6 +61,11 @@ impl JobPhase {
         matches!(self, JobPhase::Done | JobPhase::Failed(_))
     }
 
+    /// 進行中（`Queued`〜`Finishing`）か。期限を過ぎたら `Failed(timeout)` にする対象。
+    pub fn is_in_progress(&self) -> bool {
+        !matches!(self, JobPhase::Created) && !self.is_terminal()
+    }
+
     /// 通常フェーズの順序（Failed は別扱い）。
     fn rank(&self) -> u8 {
         match self {
@@ -146,6 +151,16 @@ mod phase_test {
         assert!(JobPhase::Done.is_terminal());
         assert!(JobPhase::Failed(FailureCode::Timeout).is_terminal());
         assert!(!JobPhase::Tracking(0.1).is_terminal());
+    }
+
+    #[test]
+    fn in_progress_flags() {
+        for p in [JobPhase::Queued, JobPhase::Downloading, JobPhase::Tracking(0.5), JobPhase::Finishing] {
+            assert!(p.is_in_progress());
+        }
+        for p in [JobPhase::Created, JobPhase::Done, JobPhase::Failed(FailureCode::Timeout)] {
+            assert!(!p.is_in_progress());
+        }
     }
 
     #[test]
