@@ -214,7 +214,7 @@ src/video_cutout/
 
 - キーは `(client-id, 日本時間の日付)` と `(IP, 日本時間の日付)` の 2 系統。どちらかが 3 に達したら止める。消費・返却は両方同時。
 - 日付は注入した Clock から日本時間（UTC+9 固定）で計算する。
-- 保存先は既存の利用ログ用 DB。テーブル `video_quota_usage (day INTEGER, key_kind TEXT, key TEXT, count INTEGER, PRIMARY KEY (day, key_kind, key))`（`day` は日本時間の UNIX 日数。SQLite と PostgreSQL で日付型の扱いを揃えるため）。
+- 保存先は既存の利用ログ用 DB。テーブル `video_quota_usage (day INTEGER, key_kind TEXT, key TEXT, count INTEGER, PRIMARY KEY (day, key_kind, key))`（`day` は日本時間の UNIX 日数。SQLite と PostgreSQL で日付型の扱いを揃えるため。PostgreSQL では `day` と `count` を `BIGINT` にする — sqlx が INT4 を i64 に読めないため）。
   - マイグレーションは `migrations/sqlite/` と `migrations/postgres/` の**両方に新しいファイルとして**追加する（適用済みのファイルは書き換えない）。
   - 消費は 1 トランザクションで、2 系統とも `count < 3` を確認してから両方を +1 する。返却は両方を −1（0 未満にしない）。
   - 消費のついでに、8 日以上前の行を削除する。
