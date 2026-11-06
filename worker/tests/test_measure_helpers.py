@@ -56,12 +56,24 @@ def test_format_report_shows_cold_start_estimate_and_key_numbers():
     assert "clip.mov" in text
     assert "abc123" in text
     assert "コールド" in text and "ウォーム" in text
-    # コールドスタートの推定 = クライアントの所要時間 - サーバーの処理時間
-    assert "30.0" in text
+    cold = next(l.split(" | ") for l in text.splitlines() if l.startswith("| 1 | コールド"))
+    warm = next(l.split(" | ") for l in text.splitlines() if l.startswith("| 2 | ウォーム"))
+    # 列: 回 | 種別 | 手元 | サーバー | 送受信込みの差 | 送受信除く推定 | モデル読込 | 起動→準備完了 | ...
+    assert cold[4] == "30.0" and warm[4] == "2.0"  # 差（手元 − サーバー）は全ての回で出す
+    # 送受信を除いたコールドスタート = コールドの差 − ウォームの差の平均 = 30 − 2
+    assert cold[5] == "28.0" and warm[5] == "-"
+    assert "コールドスタート推定（送受信を除く）: 28.0 秒" in text
     # ウォームの回はモデル読み込みを出さない（その呼び出しでは読んでいない）
-    warm = next(l for l in text.splitlines() if l.startswith("| 2 | ウォーム"))
-    assert "8.0" not in warm
+    assert cold[6] == "8.0" and warm[6] == "-"
     assert "zscale" in text and "あり" in text
     assert "NVIDIA L4" in text
-    # 推定費用: サーバー処理 20 秒 × L4 単価
-    assert f"{estimate_cost_usd(20.0):.4f}" in text
+    # 推定費用: ウォームはサーバー処理 20 秒、コールドは + 起動→準備完了 9 秒
+    assert warm[-1] == f"{estimate_cost_usd(20.0):.4f} |"
+    assert cold[-1] == f"{estimate_cost_usd(29.0):.4f} |"
+
+
+def test_format_report_without_warm_run_cannot_correct_cold_start():
+    text = format_report("clip.mov", [_run(1, True, 50.0, 20.0, 8.0)])
+    cold = next(l.split(" | ") for l in text.splitlines() if l.startswith("| 1 | コールド"))
+    assert cold[4] == "30.0" and cold[5] == "-"
+    assert "コールドスタート推定（送受信を除く）: -" in text

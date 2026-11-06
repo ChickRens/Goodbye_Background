@@ -16,7 +16,7 @@
 
 ```powershell
 python --version          # 3.10 以上なら OK（手元の Python は Modal の CLI を動かすだけ）
-pip install modal
+pip install "modal>=1.6,<2"
 modal setup               # ブラウザが開くので Modal のアカウントでログインして許可する
 ```
 

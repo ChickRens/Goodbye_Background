@@ -93,11 +93,13 @@ class Measure:
         self.constants = load_constants(MODEL_DIR)
         self.model_load_s = time.time() - t0
         self.import_to_ready_s = time.time() - _MODULE_IMPORTED_AT
-        assert "CUDAExecutionProvider" in ort.get_available_providers()
         self.ort_version = ort.__version__
         self.providers = ort.get_available_providers()
         self.model_sha = MODEL_SHA_FILE.read_text().strip()
         self.ffmpeg_version, self.zscale = _ffmpeg_info()
+        if not self.zscale:
+            # HDR のトーンマップ（video_io._HDR_TONEMAP）に要る。無いと HDR 動画のデコードが途中で失敗する
+            raise RuntimeError(f"ffmpeg に zscale が無い: {self.ffmpeg_version}")
         self.gpu_name = _gpu_name()
         self.calls = 0
 
