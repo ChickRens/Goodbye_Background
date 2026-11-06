@@ -60,29 +60,31 @@ impl VideoJob {
     }
 }
 
+/// 他モジュールのテストからも使う、指定時刻に作成された Created 状態のジョブ。
+#[cfg(test)]
+pub fn job_created_at(ms: u64) -> VideoJob {
+    VideoJob {
+        id: VideoJobId::new_random(),
+        owner_client_id: Uuid::new_v4(),
+        owner_ip: "127.0.0.1".parse().unwrap(),
+        size_bytes: 1,
+        content_type: "video/mp4".to_string(),
+        range: ClipRange::new(0, 1_000).unwrap(),
+        background: None,
+        points: None,
+        phase: JobPhase::Created,
+        created_at_ms: ms,
+        last_event_at_ms: ms,
+        quota_consumed: false,
+        quota_refunded: false,
+        result: None,
+    }
+}
+
 #[cfg(test)]
 mod video_job_test {
     use super::*;
     use crate::video_cutout::job::phase::FailureCode;
-
-    fn job_created_at(ms: u64) -> VideoJob {
-        VideoJob {
-            id: VideoJobId::new_random(),
-            owner_client_id: Uuid::new_v4(),
-            owner_ip: "127.0.0.1".parse().unwrap(),
-            size_bytes: 1,
-            content_type: "video/mp4".to_string(),
-            range: ClipRange::new(0, 1_000).unwrap(),
-            background: None,
-            points: None,
-            phase: JobPhase::Created,
-            created_at_ms: ms,
-            last_event_at_ms: ms,
-            quota_consumed: false,
-            quota_refunded: false,
-            result: None,
-        }
-    }
 
     fn with_phase(mut job: VideoJob, phase: JobPhase, at_ms: u64) -> VideoJob {
         job.phase = phase;

@@ -12,7 +12,7 @@ ort = "2.0.0-rc.2"
 ndarray = "0.17.2"
 bytemuck = "1"
 axum={ version="0.8.9", features = ["multipart", "macros"] }
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "sync"] }
 tower-http = { version = "0.7.0", features = ["fs"] }
 fs = "0.0.5"
 serde = { version = "1.0.229", features = ["derive"] }
