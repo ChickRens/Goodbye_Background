@@ -1,0 +1,21 @@
+[project]
+name = "cutout-worker"
+version = "0.1.0"
+description = "動画の背景除去ワーカー（SAM2 ビデオトラッキング）"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy",
+    "opencv-python-headless",
+    "onnxruntime",
+    "httpx",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.uv]
+package = false

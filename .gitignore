@@ -7,3 +7,7 @@
 /database
 /.rustc_info.json
 /frontend/assets
+/worker/.venv
+/worker/models
+/worker/.pytest_cache
+__pycache__/
