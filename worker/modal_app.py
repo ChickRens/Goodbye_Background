@@ -79,14 +79,14 @@ class Worker:
     @modal.enter()
     def load(self) -> None:
         """コンテナの起動時に 1 回だけ: モデル（CUDA）・ロゴ・送受信・通知の秘密を用意する。"""
-        import logging
         import os
 
         from cutout.compositor import LogoBadge
+        from cutout.logging_setup import configure_logging
         from cutout.models import load_constants, load_sessions
         from cutout.transfer import HttpTransfer
 
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+        configure_logging()  # httpx が署名付き URL を INFO で出さないようにする
         # device="cuda" は CUDA EP が先頭でなければ例外になる（= CPU に落ちて遅くなるのを防ぐ）
         self.sessions = load_sessions(MODEL_DIR, "cuda")
         self.constants = load_constants(MODEL_DIR)

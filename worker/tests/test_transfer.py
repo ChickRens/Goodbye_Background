@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from cutout.pipeline import InputTooLarge
+from cutout.errors import InputTooLarge
 from cutout.transfer import HttpTransfer, TransferError
 
 URL = "https://acct.r2.cloudflarestorage.com/bucket/video-jobs/j/input?X-Amz-Signature=secret-sig"

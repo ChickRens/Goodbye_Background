@@ -9,7 +9,8 @@ import pytest
 
 from cutout.compositor import LogoBadge, alpha_from_logits
 from cutout.contract import NormalizedPoint, RangeMs, WorkerJobRequest
-from cutout.pipeline import InputTooLarge, run_job
+from cutout.errors import InputTooLarge
+from cutout.pipeline import run_job
 from cutout.tracker import FrameResult
 from cutout.video_io import probe
 from tests.media import make_video

@@ -22,6 +22,7 @@ from cutout.contract import (
     event_finishing,
     event_tracking,
 )
+from cutout.errors import InputTooLarge
 from cutout.notifier import Notifier
 from cutout.tracker import Sam2VideoTracker
 from cutout.video_io import (
@@ -37,10 +38,6 @@ from cutout.video_io import (
 logger = logging.getLogger(__name__)
 
 CONTENT_TYPE = "video/mp4"
-
-
-class InputTooLarge(Exception):
-    """ダウンロード中に入力が max_bytes を超えた（Transfer.download が投げる）。"""
 
 
 class Transfer(Protocol):
@@ -99,6 +96,7 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
         transfer.download(req.input_url, src, req.max_input_bytes)
     except InputTooLarge:
         raise _Failure("too_large") from None
+    # HttpTransfer は読みながら止めるが、上限を守らない Transfer の実装に備えた二重の確認
     if src.stat().st_size > req.max_input_bytes:
         raise _Failure("too_large")
 

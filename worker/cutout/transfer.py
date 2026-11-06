@@ -13,7 +13,7 @@ from pathlib import Path
 
 import httpx
 
-from cutout.pipeline import InputTooLarge
+from cutout.errors import InputTooLarge
 
 logger = logging.getLogger(__name__)
 

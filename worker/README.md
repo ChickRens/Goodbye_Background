@@ -74,6 +74,15 @@ Rust がこのヘッダーを付けて呼ぶためのトークンを作ります
    - Rust では Token ID を `MODAL_KEY`、Token Secret を `MODAL_SECRET` として使います
    - Token Secret は作成時にしか表示されないことがあるので、必ずその場で保存してください
 
+画面の代わりに CLI でも作れます（`modal workspace proxy-tokens` は新しい版の Modal の CLI にだけあるコマンドです。
+`No such command` と出たら画面で作ってください）:
+
+```powershell
+modal workspace proxy-tokens create --name goodbye-background
+```
+
+表示される Token ID と Token Secret の扱いは上と同じです。
+
 > **トークン（`MODAL_KEY` / `MODAL_SECRET`）と `WORKER_CALLBACK_SECRET` の値は、チャットに貼らないでください。**
 > 後で Cloud Run の設定（Secret Manager など）に直接入れます。
 
@@ -118,12 +127,9 @@ curl.exe -i -X POST $url -H "Content-Type: application/json" -H "Modal-Key: $key
 Remove-Item bad.json
 ```
 
-期待する応答（1 行目と本文）:
-
-```
-HTTP/1.1 400 Bad Request
-{"accepted":false,"error":"input_url がない"}
-```
+判定は **1 行目のステータスコードだけ** で行います（`HTTP/1.1 400 Bad Request` でも `HTTP/2 400` でも同じ。(1) は 401 / 403）。
+本文は `{"accepted":false,"error":"input_url がない"}` のような形ですが、文言は確認しなくて構いません。
+日本語が文字化けして読みたいときは、先に `chcp 65001` を実行してから curl.exe を実行し直してください。
 
 - 初回はコンテナの起動で数秒かかることがあります
 - 正しい本文（`contracts/video_cutout/worker_job_request.json` の形）は送らないでください。GPU のジョブが動き、存在しない URL に通知を送ろうとします
@@ -134,7 +140,7 @@ HTTP/1.1 400 Bad Request
 チャットには次を貼ってください:
 
 - 手順 3 の **エンドポイントの URL**（URL 自体は秘密ではありません。認証はトークンで行うため）
-- 手順 4 の (1)(2) のステータスコード（1 行目）と (2) の本文
+- 手順 4 の (1)(2) のステータスコード（1 行目）
 
 **貼らないもの**: `MODAL_KEY` / `MODAL_SECRET`（プロキシ認証のトークン）、`WORKER_CALLBACK_SECRET` の値。
 
@@ -152,5 +158,8 @@ HTTP/1.1 400 Bad Request
 | Rust 側に設定するもの | `MODAL_ENDPOINT_URL`・`MODAL_KEY`・`MODAL_SECRET`・`WORKER_CALLBACK_SECRET` | Cloud Run |
 | モデル | `diffusionstudio/sam2.1-tiny-video-onnx-fp16` @ `MODEL_REVISION` | `cutout/models.py` |
 
-ログ（`modal app logs goodbye-background-video` または Modal の画面）には、署名付き URL を出さない作りになっています
-（送受信の失敗は HTTP ステータスと例外の型だけ）。
+ログ（`modal app logs goodbye-background-video` または Modal の画面）に署名付き URL を出さないよう、次のようにしています。
+
+- 送受信の失敗のログ・例外のメッセージは HTTP ステータスと例外の型だけ（`cutout/transfer.py`）
+- httpx / httpcore は INFO でリクエストの URL 全体を出すので、この 2 つのロガーは WARNING 以上だけにしている
+  （`cutout/logging_setup.py`。`tests/test_logging_setup.py` で INFO のログに URL が無いことを確かめている）

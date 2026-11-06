@@ -37,8 +37,10 @@ def test_accept_non_object_returns_400_without_spawn():
 
 
 def test_accept_error_does_not_echo_urls():
-    status, payload = accept({**example_request(), "watermark": "yes"}, lambda b: None)
-    assert status == 400 and "http" not in json.dumps(payload)
+    # URL の値そのものが不正（文字列でない）でも、エラーの本文に値を返さない
+    bad_url = {"href": "https://acct.r2.cloudflarestorage.com/in?X-Amz-Signature=secret-sig"}
+    status, payload = accept({**example_request(), "input_url": bad_url}, lambda b: None)
+    assert status == 400 and "secret-sig" not in json.dumps(payload) and "cloudflarestorage" not in json.dumps(payload)
 
 
 def test_job_workdir_is_under_tmp_for_uuid():
