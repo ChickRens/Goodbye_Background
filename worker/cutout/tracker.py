@@ -88,6 +88,8 @@ class Sam2VideoTracker:
         first = t == 0
         if first and not points:
             raise ValueError("1 枚目にはクリック点が必要")
+        if not first and points is not None:
+            raise ValueError("2 枚目以降は points を渡さない")
         enc = self._s.vision_encoder.run(
             pixel_values=to_pixel_values(frame_rgb, self._mean, self._std)
         )

@@ -100,4 +100,13 @@ def test_history_is_bounded():
     tr.process(rgb(), [NormalizedPoint(0.5, 0.5, "include")])
     for _ in range(39):
         tr.process(rgb(), None)
-    assert len(tr._recent) <= 6 and len(tr._recent_ptrs) <= 15
+    assert len(tr._recent) == 6 and len(tr._recent_ptrs) == 15
+
+
+def test_points_on_later_frame_rejected():
+    import pytest
+
+    tr = Sam2VideoTracker(RecordingSessions(object_score=1.0), CONSTANTS, total_frames=2)
+    tr.process(rgb(), [NormalizedPoint(0.5, 0.5, "include")])
+    with pytest.raises(ValueError):
+        tr.process(rgb(), [NormalizedPoint(0.5, 0.5, "include")])

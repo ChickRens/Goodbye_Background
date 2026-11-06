@@ -46,17 +46,22 @@ def _load_bench(path: Path):
         sys.path.remove(str(path.parent))
 
 
-def _video(tmp_path: Path) -> str:
+def _video(tmp_path: Path) -> tuple[str, bool]:
+    """(動画パス, 自前で生成したか) を返す。"""
     v = os.environ.get("BENCH_VIDEO")
     if v:
-        return v
+        return v, False
     out = tmp_path / "clip.mp4"
+    # 灰色の背景に赤い四角が左→右へ少し動く。点 (0.51,0.44) = (326,158)px は常に四角の内側
+    graph = (
+        "color=c=gray:s=640x360:r=30[bg];color=c=red:s=200x160:r=30[fg];"
+        "[bg][fg]overlay=x='200+t*40':y=100"
+    )
     subprocess.run(
-        ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=30", "-t", "1",
-         "-pix_fmt", "yuv420p", str(out)],
+        ["ffmpeg", "-y", "-filter_complex", graph, "-t", "1", "-pix_fmt", "yuv420p", str(out)],
         check=True, capture_output=True,
     )
-    return str(out)
+    return str(out), True
 
 
 def _read_bgr_frames(path: str, n: int) -> list[np.ndarray]:
@@ -89,7 +94,8 @@ def test_low_res_masks_match_bench(tmp_path):
         pytest.skip(f"SAM2_MODEL_DIR にモデルが無い: {missing}")
 
     bench = _load_bench(bench_py)
-    frames = _read_bgr_frames(_video(tmp_path), FRAMES)
+    video, generated = _video(tmp_path)
+    frames = _read_bgr_frames(video, FRAMES)
     assert len(frames) == FRAMES
 
     consts = load_constants(model_dir)
@@ -101,6 +107,14 @@ def test_low_res_masks_match_bench(tmp_path):
     expected, _, _ = bench.track(
         graphs, frames, pts, tpos, consts["image_mean"], consts["image_std"], stride=1
     )
+
+    # 両方が空マスクだと IoU が 1.0 になり素通りするので、基準の 1 枚目が空でないことを先に確かめる
+    n_fg = int((expected[0] > 0).sum())
+    if n_fg < 100:
+        msg = f"基準の 1 枚目マスクが小さすぎる（{n_fg}px）。点の下に被写体が無い"
+        if generated:
+            pytest.fail(msg)
+        pytest.skip(msg)
 
     # 検証対象: Sam2VideoTracker（入力は RGB なので BGR から変換する）
     tracker = Sam2VideoTracker(load_sessions(model_dir, "cpu"), consts, total_frames=FRAMES)
