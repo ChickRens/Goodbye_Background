@@ -39,7 +39,7 @@ js/
     page.js      エントリーポイント。画面の流れと送信ボタンの有効/無効
     range.js     範囲の丸め込み(clampRange)・開始位置のフレームの切り出し(captureFrame)
     preview.js   開始フレームのプレビュー（既存の /upload・/segment・/undo・/redo）と toNormalized
-    upload.js    署名付き URL への PUT（XMLHttpRequest で進捗を出す）
+    upload.js    署名付き URL への PUT（XMLHttpRequest で進捗を出す。{ promise, abort } を返す）
     job.js       ジョブの状態のポーリング(pollJob)
     messages.js  失敗コード・状態・エラーコード → 日本語の文言
     selftest.html 純粋な関数(clampRange / toNormalized)の自己テスト。ブラウザで開いて確かめる
@@ -204,7 +204,9 @@ assets/        画像・動画
    **Content-Type は 1. で決めた文字列をそのまま付ける**（署名の一部なので、違うと R2 が 403 を返す）。
    R2 は別オリジンなので `client-id` は付けない。失敗したら「アップロードをやり直す」（URL は 15 分有効）。
 4. **残す所をタップ**（3. と並行）… `captureFrame` で開始位置のフレームを canvas に描き、長辺 2000px 以下に
-   縮小して PNG にする（既存の `/upload` は 10MB まで）。それを `frame.png` として既存の `/upload` に送り、
+   縮小して PNG にする（既存の `/upload` は 10MB まで）。iOS Safari で `seeked` がデコードより先に来て真っ黒になるのを避けるため、
+   停止 → 移動 → `loadeddata`/`canplay`・`requestVideoFrameCallback` を待つ → 描いた結果が全部黒/透明なら
+   ミュートで play()→pause() して 1 回だけやり直す（それでも駄目なら「プレビューをやり直す」）。それを `frame.png` として既存の `/upload` に送り、
    タップごとに `/segment`、取り消しは `/undo`・`/redo`（描画は既存の `canvas.js`）。「プレビューは目安です」と表示。
    点は 8 個まで（サーバーの上限）。
 5. **背景色を選んで送信** … グリーン（既定）/ ブルー / マゼンタ。送信ボタンが押せるのは
@@ -215,6 +217,9 @@ assets/        画像・動画
    `queued` は「準備中（GPU を起動しています）」、`tracking` は「処理中 NN%」。`done` で結果の再生とダウンロード
    （URL は 10 分有効）、`failed` は失敗コードごとの文言と「回数は戻りました / 戻りません」。
    GET が 404 なら「サーバーが再起動したため、やり直してください」を出して止める。
+   `/start` の応答が届かなかった（通信の切断・タイムアウト）ときや `VIDEO_JOB_INVALID_STATE` のときは、
+   サーバーでは開始できている可能性があるので、成功時と同じくポーリングして本当の状態を見る。
+   GET がまだ `created` なら送れていなかったので、送信ボタンを戻す。
 
 残り回数は `POST /video-jobs` と GET の `remaining_today` で更新する（その前は「1日3回まで」とだけ出す。
 作る前に残りを返す API は無い）。0 になったら動画を選べなくする。送信後は結果が出るまで別の動画を選ばせない。

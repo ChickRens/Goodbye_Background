@@ -34,13 +34,40 @@ const FRAME_MAX_LONG_SIDE = 2000;
 const SEEK_TIMEOUT_MS = 10_000;
 
 /**
- * video を ms の位置へ移動し、`seeked` を待ってから canvas に描いて PNG にする。
+ * video を ms の位置へ移動し、そのフレームが描ける状態になるのを待ってから canvas に描いて PNG にする。
  * ブラウザが表示する「その時刻のフレーム」を使う（ワーカーの ffmpeg とは ±1 フレームずれ得るが、
  * トラッキングが吸収する。仕様 §3）。
+ *
+ * iOS Safari では `seeked` がフレームのデコードより先に来て、真っ黒（透明）な canvas になることがある。そのため:
+ *   1. 再生を止めてから移動する
+ *   2. `seeked` の後、readyState が HAVE_CURRENT_DATA 未満なら `loadeddata` / `canplay` を待つ
+ *   3. requestVideoFrameCallback があれば、移動先のフレームが表示されるのも待つ（来なければ少し待って進む）
+ *   4. 描いた結果を小さく縮めて調べ、全部が黒か透明なら、ミュートで play() → pause() してデコードを促し 1 回だけやり直す
+ * それでも描けなければ例外にする（画面の「プレビューをやり直す」で再挑戦できる）。
  */
 export async function captureFrame(video, ms) {
-  await seekTo(video, ms / 1000);
+  const seconds = ms / 1000;
+  video.pause();
+  await seekTo(video, seconds);
 
+  let canvas = drawFrame(video);
+  if (isBlank(canvas)) {
+    await nudgeDecode(video, seconds);
+    canvas = drawFrame(video);
+    if (isBlank(canvas)) {
+      throw new Error('開始位置のフレームを描けませんでした。「プレビューをやり直す」を試すか、最初からやり直して開始位置を少しずらしてください');
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('フレームを画像にできませんでした'));
+    }, 'image/png');
+  });
+}
+
+function drawFrame(video) {
   const width = video.videoWidth;
   const height = video.videoHeight;
   if (!width || !height) {
@@ -51,40 +78,102 @@ export async function captureFrame(video, ms) {
   canvas.width = Math.max(1, Math.round(width * scale));
   canvas.height = Math.max(1, Math.round(height * scale));
   canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error('フレームを画像にできませんでした'));
-    }, 'image/png');
-  });
+  return canvas;
 }
 
-/** currentTime を変えて `seeked` を待つ。同じ位置にいて描画できる状態なら待たない（seeked が来ないため） */
-function seekTo(video, seconds) {
-  if (Math.abs(video.currentTime - seconds) < 0.001 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+const BLANK_SAMPLE_SIZE = 16;
+const BLANK_MAX_CHANNEL = 8; // これ以下の明るさしか無ければ「真っ黒」とみなす
+
+/** 描いた canvas を 16×16 に縮めて、全部が透明か真っ黒かを調べる */
+function isBlank(canvas) {
+  const sample = document.createElement('canvas');
+  sample.width = BLANK_SAMPLE_SIZE;
+  sample.height = BLANK_SAMPLE_SIZE;
+  const ctx = sample.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(canvas, 0, 0, BLANK_SAMPLE_SIZE, BLANK_SAMPLE_SIZE);
+  const { data } = ctx.getImageData(0, 0, BLANK_SAMPLE_SIZE, BLANK_SAMPLE_SIZE);
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3];
+    if (alpha !== 0 && Math.max(data[i], data[i + 1], data[i + 2]) > BLANK_MAX_CHANNEL) return false;
+  }
+  return true;
+}
+
+/** デコードを促す: ミュートで少しだけ再生して止め、指定位置へ戻る */
+async function nudgeDecode(video, seconds) {
+  video.muted = true;
+  try {
+    await video.play();
+  } catch {
+    /* 自動再生が拒まれても、移動し直すだけで描けることがあるので続ける */
+  }
+  video.pause();
+  await seekTo(video, seconds, { force: true });
+}
+
+const FRAME_CALLBACK_GRACE_MS = 500;
+
+/**
+ * currentTime を変えて、フレームが描ける状態になるまで待つ（全体で SEEK_TIMEOUT_MS まで）。
+ * 同じ位置にいて描ける状態なら移動しない（`seeked` が来ないため）。force なら必ず移動し直す。
+ */
+function seekTo(video, seconds, { force = false } = {}) {
+  const alreadyThere = Math.abs(video.currentTime - seconds) < 0.001;
+  if (alreadyThere && !force && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
     return Promise.resolve();
   }
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('動画の指定位置に移動できませんでした'));
-    }, SEEK_TIMEOUT_MS);
-    const onSeeked = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = () => {
-      cleanup();
-      reject(new Error('動画を読み込めませんでした'));
-    };
-    function cleanup() {
+    let finished = false;
+    let seeked = false;
+    let framePresented = typeof video.requestVideoFrameCallback !== 'function';
+    let graceTimer = null;
+
+    const timer = setTimeout(() => finish(new Error('動画の指定位置に移動できませんでした')), SEEK_TIMEOUT_MS);
+
+    function finish(err) {
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
+      clearTimeout(graceTimer);
       video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('loadeddata', check);
+      video.removeEventListener('canplay', check);
       video.removeEventListener('error', onError);
+      if (err) reject(err);
+      else resolve();
     }
+
+    function check() {
+      if (seeked && framePresented && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) finish();
+    }
+
+    function onSeeked() {
+      seeked = true;
+      // 止まっている動画では requestVideoFrameCallback が来ないブラウザもあるので、少し待ったら諦めて進む
+      if (!framePresented) {
+        graceTimer = setTimeout(() => {
+          framePresented = true;
+          check();
+        }, FRAME_CALLBACK_GRACE_MS);
+      }
+      check();
+    }
+
+    function onError() {
+      finish(new Error('動画を読み込めませんでした'));
+    }
+
     video.addEventListener('seeked', onSeeked);
+    video.addEventListener('loadeddata', check);
+    video.addEventListener('canplay', check);
     video.addEventListener('error', onError);
+    if (!framePresented) {
+      video.requestVideoFrameCallback(() => {
+        framePresented = true;
+        check();
+      });
+    }
+    // 同じ位置への代入でも seeking/seeked は起きる（force のとき）
     video.currentTime = seconds;
   });
 }

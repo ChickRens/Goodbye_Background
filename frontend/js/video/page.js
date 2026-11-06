@@ -89,6 +89,7 @@ function initialState() {
     sent: false,
     finished: false, // done / failed / 404 になった
     poller: null,
+    upload: null, // putWithProgress の { promise, abort }
   };
 }
 
@@ -282,11 +283,12 @@ async function startUpload() {
   el.uploadStatus.textContent = 'アップロード中 0%';
   try {
     // Content-Type は POST /video-jobs で申告したもの（state.contentType）と同じでなければ署名が合わない
-    await putWithProgress(state.job.uploadUrl, state.file, state.contentType, (ratio) => {
+    state.upload = putWithProgress(state.job.uploadUrl, state.file, state.contentType, (ratio) => {
       if (gen !== generation) return;
       el.uploadProgress.value = ratio;
       el.uploadStatus.textContent = `アップロード中 ${Math.floor(ratio * 100)}%`;
     });
+    await state.upload.promise;
     if (gen !== generation) return;
     state.uploadDone = true;
     el.uploadStatus.textContent = 'アップロード完了';
@@ -295,7 +297,10 @@ async function startUpload() {
     el.uploadStatus.textContent = err.message;
     el.uploadRetryBtn.hidden = false;
   } finally {
-    if (gen === generation) updateSendButton();
+    if (gen === generation) {
+      state.upload = null;
+      updateSendButton();
+    }
   }
 }
 
@@ -359,18 +364,17 @@ async function sendJob() {
       background: selectedBackground(),
     });
     if (gen !== generation) return;
-    state.sent = true;
     setRemaining(started.remainingToday);
-    el.stepResult.hidden = false;
-    showPhase(started.phase, null);
     // phase が failed（dispatch_failed）でも GET で回数が戻ったかを取りに行く
-    state.poller = pollJob(state.job.jobId, (job) => {
-      if (gen === generation) handleJobUpdate(job);
-    });
-    el.stepResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    beginPolling(started.phase);
   } catch (err) {
     if (gen !== generation) return;
-    if (err.status === 404) {
+    if (err.code === 'VIDEO_JOB_INVALID_STATE' || !err.status) {
+      // サーバーでは開始できていて、応答だけが届かなかった（通信の切断・タイムアウト）か、
+      // 前の送信がもう通っている。どちらも本当の状態は GET で分かるので、成功したときと同じく見に行く。
+      // まだ created なら handleJobUpdate が送信ボタンを戻す。
+      beginPolling(null);
+    } else if (err.status === 404) {
       // サーバーの再起動でジョブが消えた。やり直すしかない
       state.sent = true;
       showLost();
@@ -389,6 +393,33 @@ async function sendJob() {
 
 // ---------- 6. 結果 ----------
 
+/** 送信済みとして結果の欄を出し、ポーリングを始める。phase が分かっていれば先に出しておく */
+function beginPolling(phase) {
+  const gen = generation;
+  state.sent = true;
+  preview.lock();
+  el.stepResult.hidden = false;
+  el.jobFailure.hidden = true;
+  if (phase) showPhase(phase, null);
+  else el.jobStatus.textContent = '送信の結果を確かめています…';
+  if (state.poller) state.poller.stop();
+  state.poller = pollJob(state.job.jobId, (job) => {
+    if (gen === generation) handleJobUpdate(job);
+  });
+  el.stepResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** GET で見たらまだ created（開始の要求がサーバーに届いていなかった）。もう一度送れるように戻す */
+function handleNotStarted() {
+  if (state.poller) state.poller.stop();
+  state.poller = null;
+  state.sent = false;
+  preview.unlock();
+  el.stepResult.hidden = true;
+  showToast({ type: 'warning', message: '送信できていませんでした。もう一度「送信して切り抜く」を押してください' });
+  updateSendButton();
+}
+
 function showPhase(phase, progress) {
   el.jobStatus.textContent = phaseMessage(phase, progress);
   el.jobProgress.hidden = phase !== 'tracking';
@@ -401,6 +432,10 @@ function handleJobUpdate(job) {
     return;
   }
   setRemaining(job.remainingToday);
+  if (job.phase === 'created') {
+    handleNotStarted();
+    return;
+  }
   showPhase(job.phase, job.progress);
   if (job.phase === 'done' || job.phase === 'failed') {
     state.finished = true;
@@ -440,6 +475,7 @@ el.restartBtn.addEventListener('click', () => {
 function resetAll() {
   generation += 1;
   if (state.poller) state.poller.stop();
+  if (state.upload) state.upload.abort(); // 前の動画のアップロードを止める（結果は generation で捨てる）
   if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
   state = initialState();
 

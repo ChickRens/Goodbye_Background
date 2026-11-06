@@ -59,6 +59,7 @@ const API_ERROR_MESSAGES = {
   UPLOAD_NOT_FOUND: '動画のアップロードが確認できませんでした。アップロードをやり直してください',
   VIDEO_JOB_INVALID_STATE: 'このジョブはすでに送信済みです',
   VIDEO_JOB_NOT_FOUND: SERVER_RESTARTED_MESSAGE,
+  WORKER_DISPATCH_FAILED: FAILURE_MESSAGES.dispatch_failed,
 };
 
 /** api.js が投げたエラー（err.code / err.message）を画面に出す文言にする */

@@ -3,10 +3,11 @@
  *
  * - Content-Type は署名の一部。POST /video-jobs で申告した文字列と完全に同じものを渡すこと。
  * - R2 は別オリジンなので client-id などの独自ヘッダーは付けない（署名にも CORS にも含まれない）。
+ * - 返り値は { promise, abort }。やり直し（別の動画を選ぶ等）のときに abort で送信を止める。
  */
 export function putWithProgress(url, file, contentType, onProgress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
+  const xhr = new XMLHttpRequest();
+  const promise = new Promise((resolve, reject) => {
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', contentType);
 
@@ -26,4 +27,5 @@ export function putWithProgress(url, file, contentType, onProgress) {
 
     xhr.send(file);
   });
+  return { promise, abort: () => xhr.abort() };
 }
