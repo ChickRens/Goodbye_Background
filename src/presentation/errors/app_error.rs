@@ -45,6 +45,9 @@ impl IntoResponse for AppError {
             ErrorType::Conflict => StatusCode::CONFLICT,
             ErrorType::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             ErrorType::InvalidInput => StatusCode::BAD_REQUEST,
+            ErrorType::Unauthorized => StatusCode::UNAUTHORIZED,
+            ErrorType::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
+            ErrorType::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
         };
 
         let code = self.code();

@@ -21,6 +21,7 @@ mod config;
 mod image_cutout;
 mod maintenance;
 mod presentation;
+mod video_cutout;
 
 use std::{env, process, sync::Arc, time::Duration};
 

@@ -5,7 +5,7 @@
 //!
 //! - `Code`  : クライアントに返す機械可読なエラーコード（例: `"SESSION_NOT_FOUND"`）。フロントはこの文字列で表示を分岐する
 //! - `Cause` : ログ用の詳細メッセージ（無ければ `None`）。クライアントには返さない
-//! - `ErrorTypeProvider` : HTTP ステータスの分類（`ErrorType` → 400/404/409/500）
+//! - `ErrorTypeProvider` : HTTP ステータスの分類（`ErrorType` → 400/401/404/409/429/500/503）
 
 pub trait Code {
     fn code(&self) -> &str;
@@ -25,6 +25,12 @@ pub enum ErrorType {
     NotFound,
     /// 500 Internal Server Error: 推論失敗などサーバー側の問題
     Internal,
+    /// 401 Unauthorized: 認証情報（クライアント ID など）が無い・不正
+    Unauthorized,
+    /// 429 Too Many Requests: 利用上限（クォータ）超過
+    TooManyRequests,
+    /// 503 Service Unavailable: 外部サービスが一時的に使えない
+    Unavailable,
 }
 
 pub trait ErrorTypeProvider {

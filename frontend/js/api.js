@@ -24,8 +24,9 @@ function buildHeaders(extra = {}) {
  *
  * バックエンドのエラーレスポンスは { code } だけで message を持たないため、
  * 文言はフロント側で持つ。対応は presentation/errors/app_error.rs の
- *   InvalidInput → 400 / NotFound → 404 / Conflict → 409 / Internal → 500
- * に合わせている。413/429 はサーバー前段（Cloud Run 等）が返し得るもの。
+ *   InvalidInput → 400 / Unauthorized → 401 / NotFound → 404 / Conflict → 409 /
+ *   TooManyRequests → 429 / Internal → 500 / Unavailable → 503
+ * に合わせている。413 はサーバー前段（Cloud Run 等）が返し得るもの。
  * Network / Timeout は fetch 自体が失敗した場合（HTTPステータスは無い）。
  */
 const ERROR_MESSAGES = {
