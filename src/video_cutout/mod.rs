@@ -3,8 +3,12 @@
 pub mod clock;
 pub mod clock_impl;
 pub mod create_job;
+pub mod delete_expired_jobs;
+pub mod finish;
+pub mod get_job;
 pub mod job;
 pub mod quota;
+pub mod report_event;
 pub mod signature;
 pub mod start_job;
 pub mod storage;

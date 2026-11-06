@@ -15,7 +15,8 @@ use crate::{
     },
     parent_error,
     video_cutout::{
-        create_job::error::CreateVideoJobError, start_job::error::StartVideoJobError,
+        create_job::error::CreateVideoJobError, get_job::error::GetVideoJobError,
+        report_event::error::ReportVideoJobEventError, start_job::error::StartVideoJobError,
     },
 };
 
@@ -31,5 +32,7 @@ parent_error!(
         PrepareSegmentUseCase(PrepareSegmentUseCaseError),
         CreateVideoJobUseCase(CreateVideoJobError),
         StartVideoJobUseCase(StartVideoJobError),
+        GetVideoJobUseCase(GetVideoJobError),
+        ReportVideoJobEventUseCase(ReportVideoJobEventError),
     }
 );

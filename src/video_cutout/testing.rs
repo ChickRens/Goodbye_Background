@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::ops::Deref;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -9,8 +11,11 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::video_cutout::{
+    clock::VideoClock,
     clock_impl::FakeVideoClock,
     create_job::{input::CreateVideoJobInput, usecase::CreateVideoJobUseCase},
+    delete_expired_jobs::usecase::DeleteExpiredVideoJobsUseCase,
+    get_job::{input::GetVideoJobInput, output::GetVideoJobOutput, usecase::GetVideoJobUseCase},
     job::{
         background::Background,
         id::VideoJobId,
@@ -25,6 +30,10 @@ use crate::video_cutout::{
         error::QuotaError,
         jst_day::jst_day,
     },
+    report_event::{
+        input::{ReportVideoJobEventInput, WorkerEvent},
+        usecase::ReportVideoJobEventUseCase,
+    },
     start_job::{input::StartVideoJobInput, usecase::StartVideoJobUseCase},
     storage::{error::StorageError, video_object_storage::VideoObjectStorage},
     worker::{cutout_worker::CutoutWorker, error::WorkerError, request::WorkerJobRequest},
@@ -33,9 +42,11 @@ use crate::video_cutout::{
 // ---- FakeStorage ----
 
 /// URL は署名せず、キーと有効期間が読める形で返す。`head` の戻り値は設定できる。
+/// `set_fail_delete(true)` にすると `delete` が失敗する（削除済みには記録しない）。
 pub struct FakeStorage {
     pub head_size: Mutex<Option<u64>>,
     pub deleted: Mutex<Vec<String>>,
+    fail_delete: AtomicBool,
 }
 
 impl FakeStorage {
@@ -43,7 +54,17 @@ impl FakeStorage {
         Self {
             head_size: Mutex::new(head_size),
             deleted: Mutex::new(Vec::new()),
+            fail_delete: AtomicBool::new(false),
         }
+    }
+
+    /// 削除に成功したキー（呼ばれた順）。
+    pub fn deleted(&self) -> Vec<String> {
+        self.deleted.lock().unwrap().clone()
+    }
+
+    pub fn set_fail_delete(&self, fail: bool) {
+        self.fail_delete.store(fail, Ordering::SeqCst);
     }
 }
 
@@ -66,6 +87,9 @@ impl VideoObjectStorage for FakeStorage {
     }
 
     async fn delete(&self, key: &str) -> Result<(), StorageError> {
+        if self.fail_delete.load(Ordering::SeqCst) {
+            return Err(StorageError::Request("fake delete failure".to_string()));
+        }
         self.deleted.lock().unwrap().push(key.to_string());
         Ok(())
     }
@@ -205,13 +229,36 @@ pub fn start_input(job_id: VideoJobId) -> StartVideoJobInput {
     }
 }
 
+pub fn get_input(job_id: VideoJobId) -> GetVideoJobInput {
+    GetVideoJobInput { client_id: client_id(), ip: client_ip(), job_id }
+}
+
+/// 通知の JSON の `job_id`（ユースケースは見ないので固定値）。
+const EVENT_JOB_ID: &str = "6f1c2b9e-0d4a-4c1e-9a57-3f2e8b1d7c60";
+
+pub fn tracking(progress: f32) -> serde_json::Value {
+    serde_json::json!({"job_id": EVENT_JOB_ID, "phase": "tracking", "progress": progress})
+}
+
+pub fn failed(code: &str) -> serde_json::Value {
+    serde_json::json!({"job_id": EVENT_JOB_ID, "phase": "failed", "code": code})
+}
+
+pub fn done() -> serde_json::Value {
+    serde_json::json!({"job_id": EVENT_JOB_ID, "phase": "done", "frames": 30, "lost_frames": 0, "duration_ms": 1000})
+}
+
 pub struct Harness {
     pub create: CreateVideoJobUseCase,
     pub start: StartVideoJobUseCase,
+    pub get: GetVideoJobUseCase,
+    pub report_uc: ReportVideoJobEventUseCase,
+    pub cleanup: DeleteExpiredVideoJobsUseCase,
     pub storage: Arc<FakeStorage>,
     pub worker: Arc<FakeWorker>,
     pub quota: Arc<InMemoryQuota>,
     pub repository: Arc<VideoJobRepositoryInMemory>,
+    pub locks: Arc<VideoJobLocks>,
     pub clock: Arc<FakeVideoClock>,
 }
 
@@ -238,7 +285,43 @@ impl Harness {
             quota.clone(),
             clock.clone(),
         );
-        Self { create, start, storage, worker, quota, repository, clock }
+        let get = GetVideoJobUseCase::new(
+            storage.clone(),
+            repository.clone(),
+            locks.clone(),
+            quota.clone(),
+            clock.clone(),
+        );
+        let report_uc = ReportVideoJobEventUseCase::new(
+            storage.clone(),
+            repository.clone(),
+            locks.clone(),
+            quota.clone(),
+            clock.clone(),
+        );
+        let cleanup = DeleteExpiredVideoJobsUseCase::new(
+            storage.clone(),
+            repository.clone(),
+            locks.clone(),
+            quota.clone(),
+        );
+        Self {
+            create,
+            start,
+            get,
+            report_uc,
+            cleanup,
+            storage,
+            worker,
+            quota,
+            repository,
+            locks,
+            clock,
+        }
+    }
+
+    pub fn clock_now(&self) -> u64 {
+        self.clock.now_ms()
     }
 
     /// `create_input()` でジョブを作り、その ID を返す。
@@ -278,4 +361,58 @@ pub fn harness_with_used(used: usize) -> Harness {
         }
     }
     Harness::build(FakeStorage::new(Some(1_000_000)), FakeWorker::new(), quota)
+}
+
+/// 開始済み（`Queued`、回数を 1 回消費）のジョブ 1 つと、そのハーネス。
+pub struct StartedJob {
+    pub h: Harness,
+    pub id: VideoJobId,
+}
+
+impl Deref for StartedJob {
+    type Target = Harness;
+
+    fn deref(&self) -> &Harness {
+        &self.h
+    }
+}
+
+impl StartedJob {
+    pub fn id_str(&self) -> String {
+        self.id.value().to_string()
+    }
+
+    pub fn input_key(&self) -> String {
+        format!("video-jobs/{}/input", self.id_str())
+    }
+
+    pub fn output_key(&self) -> String {
+        format!("video-jobs/{}/output.mp4", self.id_str())
+    }
+
+    /// 通知の JSON をデシリアライズしてこのジョブに反映する。
+    pub async fn report(&self, event: serde_json::Value) {
+        let event: WorkerEvent = serde_json::from_value(event).unwrap();
+        self.h
+            .report_uc
+            .execute(ReportVideoJobEventInput { job_id: self.id, event })
+            .await
+            .unwrap();
+    }
+
+    pub async fn get(&self) -> GetVideoJobOutput {
+        self.h.get.execute(get_input(self.id)).await.unwrap()
+    }
+
+    /// ハーネスの時計の現在時刻で期限切れの削除を実行する。
+    pub async fn cleanup(&self) -> usize {
+        self.h.cleanup.execute(self.h.clock_now()).await
+    }
+}
+
+pub async fn started_job() -> StartedJob {
+    let h = harness();
+    let id = h.created_job().await;
+    h.start.execute(start_input(id)).await.unwrap();
+    StartedJob { h, id }
 }
