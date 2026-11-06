@@ -92,7 +92,8 @@ class Worker:
         self.constants = load_constants(MODEL_DIR)
         self.logo = LogoBadge.load(LOGO_PATH)
         self.transfer = HttpTransfer()
-        self.secret = os.environ[SECRET_KEY].encode()
+        # 前後の空白・改行は落とす（Rust 側の config も trim する。貼り付けで改行が混ざると署名が合わなくなるため）
+        self.secret = os.environ[SECRET_KEY].strip().encode()
 
     @modal.method()
     def process(self, body: dict) -> None:

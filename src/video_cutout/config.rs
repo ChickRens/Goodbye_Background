@@ -30,7 +30,12 @@ impl VideoCutoutConfig {
 
     /// `var(name)` で値を引く。テストで環境変数を触らずに済むように分けてある。
     pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> Option<Self> {
-        let required = |name: &str| var(name).filter(|v| !v.trim().is_empty());
+        // 前後の空白・改行は落とす（Secret Manager などに改行付きで入れても署名が合うように）
+        let required = |name: &str| {
+            var(name)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        };
         let trusted_proxy_hops = match var("TRUSTED_PROXY_HOPS").filter(|v| !v.trim().is_empty()) {
             None => 0,
             Some(v) => match v.trim().parse() {
@@ -145,5 +150,15 @@ mod config_test {
             let config = VideoCutoutConfig::from_vars(move |k| vars.get(k).cloned()).unwrap();
             assert_eq!(config.log_client_ip_debug, expected, "{value:?}");
         }
+    }
+
+    #[test]
+    fn config_trims_whitespace_and_newlines_from_values() {
+        let mut vars = all_vars();
+        vars.insert("WORKER_CALLBACK_SECRET", "secret-value\n".to_string());
+        vars.insert("R2_SECRET_ACCESS_KEY", " r2-secret\r\n".to_string());
+        let config = VideoCutoutConfig::from_vars(move |k| vars.get(k).cloned()).unwrap();
+        assert_eq!(config.worker_callback_secret, "secret-value");
+        assert_eq!(config.r2_secret_access_key, "r2-secret");
     }
 }

@@ -167,7 +167,7 @@ foreach ($n in "R2_ACCESS_KEY_ID","R2_SECRET_ACCESS_KEY","MODAL_KEY","MODAL_SECR
 | `MODAL_ENDPOINT_URL` | `https://chickrens--goodbye-background-video-web.us-east.modal.run` | 環境変数 |
 | `PUBLIC_BASE_URL` | `https://chickren.goodbye-background.com`（末尾の `/` は付けない） | 環境変数 |
 | `TRUSTED_PROXY_HOPS` | `1`（**仮**。手順 5 で確かめて決める） | 環境変数 |
-| `LOG_CLIENT_IP_DEBUG` | `1`（**一時的**。手順 5 の確認が終わったら外す） | 環境変数 |
+| `LOG_CLIENT_IP_DEBUG` | `1`（**一時的**。手順 4-3 の初回のデプロイでだけ付け、手順 5 の確認が終わったら外す） | 環境変数 |
 | `R2_ACCESS_KEY_ID` | | シークレット（手順 2） |
 | `R2_SECRET_ACCESS_KEY` | | シークレット（手順 2） |
 | `MODAL_KEY` | | シークレット（手順 2） |
@@ -177,10 +177,12 @@ foreach ($n in "R2_ACCESS_KEY_ID","R2_SECRET_ACCESS_KEY","MODAL_KEY","MODAL_SECR
 手順 4 のデプロイのコマンドに付けるオプションを変数にしておきます（`<Account ID>` だけ置き換える）:
 
 ```powershell
-$VIDEO_ENV = "R2_ACCOUNT_ID=<Account ID>,R2_BUCKET=goodbye-background-video,MODAL_ENDPOINT_URL=https://chickrens--goodbye-background-video-web.us-east.modal.run,PUBLIC_BASE_URL=https://chickren.goodbye-background.com,TRUSTED_PROXY_HOPS=1,LOG_CLIENT_IP_DEBUG=1"
+$VIDEO_ENV = "R2_ACCOUNT_ID=<Account ID>,R2_BUCKET=goodbye-background-video,MODAL_ENDPOINT_URL=https://chickrens--goodbye-background-video-web.us-east.modal.run,PUBLIC_BASE_URL=https://chickren.goodbye-background.com"
 $VIDEO_SECRETS = "R2_ACCESS_KEY_ID=R2_ACCESS_KEY_ID:latest,R2_SECRET_ACCESS_KEY=R2_SECRET_ACCESS_KEY:latest,MODAL_KEY=MODAL_KEY:latest,MODAL_SECRET=MODAL_SECRET:latest,WORKER_CALLBACK_SECRET=WORKER_CALLBACK_SECRET:latest"
 ```
 
+- `TRUSTED_PROXY_HOPS=1`（仮）と `LOG_CLIENT_IP_DEBUG=1`（一時的）は `$VIDEO_ENV` に入れず、手順 4-3 の**初回のデプロイのコマンドにだけ**直接書きます。
+  `$VIDEO_ENV` に入れておくと、後でデプロイし直したときに確認用のログが復活し、手順 5 で決めた値が `1` に戻ってしまうためです
 - `--update-env-vars` / `--update-secrets` は **今ある設定（`DATABASE_URL_POSTGRES` など）を残したまま足す** オプションです。
   一度設定すれば、以後のデプロイでも残ります。**`--set-env-vars` や `--clear-env-vars` は使わないでください**（今ある設定が消えます）
 - **最大インスタンス数は 1 のまま**にします（`--max-instances 1`）。動画のジョブはサーバーのメモリにあるので、
@@ -212,9 +214,9 @@ Get-ChildItem models
 
 `sam2.1_hiera_small_image_encoder.onnx`・`sam2.1_hiera_small_prompt_encoder.onnx`・`sam2.1_hiera_small_mask_decoder.onnx`・`image_pe.bin` の 4 つがあれば OK です。
 
-### 4-3. ビルド・プッシュ・デプロイ
+### 4-3. ビルド・プッシュ・デプロイ（初回）
 
-**いつもと同じ流れ**で行います。名前はいつも使っているものに置き換えてください（例は Artifact Registry の場合）:
+**いつもと同じ流れ**で行います。**このコマンドは動画の設定を入れる初回だけ**使います（2 回目以降は手順 5 の後の「以後のデプロイ」）。名前はいつも使っているものに置き換えてください（例は Artifact Registry の場合）:
 
 ```powershell
 $TAG   = "video-" + (Get-Date -Format "yyyyMMdd-HHmm")
@@ -225,10 +227,12 @@ docker tag goodbye-background:$TAG $IMAGE
 docker push $IMAGE
 
 gcloud run deploy $SERVICE --image $IMAGE --region $REGION `
-  --update-env-vars $VIDEO_ENV `
+  --update-env-vars "$VIDEO_ENV,TRUSTED_PROXY_HOPS=1,LOG_CLIENT_IP_DEBUG=1" `
   --update-secrets $VIDEO_SECRETS `
   --max-instances 1
 ```
+
+- 最後の `TRUSTED_PROXY_HOPS=1,LOG_CLIENT_IP_DEBUG=1` は**初回だけ**のものです（手順 5 で値を決め、確認用のログを外します）
 
 - いつものデプロイのコマンドに他のオプションがある場合は、それも付けたままにしてください（上の 3 つを**足す**だけ）
 - Rust のビルドに数分〜十数分かかります
@@ -259,17 +263,17 @@ https://console.cloud.google.com/run → サービス → **ログ** タブ（�
 ### 5-1. 自分の本当のグローバル IP を調べる
 
 ```powershell
-curl.exe https://api.ipify.org
+curl.exe -4 https://api.ipify.org
 ```
 
-（表示された IP は、この後の比較に使うだけです。チャットに貼る必要はありません）
+（`-4` と api.ipify.org で **IPv4** のアドレスを取ります。手順 5-2 も `-4` で IPv4 に揃えます。表示された IP は、この後の比較に使うだけです。チャットに貼る必要はありません）
 
 ### 5-2. 偽の `X-Forwarded-For` を付けてジョブを作る
 
 ```powershell
 Set-Content -Path job.json -Value '{"size_bytes":1000000,"content_type":"video/mp4","start_ms":0,"end_ms":5000}' -Encoding ascii
 $cid = [guid]::NewGuid().ToString()
-curl.exe -i -X POST https://chickren.goodbye-background.com/video-jobs `
+curl.exe -4 -i -X POST https://chickren.goodbye-background.com/video-jobs `
   -H "Content-Type: application/json" `
   -H "client-id: $cid" `
   -H "X-Forwarded-For: 6.6.6.6" `
@@ -280,7 +284,9 @@ Remove-Item job.json
 - 1 行目が `HTTP/1.1 201 Created`（または `HTTP/2 201`）なら OK です
 - このリクエストは **回数を消費しません**（回数を使うのは動画を送信して処理を始めるとき）。作られたジョブは使われないまま 30 分で自動的に消えます
 - 応答の本文の `upload_url` は署名付き URL です。チャットには貼らないでください
-- 503 なら手順 4-4 の「無効」、500 なら R2 の設定（手順 1・3）を確認してください
+- 503 なら手順 4-4 の「無効」です。500 なら回数の DB（PostgreSQL）への接続を疑い、起動ログ・エラーログを確認してください
+  （このリクエストでは R2 に接続しません。アップロード用の URL はサーバーの中で計算するだけなので、R2 の設定の誤りは
+  手順 7 でブラウザから動画をアップロードしたときに初めて分かります）
 
 ### 5-3. ログの `[client-ip-debug]` の行を見る
 
@@ -313,7 +319,7 @@ Logs Explorer で `textPayload:"client-ip-debug"` と検索してください）
 | `"6.6.6.6, <自分の IP>"`（右端が自分の IP。`chosen` = 自分の IP） | `TRUSTED_PROXY_HOPS=1`（見込み通り） |
 | `"6.6.6.6, <自分の IP>, <別の IP>"`（右から 2 番目が自分の IP。前段に Cloudflare などの中継がある） | `TRUSTED_PROXY_HOPS=2` |
 | 右から N 番目が自分の IP | `TRUSTED_PROXY_HOPS=N` |
-| 自分の IP がどこにも無い・`chosen` が `6.6.6.6` になる | **決めずに**、その行（IP は伏せて可）をチャットに貼って相談 |
+| 自分の IP がどこにも無い・`chosen` が `6.6.6.6` になる（IPv6 のアドレスで届いていて IPv4 と比べている可能性もある。`-4` を付け忘れていないか確認） | **決めずに**、その行（IP は伏せて可）をチャットに貼って相談 |
 
 決めた値を設定し、**同時に確認用のログを外します**（`N` を置き換える）:
 
@@ -327,6 +333,22 @@ gcloud run services update $SERVICE --region $REGION `
 - 新しいリビジョンの起動ログに「動画切り抜き: 有効」があり、「IP の確認用ログ」の行が**無い**
 - 手順 5-2 をもう一度実行して 201 が返り、手順 5-3 で**新しい** `[client-ip-debug]` の行が増えていない
 - `N` を 1 以外にした場合は、外す前にもう一度 5-2・5-3 を行い、`chosen` が自分の IP になることを確かめてから外してもよい
+
+### 以後のデプロイ（2 回目以降はこちら）
+
+環境変数とシークレットはサービスに保存されていて、デプロイし直しても残ります。**2 回目以降は動画の設定を付けずに**デプロイしてください
+（手順 4-3 のコマンドを使い回すと、確認用のログが復活し、`TRUSTED_PROXY_HOPS` が `1` に戻ります）:
+
+```powershell
+$TAG   = "video-" + (Get-Date -Format "yyyyMMdd-HHmm")
+$IMAGE = "$REGION-docker.pkg.dev/$PROJECT/<REPO>/<IMAGE>:$TAG"
+docker build -t goodbye-background:$TAG -f DockerFile .
+docker tag goodbye-background:$TAG $IMAGE
+docker push $IMAGE
+gcloud run deploy $SERVICE --image $IMAGE --region $REGION --max-instances 1
+```
+
+（いつものデプロイのコマンドに他のオプションがあれば付けたままで構いません。`--set-env-vars`・`--clear-env-vars` は使わないこと）
 
 ---
 
