@@ -14,8 +14,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-MAX_LONG_SIDE = 1920  # 1920x1080（縦動画なら 1080x1920）に収まる大きさまで
-MAX_SHORT_SIDE = 1080
+MAX_LONG_SIDE = 1080
 MAX_FPS = 30
 MAX_FRAMES = 301  # 10 秒 @30fps + 1 枚（トラッカーの上限に合わせる）
 _HDR_TRANSFERS = {"arib-std-b67", "smpte2084"}  # HLG / PQ
@@ -104,11 +103,11 @@ def probe(path: Path) -> VideoInfo:
 
 
 def output_geometry(info: VideoInfo) -> tuple[int, int, float]:
-    """出力の (幅, 高さ, fps)。長辺 1920・短辺 1080 の枠に収まるよう縮小（拡大はしない）→ 各辺を偶数に切り捨て、fps は min(元, 30)。
+    """出力の (幅, 高さ, fps)。長辺 1080 以下に縮小（拡大はしない）→ 各辺を偶数に切り捨て、fps は min(元, 30)。
 
     info.width / height は回転適用後の表示サイズなので、ここで回転は考えない。
     """
-    scale = min(1.0, MAX_LONG_SIDE / max(info.width, info.height), MAX_SHORT_SIDE / min(info.width, info.height))
+    scale = min(1.0, MAX_LONG_SIDE / max(info.width, info.height))
     w = max(2, int(info.width * scale) // 2 * 2)
     h = max(2, int(info.height * scale) // 2 * 2)
     return w, h, min(info.fps, MAX_FPS)

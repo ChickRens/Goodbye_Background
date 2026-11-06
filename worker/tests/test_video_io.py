@@ -21,12 +21,12 @@ def write_through(src, tmp_path):
 
 
 def test_60fps_is_capped_to_30_and_range_is_respected(tmp_path):
-    src = make_video(tmp_path, fps=60, seconds=3, size=(1280, 720), audio=True)
+    src = make_video(tmp_path, fps=60, seconds=3, size=(960, 540), audio=True)
     info = probe(src)
     w, h, fps = output_geometry(info)
-    assert (w, h, fps) == (1280, 720, 30)
+    assert (w, h, fps) == (960, 540, 30)
     frames = list(FrameReader(src, 500, 2500, w, h, fps, info.is_hdr))
-    assert len(frames) == 60 and frames[0].shape == (720, 1280, 3)
+    assert len(frames) == 60 and frames[0].shape == (540, 960, 3)
 
 
 def test_writer_keeps_audio_and_length(tmp_path):
@@ -59,7 +59,8 @@ def test_source_without_audio_stream_but_audio_source_given(tmp_path):
 
 def test_odd_and_large_sizes_become_even_and_capped(tmp_path):
     assert output_geometry(info_of(width=721, height=405, fps=30))[:2] == (720, 404)
-    assert output_geometry(info_of(width=3840, height=2160, fps=30))[:2] == (1080 * 16 // 9 // 2 * 2, 1080)
+    assert output_geometry(info_of(width=3840, height=2160, fps=30))[:2] == (1080, 606)
+    assert output_geometry(info_of(width=2160, height=3840, fps=30))[:2] == (606, 1080)
     write_through(make_video(tmp_path, fps=30, seconds=1, size=(721, 405), audio=False), tmp_path)
 
 
