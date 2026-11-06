@@ -14,6 +14,8 @@ def alpha_from_logits(logits_512: np.ndarray, width: int, height: int) -> np.nda
     バイリニア拡大 → sigmoid → 3x3 の erode を 1 回（縁の色にじみを内側へ削る）。
     """
     up = cv2.resize(logits_512.astype(np.float32), (width, height), interpolation=cv2.INTER_LINEAR)
+    # SAM2 は -1024 のような極端なロジットを出す。exp のオーバーフロー警告を避けるためクリップする
+    up = np.clip(up, -50.0, 50.0)
     prob = (1.0 / (1.0 + np.exp(-up))).astype(np.float32)
     return cv2.erode(prob, _ERODE_KERNEL)
 
