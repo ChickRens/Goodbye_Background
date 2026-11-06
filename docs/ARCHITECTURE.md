@@ -297,3 +297,10 @@ Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）�
   通知が別の台に届いて 404 になる
 - R2 の削除などの後処理はレスポンスを返す前に await する（`tokio::spawn` に任せると CPU が割り当てられず進まない）
 - サーバーの再起動・0 台への縮小でジョブは消える（回数は DB にあるので返却されない。まれなので許容）
+- アップロード用の PUT URL は `content-type` に加えて `content-length`（作成時に申告した `size_bytes`）も署名に含める。
+  申告と違うサイズの本文は R2 が 403 で拒否する。ブラウザは `File` を送ると Content-Length を自動で付ける（= `file.size`）ので、
+  フロントは `size_bytes` に `file.size` をそのまま申告する。開始時の HEAD（`Content-Length` ヘッダーを読む）による
+  200MB の確認は、この上の二重の守り。R2 の CORS は本番のオリジンからの PUT で `content-type` と `content-length` を許可すること
+- 署名付き URL（`X-Amz-Credential` / `X-Amz-Signature`）をログに出さない。reqwest のエラーは URL を含むので、
+  文字列にするときは必ず `without_url()` を通す
+- 回数の返却は消費した日（`VideoJob::quota_day`、日本時間）の分を戻す。日付をまたいで失敗しても翌日の枠は増えない

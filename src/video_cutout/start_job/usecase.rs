@@ -123,6 +123,7 @@ impl StartVideoJobUseCase {
         job.points = Some(input.points);
         job.background = Some(input.background);
         job.quota_consumed = true;
+        job.quota_day = Some(day);
         job.last_event_at_ms = now_ms;
         self.repository.save(job.clone());
 
@@ -134,7 +135,8 @@ impl StartVideoJobUseCase {
             }),
             Err(e) => {
                 println!("ワーカーへの投入に失敗 job={}: {:?}", job.id.value(), e);
-                let refunded = match self.quota.refund(&keys, day).await {
+                let refund_day = job.quota_day.unwrap_or(day);
+                let refunded = match self.quota.refund(&keys, refund_day).await {
                     Ok(()) => true,
                     Err(e) => {
                         println!("回数の返却に失敗 job={}: {:?}", job.id.value(), e);
@@ -175,7 +177,7 @@ impl StartVideoJobUseCase {
                 .presign_get(&job.input_key(), WORKER_URL_TTL, None),
             output_url: self
                 .storage
-                .presign_put(&job.output_key(), "video/mp4", WORKER_URL_TTL),
+                .presign_put(&job.output_key(), "video/mp4", None, WORKER_URL_TTL),
             range_ms: WorkerRange {
                 start: job.range.start_ms(),
                 end: job.range.end_ms(),

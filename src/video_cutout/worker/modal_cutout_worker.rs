@@ -35,6 +35,11 @@ impl ModalCutoutWorker {
 
 #[async_trait]
 impl CutoutWorker for ModalCutoutWorker {
+    /// 依頼を POST する。reqwest のエラーは `without_url()` で URL を落としてから文字列にする。
+    ///
+    /// タイムアウト（`DISPATCH_TIMEOUT`）は「届かなかった」とは限らない。Modal 側で受け付け済みなら
+    /// ワーカーはそのまま動き続けることがある。その場合もジョブは `Failed(dispatch_failed)`（回数は返却）になり、
+    /// 後から届く通知は最終状態のジョブなので無視される。ワーカーが書いた出力は期限切れの削除で消える。
     async fn dispatch(&self, req: &WorkerJobRequest) -> Result<(), WorkerError> {
         let res = self
             .client
@@ -44,7 +49,7 @@ impl CutoutWorker for ModalCutoutWorker {
             .json(req)
             .send()
             .await
-            .map_err(|e| WorkerError::Dispatch(e.to_string()))?;
+            .map_err(|e| WorkerError::Dispatch(e.without_url().to_string()))?;
         if !res.status().is_success() {
             return Err(WorkerError::Dispatch(format!("status {}", res.status())));
         }

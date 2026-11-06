@@ -36,6 +36,8 @@ pub struct VideoJob {
     pub last_event_at_ms: u64,
     pub quota_consumed: bool,
     pub quota_refunded: bool,
+    /// 回数を消費した日（JST の日番号）。返却はこの日の分を戻す（日をまたいで失敗しても消費した日に返す）。
+    pub quota_day: Option<i64>,
     pub result: Option<JobResult>,
 }
 
@@ -80,6 +82,7 @@ pub fn job_created_at(ms: u64) -> VideoJob {
         last_event_at_ms: ms,
         quota_consumed: false,
         quota_refunded: false,
+        quota_day: None,
         result: None,
     }
 }

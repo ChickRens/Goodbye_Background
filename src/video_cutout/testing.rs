@@ -70,9 +70,16 @@ impl FakeStorage {
 
 #[async_trait]
 impl VideoObjectStorage for FakeStorage {
-    fn presign_put(&self, key: &str, content_type: &str, ttl: Duration) -> String {
+    fn presign_put(
+        &self,
+        key: &str,
+        content_type: &str,
+        content_length: Option<u64>,
+        ttl: Duration,
+    ) -> String {
+        let len = content_length.map(|n| format!("&content-length={n}")).unwrap_or_default();
         format!(
-            "https://fake.r2/{key}?method=PUT&content-type={content_type}&X-Amz-Expires={}",
+            "https://fake.r2/{key}?method=PUT&content-type={content_type}{len}&X-Amz-Expires={}",
             ttl.as_secs()
         )
     }

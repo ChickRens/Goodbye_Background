@@ -25,7 +25,7 @@ pub enum ErrorType {
     NotFound,
     /// 500 Internal Server Error: 推論失敗などサーバー側の問題
     Internal,
-    /// 401 Unauthorized: 認証情報（クライアント ID など）が無い・不正
+    /// 401 Unauthorized: 認証に失敗した（動画ワーカーからの通知の HMAC 署名が無い・不正・期限切れ）
     Unauthorized,
     /// 429 Too Many Requests: 利用上限（クォータ）超過
     TooManyRequests,

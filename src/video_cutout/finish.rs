@@ -14,7 +14,7 @@ use crate::video_cutout::{
 /// `phase`（最終状態）にして保存し、入力ファイルを削除する（仕様 §5.3 の 1 段目）。
 ///
 /// - `Failed` で返却の対象（仕様 §5.1）なら、消費済みかつ未返却のときだけ回数を返して `quota_refunded = true` にする。
-///   返却は持ち主のキー（作成時の client_id と IP）で、今日（日本時間）の分を戻す。
+///   返却は持ち主のキー（作成時の client_id と IP）で、消費した日（`quota_day`。無ければ今日、日本時間）の分を戻す。
 /// - 返却・削除の失敗はログだけ（ジョブの状態は進める）。
 /// - 削除はこの呼び出しの中で await する（Cloud Run はリクエスト外で CPU が割り当てられないため）。
 pub async fn finish_job(
@@ -35,7 +35,9 @@ pub async fn finish_job(
                 client_id: job.owner_client_id,
                 ip: job.owner_ip,
             };
-            match quota.refund(&keys, jst_day(now_ms)).await {
+            // 消費した日の分を戻す（記録が無い古いジョブだけ今日の分）
+            let day = job.quota_day.unwrap_or_else(|| jst_day(now_ms));
+            match quota.refund(&keys, day).await {
                 Ok(()) => job.quota_refunded = true,
                 Err(e) => eprintln!("回数の返却に失敗 job={}: {:?}", job.id.value(), e),
             }

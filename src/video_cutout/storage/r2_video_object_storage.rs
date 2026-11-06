@@ -1,9 +1,14 @@
 //! `VideoObjectStorage` の Cloudflare R2 実装。署名は rusty-s3、HEAD / DELETE は短命の署名付き URL を reqwest で叩く。
+//!
+//! reqwest のエラーは URL（署名 `X-Amz-Signature` など）を含むので、文字列にするときは必ず `without_url()` を通す。
 
 use std::time::Duration;
 
 use async_trait::async_trait;
-use reqwest::{StatusCode, Url};
+use reqwest::{
+    StatusCode, Url,
+    header::{CONTENT_LENGTH, HeaderMap},
+};
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 
 use super::{error::StorageError, video_object_storage::VideoObjectStorage};
@@ -46,9 +51,19 @@ impl R2VideoObjectStorage {
 
 #[async_trait]
 impl VideoObjectStorage for R2VideoObjectStorage {
-    fn presign_put(&self, key: &str, content_type: &str, ttl: Duration) -> String {
+    fn presign_put(
+        &self,
+        key: &str,
+        content_type: &str,
+        content_length: Option<u64>,
+        ttl: Duration,
+    ) -> String {
         let mut action = self.bucket.put_object(Some(&self.credentials), key);
         action.headers_mut().insert("content-type", content_type);
+        if let Some(len) = content_length {
+            // 署名に含めると、違うサイズの本文は R2 が拒否する（申告サイズのすり抜け防止）
+            action.headers_mut().insert("content-length", len.to_string());
+        }
         action.sign(ttl).to_string()
     }
 
@@ -72,11 +87,10 @@ impl VideoObjectStorage for R2VideoObjectStorage {
             .head(url)
             .send()
             .await
-            .map_err(|e| StorageError::Request(e.to_string()))?;
+            .map_err(|e| StorageError::Request(e.without_url().to_string()))?;
         match res.status() {
-            StatusCode::OK => Ok(Some(res.content_length().ok_or_else(|| {
-                StorageError::Request("HEAD の応答に Content-Length が無い".to_string())
-            })?)),
+            // HEAD の応答では `Response::content_length()` が常に 0 になるので、ヘッダーを直接読む
+            StatusCode::OK => Ok(Some(content_length_from_headers(res.headers())?)),
             StatusCode::NOT_FOUND => Ok(None),
             status => Err(StorageError::Request(format!("HEAD status {status}"))),
         }
@@ -92,7 +106,7 @@ impl VideoObjectStorage for R2VideoObjectStorage {
             .delete(url)
             .send()
             .await
-            .map_err(|e| StorageError::Request(e.to_string()))?;
+            .map_err(|e| StorageError::Request(e.without_url().to_string()))?;
         // S3 互換の DELETE は対象が無くても 204 を返す
         if res.status().is_success() || res.status() == StatusCode::NOT_FOUND {
             Ok(())
@@ -100,6 +114,17 @@ impl VideoObjectStorage for R2VideoObjectStorage {
             Err(StorageError::Request(format!("DELETE status {}", res.status())))
         }
     }
+}
+
+/// `Content-Length` ヘッダーの値（バイト）。無い・数値でなければエラー。
+fn content_length_from_headers(headers: &HeaderMap) -> Result<u64, StorageError> {
+    headers
+        .get(CONTENT_LENGTH)
+        .ok_or_else(|| StorageError::Request("HEAD の応答に Content-Length が無い".to_string()))?
+        .to_str()
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .ok_or_else(|| StorageError::Request("HEAD の応答の Content-Length が不正".to_string()))
 }
 
 #[cfg(test)]
@@ -112,11 +137,36 @@ mod r2_video_object_storage_test {
 
     #[test]
     fn r2_presigned_put_targets_bucket_and_key() {
-        let url = r2().presign_put("video-jobs/x/input", "video/mp4", Duration::from_secs(900));
+        let url = r2().presign_put(
+            "video-jobs/x/input",
+            "video/mp4",
+            Some(10_000_000),
+            Duration::from_secs(900),
+        );
         assert!(url.starts_with("https://acc.r2.cloudflarestorage.com/bucket/video-jobs/x/input?"));
         assert!(url.contains("X-Amz-Expires=900"));
-        // Content-Type も署名に含める
+        // Content-Length と Content-Type も署名に含める（違うサイズの本文は R2 が拒否する）
+        assert!(url.contains("X-Amz-SignedHeaders=content-length%3Bcontent-type%3Bhost"));
+    }
+
+    #[test]
+    fn r2_presigned_put_without_length_signs_only_content_type() {
+        let url = r2().presign_put("video-jobs/x/output.mp4", "video/mp4", None, Duration::from_secs(1800));
         assert!(url.contains("X-Amz-SignedHeaders=content-type%3Bhost"));
+    }
+
+    #[test]
+    fn content_length_header_is_parsed() {
+        use reqwest::header::{CONTENT_LENGTH, HeaderMap, HeaderValue};
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_LENGTH, HeaderValue::from_static("209715201"));
+        assert_eq!(content_length_from_headers(&headers).unwrap(), 209_715_201);
+
+        assert!(content_length_from_headers(&HeaderMap::new()).is_err());
+
+        let mut garbage = HeaderMap::new();
+        garbage.insert(CONTENT_LENGTH, HeaderValue::from_static("abc"));
+        assert!(content_length_from_headers(&garbage).is_err());
     }
 
     #[test]

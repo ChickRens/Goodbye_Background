@@ -120,6 +120,8 @@ async fn main() {
     let video_for_gc = video.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(CLEANUP_INTERVAL);
+        // 片付けが長引いたり CPU が止まっていた（Cloud Run）後に、溜まった tick を連続で撃たない
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             interval.tick().await;
             video_for_gc.cleanup_video_jobs().await;

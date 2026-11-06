@@ -90,11 +90,17 @@ impl CreateVideoJobUseCase {
             last_event_at_ms: now_ms,
             quota_consumed: false,
             quota_refunded: false,
+            quota_day: None,
             result: None,
         };
         let upload_url =
             self.storage
-                .presign_put(&job.input_key(), &job.content_type, UPLOAD_URL_TTL);
+                .presign_put(
+                    &job.input_key(),
+                    &job.content_type,
+                    Some(job.size_bytes),
+                    UPLOAD_URL_TTL,
+                );
         let job_id = job.id;
         self.repository.save(job);
 

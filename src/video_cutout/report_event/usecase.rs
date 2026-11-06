@@ -113,6 +113,7 @@ mod report_video_job_event_usecase_test {
             phase::{FailureCode, JobPhase},
             video_job::JobResult,
         },
+        quota::{daily_quota::DailyQuota, jst_day::jst_day},
         report_event::input::{WorkerEvent, WorkerEventPhase},
         testing::*,
     };
@@ -150,6 +151,25 @@ mod report_video_job_event_usecase_test {
             );
             assert_eq!(h.storage.deleted(), vec![h.input_key()], "{code}");
         }
+    }
+
+    #[tokio::test]
+    async fn refund_after_jst_midnight_returns_consumed_day() {
+        // 日本時間 0 時の 1 分前に開始（D 日に消費）→ 0 時を過ぎてから失敗 → D 日の分が返る
+        let h = harness();
+        let id = h.created_job().await;
+        let day_d = jst_day(NOW_MS);
+        let midnight_ms = ((day_d + 1) * 86_400 - 9 * 3_600) as u64 * 1_000;
+        h.clock.advance(midnight_ms - 60_000 - NOW_MS);
+        h.start.execute(start_input(id)).await.unwrap();
+        assert_eq!(h.repository.get(&id).unwrap().quota_day, Some(day_d));
+        let h = StartedJob { h, id };
+        h.clock.advance(2 * 60_000);
+        assert_eq!(jst_day(h.clock_now()), day_d + 1);
+        h.report(failed("internal_error")).await;
+        assert!(h.get().await.quota_refunded);
+        assert_eq!(h.quota.remaining(&quota_keys(), day_d).await.unwrap(), 3);
+        assert_eq!(h.quota.remaining(&quota_keys(), day_d + 1).await.unwrap(), 3);
     }
 
     #[tokio::test]
