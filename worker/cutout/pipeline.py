@@ -39,9 +39,17 @@ logger = logging.getLogger(__name__)
 CONTENT_TYPE = "video/mp4"
 
 
+class InputTooLarge(Exception):
+    """ダウンロード中に入力が max_bytes を超えた（Transfer.download が投げる）。"""
+
+
 class Transfer(Protocol):
     def head_size(self, url: str) -> int | None: ...
-    def download(self, url: str, dest: Path) -> None: ...
+
+    def download(self, url: str, dest: Path, max_bytes: int) -> None:
+        """url を dest に保存する。max_bytes を超えた時点で止めて InputTooLarge を投げる。"""
+        ...
+
     def upload(self, url: str, src: Path, content_type: str) -> None: ...
 
 
@@ -87,7 +95,10 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
 
     src = workdir / "input"
     out = workdir / "output.mp4"
-    transfer.download(req.input_url, src)
+    try:
+        transfer.download(req.input_url, src, req.max_input_bytes)
+    except InputTooLarge:
+        raise _Failure("too_large") from None
     if src.stat().st_size > req.max_input_bytes:
         raise _Failure("too_large")
 

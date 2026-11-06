@@ -11,8 +11,8 @@ import httpx
 import numpy as np
 import onnxruntime as ort
 
-# 暫定値。Task 1 で計測に使ったコミットハッシュに必ず置き換えること（main は動くため再現性が無い）。
-MODEL_REVISION = "main"
+# Hugging Face のコミットハッシュに固定する（main は動くため再現性が無い）。Modal での計測に使ったもの。
+MODEL_REVISION = "66673b5db39371b7dd7847f4d3bc0d4f4179b79e"
 REPO_URL = "https://huggingface.co/diffusionstudio/sam2.1-tiny-video-onnx-fp16/resolve/{revision}/"
 GRAPH_NAMES = ["vision_encoder", "mask_decoder", "memory_encoder", "memory_attention", "pointer_tpos"]
 

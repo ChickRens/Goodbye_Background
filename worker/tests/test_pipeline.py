@@ -9,7 +9,7 @@ import pytest
 
 from cutout.compositor import LogoBadge, alpha_from_logits
 from cutout.contract import NormalizedPoint, RangeMs, WorkerJobRequest
-from cutout.pipeline import run_job
+from cutout.pipeline import InputTooLarge, run_job
 from cutout.tracker import FrameResult
 from cutout.video_io import probe
 from tests.media import make_video
@@ -33,8 +33,10 @@ class FakeNotifier:
 
 
 class FakeTransfer:
-    def __init__(self, src: Path | None, head_size: int | None, out_dir: Path):
+    def __init__(self, src: Path | None, head_size: int | None, out_dir: Path, download_raises_too_large=False):
         self._src, self._head, self._out_dir = src, head_size, out_dir
+        self._download_raises_too_large = download_raises_too_large
+        self.max_bytes: int | None = None
         self.uploaded: Path | None = None
         self.content_type: str | None = None
         self.downloaded = False
@@ -42,8 +44,11 @@ class FakeTransfer:
     def head_size(self, url):
         return self._head
 
-    def download(self, url, dest):
+    def download(self, url, dest, max_bytes):
         self.downloaded = True
+        self.max_bytes = max_bytes
+        if self._download_raises_too_large:
+            raise InputTooLarge()
         shutil.copy(self._src, dest)
 
     def upload(self, url, src, content_type):
@@ -135,6 +140,20 @@ def test_too_large_checked_after_download_when_head_unknown(tmp_path):
     notifier = FakeNotifier()
     req = request((0, 500), max_bytes=100)
     run_job(req, transfer, notifier, lambda t: FakeTracker([True], False), LogoBadge.load(LOGO), tmp_path / "work")
+    assert final(notifier.events) == ("failed", "too_large")
+    assert transfer.uploaded is None
+
+
+def test_download_passes_max_bytes(tmp_path):
+    _, tr = run(tmp_path, range_ms=(0, 100))
+    assert tr.max_bytes == 200 * 1024 * 1024
+
+
+def test_too_large_when_download_stops_midway(tmp_path):
+    video = make_video(tmp_path, fps=30, seconds=1, size=(320, 240), audio=False)
+    transfer = FakeTransfer(video, None, tmp_path, download_raises_too_large=True)
+    notifier = FakeNotifier()
+    run_job(request((0, 500)), transfer, notifier, lambda t: FakeTracker([True], False), LogoBadge.load(LOGO), tmp_path / "work")
     assert final(notifier.events) == ("failed", "too_large")
     assert transfer.uploaded is None
 
