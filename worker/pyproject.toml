@@ -16,6 +16,8 @@ dev = ["pytest"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["slow: 実モデルが必要な遅いテスト（-m slow で実行）"]
+addopts = "-m 'not slow'"
 
 [tool.uv]
 package = false
