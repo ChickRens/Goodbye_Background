@@ -942,6 +942,8 @@ Run: 認証ヘッダー無しで `curl -X POST <URL>` → Expected: 401/403。�
 
 ### Task 17: 本番の準備と通しの確認
 
+オーナー向けの手順書: [`docs/video-cutout-deploy.md`](../../video-cutout-deploy.md)（R2・Secret Manager・環境変数・デプロイ・`TRUSTED_PROXY_HOPS` の確認・移植のテスト・iPhone の確認）。
+
 オーナーの作業が必要: R2 のバケット・CORS（`https://chickren.goodbye-background.com` からの PUT/GET）・ライフサイクルルール（`video-jobs/` を 1 日）・API トークン。Cloud Run の Secret Manager と環境変数。Modal の予算上限 $30。
 
 **Files:**

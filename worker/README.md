@@ -146,6 +146,9 @@ Remove-Item bad.json
 
 ---
 
+> ワーカーをデプロイした後の、R2・Cloud Run（Rust）側の本番の準備と通しの確認は
+> [`docs/video-cutout-deploy.md`](../docs/video-cutout-deploy.md) を参照してください。
+
 ## 本番の設定のまとめ
 
 | 項目 | 値 | 場所 |
