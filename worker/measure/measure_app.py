@@ -4,7 +4,8 @@
 デコード → 推論 → 合成 + ロゴ → エンコード を 1 本通し、工程ごとの時間を返す。
 使い方は同じフォルダの README.md を参照。
 
-    modal run worker/measure/measure_app.py --video C:\\path\\to\\clip.mov --x 0.5 --y 0.5
+    modal run worker/measure/measure_app.py --video C:\\path\\to\\clip.mov --x 0.5 --y 0.5 --image slim
+    modal run worker/measure/measure_app.py::probe --rounds 3   # コールドスタートの原因の切り分け
 """
 
 from __future__ import annotations
@@ -26,6 +27,9 @@ MODEL_REPO = "diffusionstudio/sam2.1-tiny-video-onnx-fp16"
 MODEL_DIR = Path("/models")
 MODEL_SHA_FILE = MODEL_DIR / "MODEL_SHA"
 
+# L4 が埋まっていたら A10G → T4 の順に取る（Modal のフォールバック指定）。実際に付いた GPU 名は結果に出す
+GPU_FALLBACK = ["L4", "A10G", "T4"]
+
 # onnxruntime-gpu は 1.27 から CUDA 13 向けになったので、CUDA 12 + cuDNN 9 向けの最後の版に固定する
 ORT_GPU_VERSION = "1.26.0"
 CUDA_IMAGE = "nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04"
@@ -45,22 +49,38 @@ def download_models() -> None:
     print(f"モデルを取得しました: {MODEL_REPO}@{sha}")
 
 
-image = (
+# worker/uv.lock と同じ版
+_PY_DEPS = ["numpy==2.5.4", "opencv-python-headless==5.0.0.93", "httpx==0.28.1"]
+
+
+def _with_cutout_and_models(img: modal.Image) -> modal.Image:
+    # ビルド中の download_models が cutout.models を使うので copy=True でイメージに焼き込む
+    return img.add_local_dir(
+        CUTOUT_DIR, remote_path="/root/cutout", copy=True, ignore=["__pycache__", "**/__pycache__"]
+    ).run_function(download_models)
+
+
+# 1 回目の計測で使った大きいイメージ（CUDA + cuDNN の公式イメージ。数 GB）
+cuda_image = _with_cutout_and_models(
     modal.Image.from_registry(CUDA_IMAGE, add_python="3.12")
     .apt_install("ffmpeg")
-    .pip_install(
-        f"onnxruntime-gpu=={ORT_GPU_VERSION}",
-        # worker/uv.lock と同じ版
-        "numpy==2.5.4",
-        "opencv-python-headless==5.0.0.93",
-        "httpx==0.28.1",
-    )
-    # ビルド中の download_models が cutout.models を使うので copy=True でイメージに焼き込む
-    .add_local_dir(CUTOUT_DIR, remote_path="/root/cutout", copy=True, ignore=["__pycache__", "**/__pycache__"])
-    .run_function(download_models)
+    .pip_install(f"onnxruntime-gpu=={ORT_GPU_VERSION}", *_PY_DEPS)
 )
 
-app = modal.App("goodbye-background-measure", image=image)
+# 軽いイメージ: Debian slim + pip の CUDA / cuDNN（onnxruntime-gpu の extras が nvidia-*-cu12 の wheel を入れる）。
+# pip で入れた CUDA / cuDNN は cutout.models.load_sessions の ort.preload_dlls() が読み込む
+slim_image = _with_cutout_and_models(
+    modal.Image.debian_slim(python_version="3.12")
+    .apt_install("ffmpeg")
+    .pip_install(f"onnxruntime-gpu[cuda,cudnn]=={ORT_GPU_VERSION}", *_PY_DEPS)
+)
+
+# GPU の割り当て待ちだけを測るための最小のイメージ
+tiny_image = modal.Image.debian_slim(python_version="3.12")
+
+IMAGES = {"cuda": cuda_image, "slim": slim_image}
+
+app = modal.App("goodbye-background-measure")
 
 
 def _ffmpeg_info() -> tuple[str, bool]:
@@ -79,8 +99,9 @@ def _gpu_name() -> str:
     return r.stdout.strip() or "?"
 
 
-@app.cls(gpu="L4", timeout=600, scaledown_window=60)
-class Measure:
+class _Measure:
+    """Measure の中身。イメージだけが違う 2 つのクラス（MeasureCuda / MeasureSlim）が継承する。"""
+
     @modal.enter()
     def load(self) -> None:
         t0 = time.time()
@@ -203,8 +224,92 @@ class Measure:
             "available_providers": self.providers,
             "gpu_name": self.gpu_name,
             "model_sha": self.model_sha,
+            "module_imported_at": _MODULE_IMPORTED_AT,
             "output_mp4": output_mp4,
         }
+
+
+@app.cls(image=cuda_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60)
+class MeasureCuda(_Measure):
+    pass
+
+
+@app.cls(image=slim_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60)
+class MeasureSlim(_Measure):
+    pass
+
+
+MEASURE_CLASSES = {"cuda": MeasureCuda, "slim": MeasureSlim}
+
+
+# ---- 原因の切り分け（probe）----
+# コンテナが確実に落ちてから次の回を呼べるよう、待機は Modal の最小値（2 秒）にする
+_PROBE_SCALEDOWN_S = 2
+PROBE_ROUND_INTERVAL_S = 90
+
+
+@app.function(image=cuda_image, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
+def probe_cpu_cuda_image() -> dict:
+    """大きい CUDA イメージを GPU なしで起動する（= イメージの起動にかかる時間だけを見る）。"""
+    return {"imported_at": _MODULE_IMPORTED_AT, "gpu_name": "-", "note": ""}
+
+
+@app.function(image=tiny_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
+def probe_gpu_tiny_image() -> dict:
+    """最小のイメージで GPU を取る（= GPU の割り当て待ちだけを見る）。"""
+    return {"imported_at": _MODULE_IMPORTED_AT, "gpu_name": _gpu_name(), "note": ""}
+
+
+@app.function(image=slim_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
+def probe_gpu_slim_image() -> dict:
+    """軽いイメージで GPU を取り、ONNX のセッションを CUDA で作る（= 軽いイメージで本番どおり動くことの確認）。"""
+    imported_at = _MODULE_IMPORTED_AT
+    t0 = time.time()
+    from cutout.models import load_sessions
+
+    # device="cuda" は CUDA EP が先頭でなければ例外になる（= pip の CUDA / cuDNN が読めていることの確認）
+    load_sessions(MODEL_DIR, "cuda")
+    model_load_s = time.time() - t0
+    ffmpeg_version, zscale = _ffmpeg_info()
+    note = f"モデル読込 {model_load_s:.1f} 秒 / zscale {'あり' if zscale else 'なし'} / {ffmpeg_version}"
+    return {"imported_at": imported_at, "gpu_name": _gpu_name(), "note": note, "model_load_s": model_load_s}
+
+
+PROBES = {
+    "cpu_cuda_image": probe_cpu_cuda_image,
+    "gpu_tiny_image": probe_gpu_tiny_image,
+    "gpu_slim_image": probe_gpu_slim_image,
+}
+
+
+@app.local_entrypoint()
+def probe(rounds: int = 3) -> None:
+    """3 つの小さな関数を順に呼び、呼び出し→コンテナ起動の秒を比べる。回の間は 90 秒あけてコンテナを落とす。"""
+    sys.path.insert(0, str(HERE))
+    from measure_stats import format_probe_report
+
+    rows = []
+    for rnd in range(1, rounds + 1):
+        if rnd > 1:
+            print(f"  コンテナが落ちるのを {PROBE_ROUND_INTERVAL_S} 秒待ちます…")
+            time.sleep(PROBE_ROUND_INTERVAL_S)
+        for key, fn in PROBES.items():
+            call_started_at = time.time()
+            t = time.perf_counter()
+            try:
+                res = fn.remote()
+                to_start = res["imported_at"] - call_started_at
+                gpu_name, note = res["gpu_name"], res["note"]
+            except Exception as e:  # 1 つ失敗しても表は出す
+                to_start, gpu_name, note = None, "-", f"失敗: {type(e).__name__}: {e}"
+            wall = time.perf_counter() - t
+            rows.append(
+                {"round": rnd, "probe": key, "call_to_start_s": to_start, "wall_s": wall, "gpu_name": gpu_name, "note": note}
+            )
+            print(f"  {rnd} 回目 {key}: {wall:.1f} 秒")
+
+    print()
+    print(format_probe_report(rows))
 
 
 @app.local_entrypoint()
@@ -216,8 +321,14 @@ def main(
     y: float = 0.5,
     runs: int = 2,
     out: str = "measure_out",
+    image: str = "cuda",
 ) -> None:
-    """video を runs 回つづけて処理する（1 回目 = コールド、2 回目以降 = ウォーム）。x, y は 1 枚目の被写体の位置（0〜1）。"""
+    """video を runs 回つづけて処理する（1 回目 = コールド、2 回目以降 = ウォーム）。x, y は 1 枚目の被写体の位置（0〜1）。
+
+    image: cuda = 1 回目の計測と同じ CUDA イメージ / slim = 軽いイメージ（未検証なので既定は cuda）
+    """
+    if image not in MEASURE_CLASSES:
+        raise SystemExit(f"--image は {' / '.join(MEASURE_CLASSES)} のどれか: {image!r}")
     sys.path.insert(0, str(HERE))
     from measure_stats import format_report, summarize_ms
 
@@ -225,11 +336,12 @@ def main(
     video_bytes = src.read_bytes()
     out_dir = Path(out).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"{src.name}（{len(video_bytes) / 1e6:.1f} MB）を {runs} 回処理します…")
+    print(f"{src.name}（{len(video_bytes) / 1e6:.1f} MB）を {runs} 回処理します（イメージ: {image}）…")
 
-    measurer = Measure()
+    measurer = MEASURE_CLASSES[image]()
     results = []
     for i in range(1, runs + 1):
+        call_started_at = time.time()
         t = time.perf_counter()
         server = measurer.measure.remote(
             video_bytes, int(start * 1000), int(end * 1000), [(x, y, 1)], (0, 255, 0)
@@ -238,12 +350,12 @@ def main(
         mp4 = server.pop("output_mp4")
         (out_dir / f"{src.stem}_run{i}.mp4").write_bytes(mp4)
         server["stages_ms"] = {k: summarize_ms(v) for k, v in server["raw_ms"].items()}
-        results.append({"run": i, "client_wall_s": wall, "server": server})
+        results.append({"run": i, "client_wall_s": wall, "call_started_at": call_started_at, "server": server})
         print(f"  {i} 回目: {wall:.1f} 秒（{'コールド' if server['cold'] else 'ウォーム'}）")
 
-    report = format_report(src.name, results)
+    report = format_report(src.name, results, image=image)
     (out_dir / f"{src.stem}_results.json").write_text(
-        json.dumps({"video": src.name, "start": start, "end": end, "x": x, "y": y, "runs": results},
+        json.dumps({"video": src.name, "image": image, "start": start, "end": end, "x": x, "y": y, "runs": results},
                    ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

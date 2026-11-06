@@ -79,7 +79,7 @@ PC に移すときは「写真」アプリや iCloud から **元のファイル
 これは 1 回きりで、コールドスタートには数えません。
 
 ```powershell
-modal run worker/measure/measure_app.py --video "C:\Users\<あなた>\Videos\A_hdr.MOV" --x 0.5 --y 0.5
+modal run worker/measure/measure_app.py::main --video "C:\Users\<あなた>\Videos\A_hdr.MOV" --x 0.5 --y 0.5
 ```
 
 `モデルを取得しました: diffusionstudio/sam2.1-tiny-video-onnx-fp16@<sha>` がビルドのログに出れば成功です。
@@ -93,16 +93,16 @@ modal run worker/measure/measure_app.py --video "C:\Users\<あなた>\Videos\A_h
 
 ```powershell
 # A: HDR（標準設定）
-modal run worker/measure/measure_app.py --video "C:\Users\<あなた>\Videos\A_hdr.MOV" --x 0.5 --y 0.5 --out measure_out\A
+modal run worker/measure/measure_app.py::main --video "C:\Users\<あなた>\Videos\A_hdr.MOV" --x 0.5 --y 0.5 --out measure_out\A
 
 # B: 60fps
-modal run worker/measure/measure_app.py --video "C:\Users\<あなた>\Videos\B_60fps.MOV" --x 0.5 --y 0.5 --out measure_out\B
+modal run worker/measure/measure_app.py::main --video "C:\Users\<あなた>\Videos\B_60fps.MOV" --x 0.5 --y 0.5 --out measure_out\B
 
 # C: 途中から入ってくる（x, y は 1 枚目に写っている体の一部）
-modal run worker/measure/measure_app.py --video "C:\Users\<あなた>\Videos\C_enter.MOV" --x 0.1 --y 0.6 --out measure_out\C
+modal run worker/measure/measure_app.py::main --video "C:\Users\<あなた>\Videos\C_enter.MOV" --x 0.1 --y 0.6 --out measure_out\C
 
 # D: 緑っぽい服
-modal run worker/measure/measure_app.py --video "C:\Users\<あなた>\Videos\D_green.MOV" --x 0.5 --y 0.5 --out measure_out\D
+modal run worker/measure/measure_app.py::main --video "C:\Users\<あなた>\Videos\D_green.MOV" --x 0.5 --y 0.5 --out measure_out\D
 ```
 
 指定できるオプション:
@@ -114,6 +114,9 @@ modal run worker/measure/measure_app.py --video "C:\Users\<あなた>\Videos\D_g
 | `--x` / `--y` | 0.5 / 0.5 | 1 枚目の被写体の位置（0〜1） |
 | `--runs` | 2 | 続けて処理する回数（1 回目がコールド） |
 | `--out` | `measure_out` | 結果の保存先フォルダ |
+| `--image` | `cuda` | `cuda` = 1 回目の計測と同じ大きい CUDA イメージ / `slim` = 軽いイメージ（下の「再計測」を参照） |
+
+> ファイルに入口が 2 つ（`main` と `probe`）あるので、`measure_app.py::main` のように **`::main` を付けて** 実行してください。
 
 `measure_out\` はリポジトリにコミットしないでください（動画が入ります）。
 
@@ -147,6 +150,55 @@ modal run worker/measure/measure_app.py --video "C:\Users\<あなた>\Videos\D_g
 
 ---
 
+## 再計測（原因の切り分け）
+
+1 回目の計測では、コールドスタートが 150〜724 秒かかったのに、モデルの読み込みは 1〜3 秒でした。
+時間は **Python が動く前**（Modal の画面で Pending の間）にかかっています。原因の候補は 2 つです。
+
+- **GPU（L4）の割り当て待ち** … 空いている L4 が見つかるまで待たされている
+- **イメージの起動** … CUDA の公式イメージ（数 GB）をサーバーに配って起動するのに時間がかかっている
+
+これを切り分けるため、計測のコードを次のように変えました。
+
+- GPU は **L4 → A10G → T4** の順に空いているものを使う（実際に付いた GPU 名は表に出ます）
+- 軽いイメージ（`slim`。Debian slim + pip の CUDA / cuDNN）を追加
+- 表に **「呼び出し→コンテナ起動(s)」**（呼んでからコンテナで Python が動き出すまで）の列を追加
+
+Modal の CLI は前と同じものを使います（入っていなければ `uv tool install "modal>=1.6,<2"`）。
+文字化けする場合は「1-3. 文字化け対策」を先に実行してください。
+
+### 手順 (a): 切り分け用の小さな関数を 3 回ずつ呼ぶ（約 5 分）
+
+```powershell
+modal run worker/measure/measure_app.py::probe --rounds 3
+```
+
+- 初回は軽いイメージ（`slim`）のビルドが入るので、さらに数分かかります（ビルドの時間は表には入りません）
+- 3 つの関数を順に呼び、回の間は 90 秒待ちます（コンテナを一度落として、毎回コールドにするため）
+  - **CUDA イメージ・GPU なし** … 大きいイメージの起動だけにかかる時間
+  - **最小イメージ・GPU あり** … GPU の割り当て待ちだけにかかる時間
+  - **slim イメージ・GPU あり** … 軽いイメージで GPU を取り、モデルを CUDA で読み込めるかの確認
+- 最後に `## 原因の切り分け（probe）` から始まる表と **「判定: ...」** の行が出ます。**表と判定の行をそのままチャットに貼ってください**
+
+### 手順 (b): 動画 A を軽いイメージで 1 回計測する
+
+```powershell
+modal run worker/measure/measure_app.py::main --video "C:\Users\<あなた>\Videos\A_hdr.MOV" --x 0.5 --y 0.5 --image slim --out measure_out\A_slim
+```
+
+`--x` `--y` は 1 回目の計測で動画 A に使った値にしてください。
+最後に出る `## 計測結果: ...` の表を **そのまま全部** チャットに貼ってください（「イメージ: slim」と GPU 名の行も含めて）。
+
+### （任意）動画 A を HDR で撮り直す
+
+1 回目の動画 A は HDR のつもりでしたが、入力は SDR でした。iPhone の設定を確認してください。
+
+1. iPhone の **設定 → カメラ → ビデオ撮影 → HDR ビデオ** を開く
+2. **オフ** になっていたら **オン** にして、動画 A を撮り直す（オンだった場合は撮り直し不要）
+3. 撮り直したら、手順 (b) のコマンドをその動画で実行して表を貼る（表の「入力」の行が `HDR=はい` になっていれば HDR です）
+
+---
+
 ## うまくいかないとき
 
 | 症状 | 対処 |
@@ -155,3 +207,6 @@ modal run worker/measure/measure_app.py --video "C:\Users\<あなた>\Videos\D_g
 | `CUDA を使えない` という例外 | GPU で動いていません。エラー全文を貼ってください |
 | ビルドで Hugging Face からの取得に失敗 | 時間をおいて再実行。続く場合はエラー全文を貼ってください |
 | 予算の上限に達した | それ以上は計測せず、そこまでの表を貼ってください |
+| `has the following functions and local entrypoints` と出て止まる | コマンドに `::main` か `::probe` を付ける |
+| probe の表の備考に `失敗: ...` が出た | 表と一緒に、その上に出ているエラー全文を貼ってください |
+| `--image slim` で `ffmpeg に zscale が無い` という例外 | 軽いイメージの ffmpeg が HDR の変換に対応していません。エラー全文を貼ってください |
