@@ -633,13 +633,23 @@ iPhone の Safari で https://chickren.goodbye-background.com/video.html を開�
 
 本番と同じトラッカーを CPU で動かし、元の動画を処理します（10 秒で数分〜十数分。初回はモデルを約 150MB 取得）:
 
+**前提: ffmpeg（ffprobe）が入っていること**。本番のワーカーは Modal のイメージに入っていますが、自分の PC には無いことが多いです。
+無いと Python が「`[WinError 2] 指定されたファイルが見つかりません`」と出し、動画が見つからないように見えます
+（スクリプトは先に確かめて「ffprobe が見つかりません」と出します）。入れ方:
+
+```powershell
+winget install Gyan.FFmpeg
+```
+
+入れたら **PowerShell を開き直し**、`ffprobe -version` が動くことを確かめてから次へ:
+
 ```powershell
 cd <Goodbye_Background のフォルダ>
 git switch claude/zealous-cerf-yoxav8
 git pull
 
 cd worker
-uv run python scripts/diagnose_logits.py <元の動画のパス> --point 0.50,0.42
+uv run python scripts/diagnose_logits.py "<元の動画のパス>" --point 0.50,0.42
 cd ..
 ```
 

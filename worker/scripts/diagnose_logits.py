@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -74,6 +75,24 @@ def heatmap(frame_rgb: np.ndarray, logits_512: np.ndarray) -> np.ndarray:
     return out
 
 
+def preflight(video: Path) -> str | None:
+    """重い処理の前に、動画と ffmpeg / ffprobe があるか確かめる。問題があれば日本語のメッセージを返す。
+
+    Windows で ffprobe が無いと、Python は「[WinError 2] 指定されたファイルが見つかりません」と出し、
+    動画が見つからないように読めてしまうので、先に名指しで確かめる。
+    """
+    missing = [exe for exe in ("ffmpeg", "ffprobe") if shutil.which(exe) is None]
+    if missing:
+        return (
+            f"{' と '.join(missing)} が見つかりません（PATH に無い）。動画の読み書きに使います。\n"
+            "  Windows: winget install Gyan.FFmpeg を実行し、PowerShell を開き直してから、もう一度実行してください。\n"
+            "  確認: ffprobe -version が動けば OK"
+        )
+    if not video.is_file():
+        return f"動画が見つかりません: {video}\n  パスに空白や日本語があるときは \"\" で囲んでください"
+    return None
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("video", type=Path)
@@ -82,6 +101,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR)
     ap.add_argument("--out-dir", type=Path, default=ROOT / "results" / "diagnose")
     args = ap.parse_args(argv)
+    problem = preflight(args.video)
+    if problem:
+        print(problem, file=sys.stderr)
+        return 1
 
     fetch_models(args.model_dir, MODEL_REVISION)  # 全グラフ。取得済みは飛ばす
     sessions = load_sessions(args.model_dir, "cpu")

@@ -80,3 +80,28 @@ def test_main_writes_three_panel_video_and_csv(tmp_path, monkeypatch):
     assert rows[0] == ["frame", "present", "area_gt_0", "area_gt_-1", "area_gt_-2", "area_gt_-4"]
     assert len(rows) == 1 + 10
     assert rows[1][2:] == ["10000", "10000", str(512 * 512), str(512 * 512)]
+
+
+def test_preflight_names_missing_ffprobe(tmp_path, monkeypatch):
+    m = _load_script()
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x")
+    monkeypatch.setattr(m.shutil, "which", lambda exe: None if exe == "ffprobe" else "/bin/" + exe)
+    msg = m.preflight(video)
+    assert "ffprobe が見つかりません" in msg
+    assert "winget install Gyan.FFmpeg" in msg
+
+
+def test_preflight_names_missing_video(tmp_path):
+    m = _load_script()
+    msg = m.preflight(tmp_path / "無い 動画.mp4")
+    assert "動画が見つかりません" in msg and "無い 動画.mp4" in msg
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x")
+    assert m.preflight(video) is None
+
+
+def test_main_stops_before_fetching_models_when_preflight_fails(tmp_path, monkeypatch):
+    m = _load_script()
+    monkeypatch.setattr(m, "fetch_models", lambda *a, **k: pytest.fail("モデルを取得してはいけない"))
+    assert m.main([str(tmp_path / "none.mp4"), "--point", "0.5,0.5"]) == 1
