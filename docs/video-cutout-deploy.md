@@ -55,6 +55,23 @@ R2 を直接読み書きします（Modal 側に R2 の設定は要りません�
   事前確認（preflight）には普通は載りませんが、載せるブラウザがあっても通るように許可しておきます（害はありません）
 - `ExposeHeaders`（ブラウザに見せる応答ヘッダー）は不要です
 
+**アップロードの途中で CORS エラーが出るとき**: 多くの場合、本当の原因は **R2 が返したエラー**です。
+R2 がエラー（403 など）を返すと、その応答には CORS のヘッダーが付かないので、ブラウザは中身を見せず「CORS エラー」とだけ表示します。
+CORS の設定を疑う前に、ブラウザを通さずに `curl.exe` で同じ URL へ PUT して、R2 の応答を直接見てください
+（Windows の PowerShell では `curl` ではなく **`curl.exe`**）:
+
+1. ブラウザの開発者ツール → Network で `POST /video-jobs` の応答を開き、`upload_url` の値をコピーする
+2. 小さいファイルで PUT する（`content-type` は動画を選んだときと同じものに）:
+
+```powershell
+curl.exe -i -X PUT -H "content-type: video/mp4" --data-binary "@C:\path\to\small.mp4" "<upload_url>"
+```
+
+- `200`: R2 は受け付けた。CORS の設定（`AllowedOrigins` が `https://chickren.goodbye-background.com` と一致しているか）を見直す
+- `InvalidArgument`（Authorization の形式が違う、など）: **アクセスキー（`R2_ACCESS_KEY_ID`）が違う、または短い**（手順 2-2 の貼り付けの問題で 1 文字になっていた）
+- `SignatureDoesNotMatch`: **`R2_SECRET_ACCESS_KEY` が違う**（長さが 64 か確かめる）。`content-type` が署名と違う場合も同じ
+- 応答の本文（XML）に原因が書かれています。`upload_url` には署名が含まれるので、チャットに貼らないでください
+
 ### 1-3. ライフサイクルルール（1 日で自動削除）
 
 バケットの **Settings** → **Object lifecycle rules** → **Add rule**:
@@ -94,39 +111,81 @@ Account ID・Access Key ID・Secret Access Key の 3 つが手元にある。
 gcloud services enable secretmanager.googleapis.com
 ```
 
-### 2-2. シークレットを作る
+### 2-2. シークレットを作る（クリップボードから登録する）
 
-次の関数を貼り付けてから（Enter を押すと定義されるだけで、まだ何も起きません）、シークレットごとに呼び出します。
-値は **画面に表示されない入力欄**（`*` が出る）に貼り付けます。
+**注意**: `Read-Host -AsSecureString` に Ctrl+V で貼り付ける方法は、Windows の PowerShell では **1 文字しか入らない**ことがあります
+（本番で、全てのシークレットの長さが 1 になった）。ここではクリップボードから直接読む関数を使います。
+
+次の関数を貼り付けます（Enter を押すと定義されるだけで、まだ何も起きません）:
 
 ```powershell
-function New-VideoSecret([string]$Name) {
-  $secure = Read-Host "$Name の値を貼り付けて Enter（表示されません）" -AsSecureString
-  $plain  = [System.Net.NetworkCredential]::new("", $secure).Password
-  $file   = New-TemporaryFile
+function Add-VideoSecretVersion([string]$Name, [int]$ExpectedLength = 0) {
+  $plain = (Get-Clipboard -Raw).Trim()
+  Write-Host "$Name : $($plain.Length) 文字"
+  if ($ExpectedLength -gt 0 -and $plain.Length -ne $ExpectedLength) {
+    Write-Host "長さが $ExpectedLength ではないので登録しません" -ForegroundColor Red
+    return
+  }
+  $file = New-TemporaryFile
   try {
-    # 改行を付けずに書く（PowerShell のパイプで渡すと末尾に改行が付き、署名が合わなくなるため一時ファイルを使う）
-    [System.IO.File]::WriteAllText($file.FullName, $plain.Trim())
-    gcloud secrets create $Name --replication-policy=automatic --data-file="$($file.FullName)"
+    [System.IO.File]::WriteAllText($file.FullName, $plain)
+    gcloud secrets versions add $Name --data-file="$($file.FullName)"
   } finally {
     Remove-Item $file.FullName -Force
     $plain = $null
+    Set-Clipboard -Value " "
   }
 }
 ```
 
+- 改行を付けずに一時ファイルへ書きます（PowerShell のパイプで渡すと末尾に改行が付き、署名が合わなくなるため）
+- 登録が終わるとクリップボードを空白 1 文字で上書きします（秘密が残らないように）
+
+**使い方は「コピーしてから実行」の繰り返しです**: 1 つ目の値をコピー → 実行 → 次の値をコピー → 実行。
+実行する前に必ず、その値をコピーし直してください（クリップボードは実行のたびに消えるので、コピーし忘れると 1 文字（空白を除くと 0 文字）になります）。
+
+**初めて作るとき**は、先に空のシークレットを作ってから版を足します:
+
 ```powershell
-New-VideoSecret R2_ACCESS_KEY_ID          # 手順 1-4 の Access Key ID
-New-VideoSecret R2_SECRET_ACCESS_KEY      # 手順 1-4 の Secret Access Key
-New-VideoSecret MODAL_KEY                 # Modal の Token ID（wk-…）
-New-VideoSecret MODAL_SECRET              # Modal の Token Secret（ws-…）
-New-VideoSecret WORKER_CALLBACK_SECRET    # Modal の Secret goodbye-background-video に入れたのと同じ値
+gcloud secrets create R2_ACCESS_KEY_ID --replication-policy=automatic      # 値は入れない（空の入れ物だけ作る）
+# R2 の Access Key ID をコピーしてから:
+Add-VideoSecretVersion R2_ACCESS_KEY_ID 32
 ```
+
+5 つ全てについて同じ手順です（`gcloud secrets create` は最初の 1 回だけ。2 回目以降の値の差し替えは `Add-VideoSecretVersion` だけ）:
+
+| 名前 | 中身 | 期待する長さ（`Add-VideoSecretVersion` の第 2 引数） |
+| --- | --- | --- |
+| `R2_ACCESS_KEY_ID` | 手順 1-4 の Access Key ID | 32 |
+| `R2_SECRET_ACCESS_KEY` | 手順 1-4 の Secret Access Key | 64 |
+| `WORKER_CALLBACK_SECRET` | Modal の Secret `goodbye-background-video` に入れたのと同じ値 | 64 |
+| `MODAL_KEY` | Modal の Token ID（`wk-…`） | 決まった長さは無い（指定しない） |
+| `MODAL_SECRET` | Modal の Token Secret（`ws-…`） | 決まった長さは無い（指定しない） |
 
 - `R2_ACCESS_KEY_ID` と `MODAL_KEY` は厳密には秘密ではありません（対になる Secret が無いと使えない）が、まとめて管理するためここに入れます。
   環境変数に直接書いても動きます（その場合は手順 3 の `--update-env-vars` 側に移す）
-- 間違えた値を入れたときは、同じ関数の `gcloud secrets create` を `gcloud secrets versions add` に変えたもので新しい版を足します
-  （`:latest` を参照しているので、次のデプロイ／更新から新しい値になります）
+
+**登録した長さの確認**（値は表示されず、長さだけが出ます）:
+
+```powershell
+foreach ($n in "R2_ACCESS_KEY_ID","R2_SECRET_ACCESS_KEY","MODAL_KEY","MODAL_SECRET","WORKER_CALLBACK_SECRET") {
+  "$n : $((gcloud secrets versions access latest --secret=$n).Length)"
+}
+```
+
+R2 の 3 つが 32 / 64 / 64 になっていれば OK です（`1` になっていたら、上の貼り付けの問題です）。
+
+**値を間違えたとき・差し替えるとき**:
+
+1. 正しい値をコピーして `Add-VideoSecretVersion <名前> [長さ]` を実行する（新しい版が足される）
+2. 古い版を無効にする: `gcloud secrets versions disable <版の番号> --secret=<名前>`（版の番号は `gcloud secrets versions list <名前>`）
+3. **Cloud Run は `:latest` を起動時に読むので、動いているサービスに新しい版を反映させるには更新が必要**です（新しいリビジョンが作られます）:
+
+```powershell
+gcloud run services update $SERVICE --region $REGION --update-secrets "R2_ACCESS_KEY_ID=R2_ACCESS_KEY_ID:latest,R2_SECRET_ACCESS_KEY=R2_SECRET_ACCESS_KEY:latest"
+```
+
+（差し替えたシークレットだけを `名前=名前:latest` の形で並べる。手順 3 の `$VIDEO_SECRETS` を全部渡しても構いません）
 
 ### 2-3. Cloud Run のサービスアカウントに読み取りを許可する
 
@@ -150,8 +209,8 @@ foreach ($n in "R2_ACCESS_KEY_ID","R2_SECRET_ACCESS_KEY","MODAL_KEY","MODAL_SECR
 }
 ```
 
-**確認**: `gcloud secrets list` に 5 つの名前が出る。`gcloud secrets versions list WORKER_CALLBACK_SECRET` で版 `1` が `enabled`。
-（値そのものを表示するコマンド `gcloud secrets versions access` は、画面に出るので使わないでください）
+**確認**: `gcloud secrets list` に 5 つの名前が出る。`gcloud secrets versions list WORKER_CALLBACK_SECRET` で有効な版がある。
+（値そのものを表示する `gcloud secrets versions access` は、画面に出るので、手順 2-2 の長さだけを出す形以外では使わないでください）
 
 ---
 
@@ -190,6 +249,17 @@ $VIDEO_SECRETS = "R2_ACCESS_KEY_ID=R2_ACCESS_KEY_ID:latest,R2_SECRET_ACCESS_KEY=
 - 最小インスタンス数 0・リクエストベースの CPU は今のままで構いません
 
 **確認**: `$VIDEO_ENV` と `$VIDEO_SECRETS` を作った（`<Account ID>` を置き換えた）。
+
+**起動ログに「動画切り抜き: 無効」と出たとき**:
+
+- 無効の行の直前に「動画切り抜き: 環境変数が足りない: R2_ACCOUNT_ID, MODAL_KEY」のように、**足りない変数の名前**が出ます（値は出ません）。
+  その名前を、上の表の渡し方（環境変数／シークレット）で足してください
+- **`--update-env-vars` / `--update-secrets` を付けないデプロイのコマンドは、これらを設定しません**。本番ではこれが原因で無効になりました
+  （手順 4-3 の初回のコマンドに `$VIDEO_ENV` / `$VIDEO_SECRETS` を付け忘れた）。
+  後から足すなら `gcloud run services update $SERVICE --region $REGION --update-env-vars $VIDEO_ENV --update-secrets $VIDEO_SECRETS`
+- 以前の Google ログインのブランチの名残の **`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` は今のコードでは使いません**。残っていたら消します:
+  `gcloud run services update $SERVICE --region $REGION --remove-env-vars GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET`
+  （シークレットとして渡している場合は `--remove-secrets GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET`。付いているかは `gcloud run services describe $SERVICE --region $REGION` で見られます）
 
 ---
 
