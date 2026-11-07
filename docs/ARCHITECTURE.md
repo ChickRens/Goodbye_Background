@@ -210,13 +210,29 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
    テスト: `segment_service_test::concurrent_segments_on_same_session_keep_all_points`（偽セグメンタ使用）
 4. **DB マイグレーション**: `migrations/sqlite/` と `migrations/postgres/` に分割し、両方とも起動時に適用。
    SQLite は適用済みの2本を変えずに、テーブルを作り直して id を振り直す3本目を追加
-   （既存行は保持）。Postgres の2本目は手動作成済みテーブルでも通るよう `ADD COLUMN IF NOT EXISTS`。
+   （既存行は保持）。
    `.env.example` も有効な URL 形式に修正。
    テスト: `sqlite_migration_test::*`（新規 DB / 既存 DB の更新）。Postgres はローカルの PostgreSQL 16 で
    「空の DB」「手動でテーブル作成済みの DB」の両方を手動確認
    - 注意: もし過去に sqlx-cli で Postgres に旧マイグレーションを適用していた場合、2本目のチェックサムが
      変わっているので起動時にエラーになる（アプリ本体は Postgres でマイグレーションを実行していなかったので、
      通常は該当しない）
+   - **本番 DB との互換（2026-11-07）**: 本番（Cloud Run・PostgreSQL）は master ではなく Google ログインのブランチ
+     （`feat/user-google-login`）からデプロイされていた。そのブランチは平らな `migrations/` を使っており、本番の
+     `_sqlx_migrations` には `20260919032531` / `20261004122625`（`ADD COLUMN client_id TEXT;`、末尾改行なし）/
+     `20261101090000`（users・login_sessions）が適用済み。そのため:
+     - `postgres/20261004122625` は本番が適用したファイルとバイト単位で同じものに戻した（master で一度
+       `IF NOT EXISTS` に変えていたが、それだとチェックサム不一致で起動しない）
+     - `20261101090000_users_and_login_sessions.sql` をそのブランチからバイト単位でそのまま `postgres/` と `sqlite/`
+       の両方に置いた（無いと `VersionMissing(20261101090000)`。sqlite は同ブランチで動かした開発用 DB のため）。
+       ファイルにコメントを足すとチェックサムが変わるので、説明はここに書く
+     - `20261107000000_drop_users_and_login_sessions.sql`（両 DB）で users / login_sessions を消す
+       （オーナー判断: Google ログインは本番から外したので個人情報を残さない）
+     - これらのファイルは絶対に編集しない。チェックサムはテスト
+       `postgres_migration_checksum_test` で本番の値に固定している。
+       テスト: `sqlite_migration_test::sqlite_migrations_upgrade_google_login_branch_database_and_drop_login_tables`。
+       Postgres はローカルの PostgreSQL 16 で「本番の再現（ブランチの3本＋ログインの行）→ このブランチ」
+       「空の DB」の両方を確認（修正前のマイグレーションでは `VersionMissing(20261101090000)` が再現した）
 5. **巨大画像の u16 回り込み**: `ImageSize::from_u32` を追加し、u32 のまま範囲チェックするようにした。
    テスト: `image_loader_tests::test_{width,height}_over_u16_max_is_rejected`
 

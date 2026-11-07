@@ -113,7 +113,9 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 12. **保存用 WebP は quality 95 / method 2**（オーナー判断: 速度とファイルサイズの中間）。
     変えるときは `image_cutout/image/completed/generator/generator.rs` の計測表を参照
 13. **マイグレーションは DB ごと**: `migrations/sqlite/` と `migrations/postgres/` の両方に追加する。
-    適用済みのファイルは絶対に書き換えない（sqlx のチェックサム不一致で起動しなくなる）
+    適用済みのファイルは絶対に書き換えない（sqlx のチェックサム不一致で起動しなくなる）。
+    本番 DB は Google ログインのブランチ（feat/user-google-login）の平らな `migrations/` で作られたので、
+    `postgres/20261004122625` と `20261101090000` は本番が適用したものとバイト単位で同じに保つ（絶対に編集しない。テストで固定）
 14. **Cloud Run の最大インスタンス数は 1 のまま変えない**: 動画ジョブはインメモリなので、2 台以上にすると
     ポーリングやワーカーの通知が別の台に届いて 404 になる（docs/ARCHITECTURE.md §9）
 15. **`TRUSTED_PROXY_HOPS`**: 回数制限の IP を `X-Forwarded-For` の右から何番目で取るか（`presentation/client_ip.rs`）。

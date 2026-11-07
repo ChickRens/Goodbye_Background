@@ -84,7 +84,8 @@ async fn main() {
                 .await
                 .expect("Failed to connect to PostgreSQL database");
             // SQLite と Postgres で型が違うので、マイグレーションはディレクトリを分けている。
-            // 手動でテーブルを作った既存 DB でも通るよう、Postgres 側は IF NOT EXISTS で書いてある。
+            // 本番 DB は Google ログインのブランチの平らな migrations/ で作られたので、適用済みの分は
+            // そのブランチのファイルとバイト単位で同じに保っている（docs/ARCHITECTURE.md の「DB マイグレーション」）。
             sqlx::migrate!("./migrations/postgres")
                 .run(&pool)
                 .await

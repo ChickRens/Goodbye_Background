@@ -207,4 +207,70 @@ mod sqlite_migration_test {
             ]
         );
     }
+
+    // Google ログインのブランチ（feat/user-google-login）で動かしていた開発用 DB
+    // （20260919032531 / 20261004122625 / 20261101090000 が適用済み）を、このブランチの
+    // マイグレーションで更新できること。ログインのテーブルは消え、利用ログは残る。
+    #[tokio::test]
+    async fn sqlite_migrations_upgrade_google_login_branch_database_and_drop_login_tables() {
+        let pool = memory_pool().await;
+        let mut google_branch = sqlx::migrate!("./migrations/sqlite");
+        google_branch.migrations = Cow::Owned(
+            google_branch
+                .migrations
+                .iter()
+                .filter(|m| [20260919032531, 20261004122625, 20261101090000].contains(&m.version))
+                .cloned()
+                .collect(),
+        );
+        assert_eq!(google_branch.migrations.len(), 3);
+        google_branch.run(&pool).await.unwrap();
+        insert_record(&pool).await;
+        sqlx::query("INSERT INTO users (id, google_sub, email) VALUES ('u1', 'sub', 'a@example.com')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO login_sessions (token_hash, user_id, expires_at) VALUES ('h', 'u1', 0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::migrate!("./migrations/sqlite").run(&pool).await.unwrap();
+
+        let login_tables: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE name IN ('users', 'login_sessions', 'idx_login_sessions_expires_at')",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(login_tables.is_empty(), "残っている: {login_tables:?}");
+        let ids: Vec<Option<i64>> = sqlx::query_scalar("SELECT id FROM usage_records")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(ids, vec![Some(1)]);
+    }
+}
+
+// 本番の PostgreSQL は feat/user-google-login ブランチの migrations/ で作られた。
+// 適用済みのファイルのチェックサムが変わると起動しなくなるので、本番が適用したときの値に固定する。
+#[cfg(test)]
+mod postgres_migration_checksum_test {
+    #[test]
+    fn postgres_migrations_applied_in_production_keep_their_checksums() {
+        let expected = [
+            (20260919032531_i64, "6db901ba69bd19fa05bfb784ee17d914a6c031a8d603c44d88a56e01c292b7dd8cf69c659a66a4306c3c914e9ae77186"),
+            (20261004122625, "fce80b3766c787fce6fcd9203eea21a3b13e9989e89ae1daf5cad3a470f412b8bd4f318dcd22184818df3d86d0536c52"),
+            (20261101090000, "d7cbb94d73748d77f08c55249b9401e2341af4f92c4cf5f2c3f7d6337e56c2111155a58cbf83ed3a56f5da069ffede63"),
+        ];
+        let migrator = sqlx::migrate!("./migrations/postgres");
+        for (version, checksum) in expected {
+            let m = migrator
+                .iter()
+                .find(|m| m.version == version)
+                .unwrap_or_else(|| panic!("{version} が無い"));
+            let actual: String = m.checksum.iter().map(|b| format!("{b:02x}")).collect();
+            assert_eq!(actual, checksum, "{version} のチェックサムが本番と違う");
+        }
+    }
 }
