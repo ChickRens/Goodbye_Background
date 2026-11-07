@@ -8,19 +8,43 @@ from cutout.compositor import LogoBadge, alpha_from_logits, composite
 LOGO = Path(__file__).resolve().parent.parent / "cutout" / "assets" / "logo.png"
 
 
-def alpha_without_erode(logits, width, height):
-    """erode を省いた同じ計算（比較用）。"""
-    up = cv2.resize(logits, (width, height), interpolation=cv2.INTER_LINEAR)
-    return 1.0 / (1.0 + np.exp(-up))
-
-
-def test_alpha_is_probability_and_shrinks_edge():
+def test_alpha_is_probability_range_and_shape():
     logits = np.full((512, 512), -20, np.float32)
     logits[:, 256:] = 20
     a = alpha_from_logits(logits, 100, 50)
-    assert a.shape == (50, 100) and a.min() >= 0 and a.max() <= 1
+    assert a.shape == (50, 100) and a.dtype == np.float32 and a.min() >= 0 and a.max() <= 1
     assert a[25, 99] > 0.99 and a[25, 0] < 0.01
-    assert a[25, 50] < alpha_without_erode(logits, 100, 50)[25, 50]  # 縁が内側に削れている
+
+
+def test_alpha_logit_zero_is_half():
+    a = alpha_from_logits(np.zeros((512, 512), np.float32), 10, 10)
+    assert np.allclose(a, 0.5, atol=1e-6)
+
+
+def test_alpha_is_hard_for_small_logits():
+    assert alpha_from_logits(np.full((512, 512), 1.0, np.float32), 8, 8).min() > 0.95
+    assert alpha_from_logits(np.full((512, 512), -1.0, np.float32), 8, 8).max() < 0.05
+
+
+def test_alpha_step_edge_does_not_shrink():
+    logits = np.full((512, 512), -20, np.float32)
+    logits[:, 256:] = 20
+    a = alpha_from_logits(logits, 100, 50)[25]
+    plain = 1.0 / (1.0 + np.exp(-cv2.resize(logits, (100, 50), interpolation=cv2.INTER_LINEAR)))[25]
+    cross = int(np.argmax(a >= 0.5))
+    cross_plain = int(np.argmax(plain >= 0.5))
+    assert abs(cross - 50) <= 1 and abs(cross - cross_plain) <= 1  # 元の境界（列 50）から内側へ縮まない
+
+
+def test_alpha_extreme_logits_do_not_warn():
+    import warnings
+
+    logits = np.full((512, 512), -1024, np.float32)
+    logits[:, 256:] = 1024
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        a = alpha_from_logits(logits, 100, 50)
+    assert a[25, 0] < 1e-6 and a[25, 99] > 1 - 1e-6
 
 
 def test_composite_lost_frame_is_full_background():

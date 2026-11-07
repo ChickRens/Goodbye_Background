@@ -5,19 +5,27 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-_ERODE_KERNEL = np.ones((3, 3), np.uint8)
+# alpha を硬くする鋭さ。alpha = sigmoid(EDGE_SHARPNESS * ロジット)。
+# 確率 0.32〜0.68（ロジット約 -0.75〜+0.75）が alpha 約 0.05〜0.95 に対応する。
+EDGE_SHARPNESS = 4.0
 
 
 def alpha_from_logits(logits_512: np.ndarray, width: int, height: int) -> np.ndarray:
     """512x512 のロジットを [H,W] float32 の alpha にする。
 
-    バイリニア拡大 → sigmoid → 3x3 の erode を 1 回（縁の色にじみを内側へ削る）。
+    バイリニア拡大 → ロジット空間で EDGE_SHARPNESS 倍して sigmoid（= 硬めの alpha）。
+    erode はしない。理由（本番のフィードバック、2026-11-07）:
+    - CapCut のクロマキーで抜くので、縁が半透明だと背景色（緑）と混ざって穴が開く。
+      動きが速くてブレた手などは確率が 0.3〜0.6 の中間になりやすく、確率をそのまま alpha にすると半透明になる。
+    - 3x3 の erode は指や手首を細くしてしまう。
+    ロジット空間で鋭くするだけなら、境界（ロジット 0 = alpha 0.5）の位置は動かず、内側へ縮まない。
     """
     up = cv2.resize(logits_512.astype(np.float32), (width, height), interpolation=cv2.INTER_LINEAR)
     # SAM2 は -1024 のような極端なロジットを出す。exp のオーバーフロー警告を避けるためクリップする
     up = np.clip(up, -50.0, 50.0)
-    prob = (1.0 / (1.0 + np.exp(-up))).astype(np.float32)
-    return cv2.erode(prob, _ERODE_KERNEL)
+    # 4 倍すると float32 の exp が溢れる（exp(200)）ので、鋭くした後にもう一度クリップする
+    sharp = np.clip(EDGE_SHARPNESS * up, -50.0, 50.0)
+    return (1.0 / (1.0 + np.exp(-sharp))).astype(np.float32)
 
 
 def composite(

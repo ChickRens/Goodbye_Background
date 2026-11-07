@@ -312,7 +312,7 @@ def test_history_is_bounded():
 
 **Interfaces:**
 - Produces（`cutout.compositor`）:
-  - `alpha_from_logits(logits_512: np.ndarray[512,512] float32, width: int, height: int) -> np.ndarray[H,W] float32` — バイリニア拡大 → sigmoid → 3×3 の erode を 1 回。
+  - `alpha_from_logits(logits_512: np.ndarray[512,512] float32, width: int, height: int) -> np.ndarray[H,W] float32` — バイリニア拡大 → sigmoid(4.0×ロジット)（2026-11-07 に変更。当初は erode あり。仕様 §6.3 参照）。
   - `composite(frame_rgb: np.ndarray[H,W,3] uint8, alpha: np.ndarray[H,W] | None, background_rgb: tuple[int,int,int]) -> np.ndarray[H,W,3] uint8` — `alpha=None` は見失ったフレーム（全面背景色）。
   - `LogoBadge.load(path: Path)`、`.apply(frame_rgb) -> np.ndarray` — 短辺の 8%（四捨五入、最小 16px）の正方形を、右下から短辺の 2% 内側に**不透明**で置く。
 - `make_logo.py`: `assets/brand/logo-original.webp` を正方形にトリミングし、角丸（半径 = 一辺の 18%）の外側を透明にした 256×256 の PNG を `worker/cutout/assets/logo.png` に、32×32 を `frontend/video-favicon.png` に書く。角丸の外側だけ透明で、内側（`#171717` の背景を含む）は完全に不透明。
