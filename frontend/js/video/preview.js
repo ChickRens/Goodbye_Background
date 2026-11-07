@@ -75,14 +75,21 @@ async function loadImageFromBlob(blob) {
   }
 }
 
-/** フレームにマスクを alpha として合成した canvas を返す（マスクの大きさが違えばフレームの大きさに引き伸ばす） */
-function composeCutout(frameImg, maskImg) {
+/**
+ * フレームにマスクを alpha として合成し、canvas に描く（マスクの大きさが違えばフレームの大きさに引き伸ばす）。
+ * canvas は使い回す（iOS Safari は canvas のメモリの合計に上限があり、タップのたびに最大 2000px の canvas を
+ * 作ると超え得るため）。大きさはフレームが変わったときだけ変える。表示中の canvas に描き直しても、
+ * この関数は同期で終わるので、途中の状態が描画（requestAnimationFrame）に出ることは無い。
+ */
+function composeCutout(canvas, frameImg, maskImg) {
   const width = frameImg.naturalWidth;
   const height = frameImg.naturalHeight;
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.clearRect(0, 0, width, height);
   ctx.drawImage(maskImg, 0, 0, width, height);
   const mask = ctx.getImageData(0, 0, width, height).data;
   ctx.clearRect(0, 0, width, height);
@@ -128,7 +135,9 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
   let frameBlob = null;
   let frameUrl = null;
   let frameImg = null;
+  let uploadBlob = null; // 登録に送るフレーム（10MB を超える PNG は JPEG にしたもの）。登録し直しで作り直さない
   let registered = false; // サーバーにフレームを登録できた
+  const cutoutCanvas = document.createElement('canvas'); // 合成した切り抜き（使い回す）
   let points = []; // { x, y, label: 1 | 0 }（フレームの座標）
   let redoStack = [];
   let version = 0; // 点の一覧が変わるたびに進める
@@ -192,7 +201,8 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
   }
 
   async function registerFrame(gen) {
-    const blob = await frameForUpload(frameBlob, frameImg);
+    if (!uploadBlob) uploadBlob = await frameForUpload(frameBlob, frameImg);
+    const blob = uploadBlob;
     await withBusyRetry(() => setVideoPreviewFrame(jobId, blob), gen);
   }
 
@@ -209,6 +219,7 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
       if (frameBlob !== newFrameBlob || !frameImg) {
         jobId = newJobId;
         frameBlob = newFrameBlob;
+        uploadBlob = null;
         if (frameUrl) URL.revokeObjectURL(frameUrl);
         frameUrl = URL.createObjectURL(newFrameBlob);
         const img = await loadImage(frameUrl);
@@ -283,7 +294,7 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
           if (gen !== generation || sentVersion !== version) continue;
           const maskImg = await loadImageFromBlob(maskBlob);
           if (gen !== generation || sentVersion !== version) continue;
-          controller.setBaseSource(composeCutout(frameImg, maskImg));
+          controller.setBaseSource(composeCutout(cutoutCanvas, frameImg, maskImg));
           shown = { version: sentVersion, objectPresent };
           setStatus(''); // 対象が見つからないときは warningEl を出す（sync）
         } catch (err) {
@@ -356,6 +367,9 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
     if (frameUrl) URL.revokeObjectURL(frameUrl);
     frameUrl = null;
     frameImg = null;
+    uploadBlob = null;
+    cutoutCanvas.width = 0; // 前の動画の切り抜きのメモリを手放す
+    cutoutCanvas.height = 0;
     registered = false;
     points = [];
     redoStack = [];

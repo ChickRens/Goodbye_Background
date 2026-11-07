@@ -343,6 +343,8 @@ function selectedBackground() {
 
 function updateSendButton() {
   if (!preview) return;
+  // 後のプレビューが成功したら（対象の有無は問わない）、前の失敗で出した「プレビューをやり直す」は引っ込める
+  if (preview.canSend() || preview.objectMissing()) el.previewRetryBtn.hidden = true;
   const ready = state.job !== null && state.uploadDone && preview.canSend();
   el.sendBtn.disabled = !ready || state.sending || state.sent;
   el.backgroundField.disabled = state.sending || state.sent;
