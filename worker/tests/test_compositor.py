@@ -21,9 +21,9 @@ def test_alpha_logit_zero_is_half():
     assert np.allclose(a, 0.5, atol=1e-6)
 
 
-def test_alpha_is_hard_for_small_logits():
-    assert alpha_from_logits(np.full((512, 512), 1.0, np.float32), 8, 8).min() > 0.95
-    assert alpha_from_logits(np.full((512, 512), -1.0, np.float32), 8, 8).max() < 0.05
+def test_alpha_is_nearly_binary_for_small_logits():
+    assert alpha_from_logits(np.full((512, 512), 0.25, np.float32), 8, 8).min() > 0.97
+    assert alpha_from_logits(np.full((512, 512), -0.25, np.float32), 8, 8).max() < 0.03
 
 
 def test_alpha_step_edge_does_not_shrink():

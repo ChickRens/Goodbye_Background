@@ -6,8 +6,15 @@ import cv2
 import numpy as np
 
 # alpha を硬くする鋭さ。alpha = sigmoid(EDGE_SHARPNESS * ロジット)。
-# 確率 0.32〜0.68（ロジット約 -0.75〜+0.75）が alpha 約 0.05〜0.95 に対応する。
-EDGE_SHARPNESS = 4.0
+# 16 だと alpha 0.05〜0.95 はロジット約 ±0.18 だけ（ほぼ二値、サブピクセルのアンチエイリアス）。
+# ロジット ±0.25 で alpha 約 0.02 / 0.98。
+# 本番の計測（踊っている動画 576x1024・300 フレーム、1 フレームあたりの緑かぶり画素の平均）:
+#   元の柔らかい alpha 4573 → EDGE_SHARPNESS=4 で 2206。
+#   完全に硬い合成を同じ libx264 yuv420p でエンコードし直しても約 620 画素は残る（クロマ間引きのため）。
+#   つまり 4 でも約 1600 画素は、ブレた領域で SAM2 のロジットが 0 付近に留まる半透明の alpha だった → 16 に上げた。
+# 残る約 1px の緑の縁は yuv420p のクロマ間引きによるもの。
+# CapCut / iPhone / SNS との互換性のため yuv420p は変えない。
+EDGE_SHARPNESS = 16.0
 
 
 def alpha_from_logits(logits_512: np.ndarray, width: int, height: int) -> np.ndarray:
@@ -23,7 +30,7 @@ def alpha_from_logits(logits_512: np.ndarray, width: int, height: int) -> np.nda
     up = cv2.resize(logits_512.astype(np.float32), (width, height), interpolation=cv2.INTER_LINEAR)
     # SAM2 は -1024 のような極端なロジットを出す。exp のオーバーフロー警告を避けるためクリップする
     up = np.clip(up, -50.0, 50.0)
-    # 4 倍すると float32 の exp が溢れる（exp(200)）ので、鋭くした後にもう一度クリップする
+    # 16 倍すると float32 の exp が溢れる（exp(800)）ので、鋭くした後にもう一度クリップする
     sharp = np.clip(EDGE_SHARPNESS * up, -50.0, 50.0)
     return (1.0 / (1.0 + np.exp(-sharp))).astype(np.float32)
 
