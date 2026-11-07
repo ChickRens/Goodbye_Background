@@ -309,7 +309,7 @@ Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）�
 | `POST /video-jobs/{id}/start` | 記録（`start-video-job`） | 持ち主の `client-id` |
 | `GET /video-jobs/{id}` | 記録しない（ポーリング） | 持ち主の `client-id` |
 | `POST /video-jobs/{id}/preview-frame` | 記録しない（回数も消費しない） | 持ち主の `client-id`。`created` のときだけ（以降は 409 `VIDEO_JOB_INVALID_STATE`） |
-| `POST /video-jobs/{id}/preview` | 記録しない（回数も消費しない） | 持ち主の `client-id`。`created` のときだけ。フレーム未登録は 409 `PREVIEW_FRAME_NOT_FOUND` |
+| `POST /video-jobs/{id}/preview` | 記録しない（回数も消費しない） | 持ち主の `client-id`。`created` のときだけ。フレーム未登録（または LRU で捨てられた）は 409 `PREVIEW_FRAME_NOT_FOUND` |
 | `POST /internal/video-jobs/{id}/events` | 記録しない | HMAC-SHA256（401 `INVALID_SIGNATURE`）。パスと本文の `job_id` が違えば 400 `JOB_ID_MISMATCH` |
 
 - `router.rs` の `video_routes` が（記録する, しない）の 2 つの Router を返し、`route` が `track_usage` の前と後に merge する
@@ -346,9 +346,16 @@ Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）�
   512×512 に引き伸ばし → mean/std で正規化 → `vision_encoder` → `feats2_no_mem` を `feats2_cond` に、点は ×512・include=1 / exclude=0
   → `mask_decoder` の `high_res_mask` → フレームの大きさにバイリニア拡大 → ±50 → ×16 → ±50 → sigmoid → グレースケール PNG。
   バイリニアは `preview/image_math.rs` が OpenCV の `cv2.resize(INTER_LINEAR)` をなぞる（uint8 は完全一致を確認済み）
-- フレームの登録時に 1 回だけエンコードし、特徴量（`feats0`/`feats1`/`feats2_no_mem` を f32 で約 4MB）とフレームの大きさを
-  `PreviewFeatureStore` にジョブごとに置く。点が変わるたびにデコーダだけを回す
-- 特徴量の寿命はジョブと同じ: `DeleteExpiredVideoJobsUseCase` がジョブを消すときに一緒に消す（ジョブの無い特徴量も掃除する）。
-  登録はジョブのロックを持ったまま行うので、片付けとすれ違って消えたジョブの特徴量が残ることはない
+- フレームの登録時に 1 回だけエンコードし、特徴量（`feats0`/`feats1`/`feats2_no_mem` を f16 で約 2MB。モデルが fp16 なので
+  f32 で持つのと結果は同じ）とフレームの大きさを `PreviewFeatureStore` にジョブごとに置く。点が変わるたびにデコーダだけを回す
+- `/preview` はヘッダー `X-Object-Present: true|false` も返す（デコーダの `object_score_logits > 0`。ワーカーは 1 枚目でこれが偽だと
+  `subject_not_found` で失敗する）
+- 作成は回数を消費しないので、メモリと CPU に上限を付けている:
+  - 特徴量は最大 `MAX_PREVIEW_FEATURES`（64）件。溢れたら最も長く使われていないもの（LRU）を捨てる。捨てられたジョブの `/preview` は
+    409 `PREVIEW_FRAME_NOT_FOUND` になり、フロントがフレームを登録し直す
+  - `preview-frame` は同時に `MAX_CONCURRENT_PREVIEW_ENCODES`（2）件まで（本文を読む前に `Semaphore` の `try_acquire`）。
+    空きが無ければ待たずに 503 `PREVIEW_BUSY`
+- 特徴量の寿命はジョブと同じ: 開始（`Created` を抜けたとき）と、`DeleteExpiredVideoJobsUseCase` がジョブを消すときに消す
+  （ジョブの無い特徴量も掃除する）。登録はジョブのロックを持ったまま行うので、片付けとすれ違って消えたジョブの特徴量が残ることはない
 - 登録できる画像: PNG / JPEG、10MB 以下（`preview-frame` のルートにだけ `DefaultBodyLimit`）、長辺 2000px 以下。
   違えば 400 `INVALID_PREVIEW_IMAGE`。推論の失敗は 500 `PREVIEW_FAILED`

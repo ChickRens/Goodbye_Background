@@ -73,7 +73,7 @@ pub fn route(app: Arc<App>, video: Arc<VideoCutoutApp>) -> Router {
 /// | `POST /video-jobs/{id}/start` | `start_video_job` | `{points: [{x, y, label}], background}` | 202 `{phase, failure_code, remaining_today}` | 記録する |
 /// | `GET /video-jobs/{id}` | `get_video_job` | なし | 200 `{phase, progress, failure_code, quota_refunded, download_url, remaining_today}` | しない（ポーリング） |
 /// | `POST /video-jobs/{id}/preview-frame` | `set_preview_frame` | multipart（`file`。PNG / JPEG、10MB 以下、長辺 2000px 以下） | 204 | しない |
-/// | `POST /video-jobs/{id}/preview` | `preview_video_mask` | `{points: [{x, y, label}]}` | 200 `image/png`（グレースケールの alpha。フレームと同じ大きさ） | しない |
+/// | `POST /video-jobs/{id}/preview` | `preview_video_mask` | `{points: [{x, y, label}]}` | 200 `image/png`（グレースケールの alpha。フレームと同じ大きさ）+ ヘッダー `X-Object-Present` | しない |
 /// | `POST /internal/video-jobs/{id}/events` | `report_video_job_event` | `WorkerEvent`（HMAC 署名付き） | 204 | しない |
 ///
 /// 利用者向けの 5 つは `client-id` ヘッダー（UUID）が必須（無ければ 400 `MISSING_CLIENT_ID`）。
@@ -123,20 +123,28 @@ mod router_test {
     const CLIENT_ID: &str = "11111111-2222-4333-8444-555555555555";
 
     fn router_for(video: VideoCutoutApp) -> Router {
-        let (tracked, untracked) = video_routes(Arc::new(video));
+        router_for_shared(Arc::new(video))
+    }
+
+    fn router_for_shared(video: Arc<VideoCutoutApp>) -> Router {
+        let (tracked, untracked) = video_routes(video);
         tracked
             .merge(untracked)
             .layer(MockConnectInfo(SocketAddr::from(([203, 0, 113, 7], 40000))))
     }
 
     fn enabled_router() -> Router {
-        router_for(VideoCutoutApp::for_test(
+        router_for(enabled_app())
+    }
+
+    fn enabled_app() -> VideoCutoutApp {
+        VideoCutoutApp::for_test(
             Arc::new(FakeStorage::new(Some(1_000_000))),
             Arc::new(FakeWorker::new()),
             Arc::new(InMemoryQuota::new()),
             Arc::new(FakeVideoClock::new(NOW_MS)),
             SECRET,
-        ))
+        )
     }
 
     fn disabled_router() -> Router {
@@ -376,6 +384,7 @@ mod router_test {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()["content-type"], "image/png");
+        assert_eq!(response.headers()["x-object-present"], "true");
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let mask = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).unwrap();
         assert_eq!(mask.color(), image::ColorType::L8);
@@ -470,5 +479,42 @@ mod router_test {
         let (status, body) = send(&router, preview_frame(&id, b"hello")).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body, json!({"code": "INVALID_PREVIEW_IMAGE"}));
+    }
+
+    #[tokio::test]
+    async fn preview_frame_accepts_a_few_megabytes() {
+        // axum の既定の本文の上限（2MB）より大きい正しい画像が通る（ルートの 10MB の上限が効いている）
+        let router = enabled_router();
+        let id = created_job(&router).await;
+        let mut state: u32 = 12345;
+        let noise = image::RgbImage::from_fn(1200, 1200, |_, _| {
+            state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            let b = (state >> 8).to_le_bytes();
+            image::Rgb([b[0], b[1], b[2]])
+        });
+        let mut png = Vec::new();
+        noise
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        assert!((3 * 1024 * 1024..=5 * 1024 * 1024).contains(&png.len()), "{}", png.len());
+        let (status, _) = send(&router, preview_frame(&id, &png)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn preview_frame_is_503_when_encodes_are_busy() {
+        let video = Arc::new(enabled_app());
+        let router = router_for_shared(video.clone());
+        let id = created_job(&router).await;
+        let held: Vec<_> = (0..crate::composition::video_wiring::MAX_CONCURRENT_PREVIEW_ENCODES)
+            .map(|_| video.try_acquire_preview_encode().unwrap())
+            .collect();
+        let (status, body) = send(&router, preview_frame(&id, &png_bytes(8, 8))).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body, json!({"code": "PREVIEW_BUSY"}));
+        // 空けば通る
+        drop(held);
+        let (status, _) = send(&router, preview_frame(&id, &png_bytes(8, 8))).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
     }
 }

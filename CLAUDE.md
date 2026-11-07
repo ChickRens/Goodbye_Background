@@ -131,7 +131,8 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 16. **動画のプレビューは本番と同じ SAM2.1 tiny を Rust（CPU）で動かす**（仕様 D8 を置き換え。docs/ARCHITECTURE.md §9.4）。
     画像の small を流用すると、本番の tiny と選ぶ範囲が食い違ったため。`video_cutout/preview/` の前処理・alpha は
     `worker/cutout/tracker.py`・`compositor.py` と同じ数値になるよう書いてある（EDGE_SHARPNESS などを変えるときは両方直す）。
-    特徴量はジョブごとに約 4MB をメモリに置き、ジョブの削除・期限切れで消す
+    特徴量はジョブごとに約 2MB（f16）をメモリに置き、開始・削除・期限切れで消す。最大 64 件（LRU）、
+    フレームの登録は同時 2 件まで（超えたら 503 `PREVIEW_BUSY`）
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）
 

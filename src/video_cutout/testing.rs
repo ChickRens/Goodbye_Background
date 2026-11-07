@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use half::f16;
 use image::{ImageFormat, RgbImage};
 use ndarray::{Array2, Array4};
 use uuid::Uuid;
@@ -30,7 +31,7 @@ use crate::video_cutout::{
     preview::{
         error::PreviewError,
         feature_store::PreviewFeatureStore,
-        segmenter::{PREVIEW_INPUT_SIZE, PreviewFeatures, PreviewSegmenter},
+        segmenter::{PREVIEW_INPUT_SIZE, PreviewDecoded, PreviewFeatures, PreviewSegmenter},
     },
     preview_mask::{input::PreviewMaskInput, usecase::PreviewMaskUseCase},
     quota::{
@@ -156,14 +157,20 @@ impl CutoutWorker for FakeWorker {
 
 /// エンコードの回数とデコードに渡された点を記録する。
 /// デコードは左半分（x < 256）を前景（ロジット +10）、右半分を背景（-10）にした 512x512 を返す。
+/// 対象のスコアは既定で +1（写っている）。`set_object_score` で変えられる。
 pub struct FakePreviewSegmenter {
     encoded: AtomicUsize,
     decoded: Mutex<Vec<Points>>,
+    object_score: Mutex<f32>,
 }
 
 impl FakePreviewSegmenter {
     pub fn new() -> Self {
-        Self { encoded: AtomicUsize::new(0), decoded: Mutex::new(Vec::new()) }
+        Self {
+            encoded: AtomicUsize::new(0),
+            decoded: Mutex::new(Vec::new()),
+            object_score: Mutex::new(1.0),
+        }
     }
 
     pub fn encoded(&self) -> usize {
@@ -173,24 +180,31 @@ impl FakePreviewSegmenter {
     pub fn decoded_points(&self) -> Vec<Points> {
         self.decoded.lock().unwrap().clone()
     }
+
+    pub fn set_object_score(&self, score: f32) {
+        *self.object_score.lock().unwrap() = score;
+    }
 }
 
 impl PreviewSegmenter for FakePreviewSegmenter {
     fn encode(&self, frame: &RgbImage) -> Result<PreviewFeatures, PreviewError> {
         self.encoded.fetch_add(1, Ordering::SeqCst);
         Ok(PreviewFeatures {
-            feats0: Array4::zeros((1, 1, 1, 1)),
-            feats1: Array4::zeros((1, 1, 1, 1)),
-            feats2_no_mem: Array4::zeros((1, 1, 1, 1)),
+            feats0: Array4::from_elem((1, 1, 1, 1), f16::ZERO),
+            feats1: Array4::from_elem((1, 1, 1, 1), f16::ZERO),
+            feats2_no_mem: Array4::from_elem((1, 1, 1, 1), f16::ZERO),
             frame_width: frame.width(),
             frame_height: frame.height(),
         })
     }
 
-    fn decode(&self, _features: &PreviewFeatures, points: &Points) -> Result<Array2<f32>, PreviewError> {
+    fn decode(&self, _features: &PreviewFeatures, points: &Points) -> Result<PreviewDecoded, PreviewError> {
         self.decoded.lock().unwrap().push(points.clone());
         let s = PREVIEW_INPUT_SIZE;
-        Ok(Array2::from_shape_fn((s, s), |(_, x)| if x < s / 2 { 10.0 } else { -10.0 }))
+        Ok(PreviewDecoded {
+            logits: Array2::from_shape_fn((s, s), |(_, x)| if x < s / 2 { 10.0 } else { -10.0 }),
+            object_score: *self.object_score.lock().unwrap(),
+        })
     }
 }
 
@@ -388,6 +402,7 @@ impl Harness {
             locks.clone(),
             quota.clone(),
             clock.clone(),
+            features.clone(),
         );
         let get = GetVideoJobUseCase::new(
             storage.clone(),

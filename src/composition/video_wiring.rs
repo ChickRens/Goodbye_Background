@@ -14,6 +14,8 @@
 
 use std::sync::Arc;
 
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+
 use crate::{
     application::error::ApplicationError,
     video_cutout::{
@@ -58,6 +60,9 @@ use crate::{
     },
 };
 
+/// プレビュー用フレームの登録を同時に動かせる件数。
+pub const MAX_CONCURRENT_PREVIEW_ENCODES: usize = 2;
+
 /// 動画切り抜きのファサード。axum の `State<Arc<VideoCutoutApp>>` として動画のハンドラに渡される。
 pub struct VideoCutoutApp {
     /// 設定が無い（動画が無効）なら `None`。
@@ -72,6 +77,8 @@ struct VideoCutout {
     report: ReportVideoJobEventUseCase,
     set_preview_frame: SetPreviewFrameUseCase,
     preview_mask: PreviewMaskUseCase,
+    /// プレビュー用フレームの登録（画像のデコード + エンコード）を同時に何件まで動かすか。
+    preview_encodes: Arc<Semaphore>,
     cleanup: DeleteExpiredVideoJobsUseCase,
     throttle: VideoCleanupThrottle,
     clock: Arc<dyn VideoClock>,
@@ -190,6 +197,16 @@ impl VideoCutoutApp {
         Ok(video.report.execute(input).await?)
     }
 
+    /// プレビュー用フレームの登録の許可を取る。ハンドラが本文を読む前に取り、登録が終わるまで持つ。
+    /// 同時に `MAX_CONCURRENT_PREVIEW_ENCODES` 件を超えるなら待たずに `PREVIEW_BUSY`（503）。
+    /// 作成は回数を消費しないので、CPU とメモリ（本文 10MB・デコード後の画像）を同時の件数で守る。
+    pub fn try_acquire_preview_encode(&self) -> Result<OwnedSemaphorePermit, ApplicationError> {
+        let video = self.enabled()?;
+        Arc::clone(&video.preview_encodes)
+            .try_acquire_owned()
+            .map_err(|_| VideoCutoutError::PreviewBusy.into())
+    }
+
     /// プレビュー用のフレームを登録する（回数は消費しない）。
     pub async fn set_preview_frame(
         &self,
@@ -279,6 +296,7 @@ impl VideoCutout {
                 locks.clone(),
                 quota.clone(),
                 clock.clone(),
+                features.clone(),
             ),
             get: GetVideoJobUseCase::new(
                 storage.clone(),
@@ -301,6 +319,7 @@ impl VideoCutout {
                 features.clone(),
             ),
             preview_mask: PreviewMaskUseCase::new(preview, repository.clone(), features.clone()),
+            preview_encodes: Arc::new(Semaphore::new(MAX_CONCURRENT_PREVIEW_ENCODES)),
             cleanup: DeleteExpiredVideoJobsUseCase::new(storage, repository, locks, quota, features),
             throttle: VideoCleanupThrottle::new(),
             clock,

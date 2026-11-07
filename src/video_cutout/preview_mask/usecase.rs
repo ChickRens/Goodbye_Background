@@ -2,6 +2,7 @@
 //!
 //! 持ち主確認 → `Created` か → 登録したフレームの特徴量があるか（無ければ `PREVIEW_FRAME_NOT_FOUND`）
 //! → デコーダ → alpha（`worker/cutout/compositor.py` と同じ式）をフレームの大きさに拡大 → PNG。
+//! 対象のスコア（`object_score_logits > 0`）も返す（ワーカーはこれが偽だと `subject_not_found` で失敗する）。
 //! ジョブを変更しないのでロックは取らない。重い処理は `spawn_blocking`。回数は消費しない。
 
 use std::{io::Cursor, sync::Arc};
@@ -59,19 +60,23 @@ impl PreviewMaskUseCase {
 
         let segmenter = self.segmenter.clone();
         let points = input.points;
-        let png = spawn_blocking(move || -> Result<Vec<u8>, PreviewError> {
-            let logits = segmenter.decode(&features, &points)?;
+        let (png, object_present) = spawn_blocking(move || -> Result<_, PreviewError> {
+            let decoded = segmenter.decode(&features, &points)?;
             let (width, height) = (features.frame_width, features.frame_height);
-            let gray = alpha_to_gray(&alpha_from_logits(&logits, width, height), width, height);
+            let alpha = alpha_from_logits(&decoded.logits, width, height);
+            let gray = alpha_to_gray(&alpha, width, height);
             let mut png = Vec::new();
             gray.write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
                 .map_err(|e| PreviewError::Inference(format!("PNG の書き出しに失敗: {e}")))?;
-            Ok(png)
+            Ok((png, decoded.object_present()))
         })
         .await
         .map_err(|e| PreviewError::Inference(format!("デコードのタスクが失敗: {e}")))??;
 
-        Ok(PreviewMaskOutput { png })
+        Ok(PreviewMaskOutput {
+            png,
+            object_present,
+        })
     }
 }
 
@@ -98,8 +103,22 @@ mod preview_mask_usecase_test {
         assert_eq!(gray.get_pixel(0, 15).0, [255]);
         assert_eq!(gray.get_pixel(39, 15).0, [0]);
         assert_eq!(h.preview.decoded_points(), vec![mask_input(id).points]);
+        assert!(out.object_present);
         // 回数は消費しない
         assert_eq!(h.remaining().await, 3);
+    }
+
+    #[tokio::test]
+    async fn reports_absent_object_from_score() {
+        let h = harness();
+        let id = h.created_job().await;
+        h.set_frame
+            .execute(frame_input(id, png_bytes(4, 4)))
+            .await
+            .unwrap();
+        h.preview.set_object_score(-1.0);
+        let out = h.preview_mask.execute(mask_input(id)).await.unwrap();
+        assert!(!out.object_present);
     }
 
     #[tokio::test]

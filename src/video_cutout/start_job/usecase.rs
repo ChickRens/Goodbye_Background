@@ -4,6 +4,7 @@
 //! - アップロードが無ければ `UPLOAD_NOT_FOUND`（回数は消費しない）。
 //! - 実サイズが 200MB を超えていれば回数を消費せず `Failed(TooLarge)` にして `Ok` を返す。
 //! - 投入に失敗したら回数を返して `Failed(DispatchFailed)` にし、`Ok` を返す（結果はポーリングで伝わる）。
+//! - `Created` を抜けたら（`Queued` / `Failed(TooLarge)`）プレビューの特徴量を消す（もう使わないため。メモリを空ける）。
 //!
 //! 回数の消費・返却は常にジョブの持ち主のキー（作成時の client_id と IP）で行う。
 //! 後で返却するとき（期限切れ・ワーカーの失敗通知）はジョブしか手元に無いため、キーを揃えておく。
@@ -20,6 +21,7 @@ use crate::video_cutout::{
         repository::VideoJobRepository,
         video_job::{MAX_INPUT_BYTES, VideoJob},
     },
+    preview::feature_store::PreviewFeatureStore,
     quota::{
         daily_quota::{DailyQuota, QuotaKeys},
         jst_day::jst_day,
@@ -49,6 +51,7 @@ pub struct StartVideoJobUseCase {
     locks: Arc<VideoJobLocks>,
     quota: Arc<dyn DailyQuota>,
     clock: Arc<dyn VideoClock>,
+    features: Arc<PreviewFeatureStore>,
 }
 
 impl StartVideoJobUseCase {
@@ -60,6 +63,7 @@ impl StartVideoJobUseCase {
         locks: Arc<VideoJobLocks>,
         quota: Arc<dyn DailyQuota>,
         clock: Arc<dyn VideoClock>,
+        features: Arc<PreviewFeatureStore>,
     ) -> Self {
         Self {
             public_base_url,
@@ -69,6 +73,7 @@ impl StartVideoJobUseCase {
             locks,
             quota,
             clock,
+            features,
         }
     }
 
@@ -111,6 +116,7 @@ impl StartVideoJobUseCase {
         if size > MAX_INPUT_BYTES {
             // 申告より大きいファイルが置かれた。回数は消費しない
             self.fail(&mut job, FailureCode::TooLarge, now_ms).await;
+            self.features.remove(&job.id);
             let remaining_today = self.quota.remaining(&keys, day).await?;
             return Ok(StartVideoJobOutput {
                 phase: job.phase,
@@ -126,6 +132,7 @@ impl StartVideoJobUseCase {
         job.quota_day = Some(day);
         job.last_event_at_ms = now_ms;
         self.repository.save(job.clone());
+        self.features.remove(&job.id);
 
         let request = self.worker_request(&job);
         match self.worker.dispatch(&request).await {
@@ -325,6 +332,29 @@ mod start_video_job_usecase_test {
             Err(StartVideoJobError::Job(VideoJobError::NotFound))
         ));
         assert_eq!(h.locks.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn start_drops_preview_features() {
+        let h = harness();
+        let id = h.created_job().await;
+        h.set_frame
+            .execute(frame_input(id, png_bytes(4, 4)))
+            .await
+            .unwrap();
+        assert!(h.features.get(&id).is_some());
+        h.start.execute(start_input(id)).await.unwrap();
+        assert!(h.features.get(&id).is_none());
+
+        // 大きすぎて Failed(TooLarge) になったときも消す
+        let h = harness_with_head(Some(209_715_201));
+        let id = h.created_job().await;
+        h.set_frame
+            .execute(frame_input(id, png_bytes(4, 4)))
+            .await
+            .unwrap();
+        h.start.execute(start_input(id)).await.unwrap();
+        assert!(h.features.get(&id).is_none());
     }
 
     #[tokio::test]

@@ -44,5 +44,8 @@ pub async fn preview_video_mask(
             points,
         })
         .await?;
-    Ok(PreviewMaskResponse { png: output.png })
+    Ok(PreviewMaskResponse {
+        png: output.png,
+        object_present: output.object_present,
+    })
 }

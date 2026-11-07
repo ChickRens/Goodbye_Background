@@ -2,6 +2,7 @@
 //!
 //! ジョブの持ち主（`client-id`）だけ、`created` のときだけ使える。回数は消費せず、利用ログにも記録しない。
 //! エンコード（重い）はユースケースの中で `spawn_blocking` する。成功は 204。
+//! 本文を読む前に同時実行の許可を取る（空きが無ければ 503 `PREVIEW_BUSY`）。
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -33,6 +34,8 @@ pub async fn set_preview_frame(
     let requester =
         Requester::from_request(&headers, peer, &video).map_err(VideoHandlerError::from)?;
     let job_id = VideoJobId::from_str(&id).map_err(VideoHandlerError::from)?;
+    // 登録が終わるまで持つ（本文の読み込み・デコード・エンコードの全部を数える）
+    let _permit = video.try_acquire_preview_encode()?;
     let mut multipart =
         multipart.map_err(|_| VideoHandlerError::from(PreviewInputError::InvalidImage))?;
     let image = read_file_field(&mut multipart)

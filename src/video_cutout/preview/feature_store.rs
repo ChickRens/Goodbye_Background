@@ -1,43 +1,88 @@
-//! ジョブごとのプレビューの特徴量の置き場所。寿命はジョブと同じ（ジョブの削除・期限切れで消す）。
+//! ジョブごとのプレビューの特徴量の置き場所。
+//!
+//! 寿命はジョブと同じ（開始・削除・期限切れで消す）だが、作成は回数を消費しないので無制限に増えうる。
+//! メモリを守るため `MAX_PREVIEW_FEATURES` 件を上限にし、溢れたら最も長く使われていないものを捨てる（LRU）。
+//! 捨てられたジョブの `/preview` は 409 `PREVIEW_FRAME_NOT_FOUND` になり、フロントがフレームを登録し直す。
 
-use std::sync::Arc;
-
-use dashmap::DashMap;
+use std::{collections::HashMap, sync::Arc, sync::Mutex};
 
 use crate::video_cutout::{job::id::VideoJobId, preview::segmenter::PreviewFeatures};
 
+/// 同時に置いておく特徴量の上限（1 件約 2MB → 最大約 128MB）。
+pub const MAX_PREVIEW_FEATURES: usize = 64;
+
 pub struct PreviewFeatureStore {
-    features: DashMap<VideoJobId, Arc<PreviewFeatures>>,
+    inner: Mutex<Inner>,
+}
+
+struct Inner {
+    /// 値と、最後に使った順番（大きいほど新しい）。
+    entries: HashMap<VideoJobId, (Arc<PreviewFeatures>, u64)>,
+    tick: u64,
+}
+
+impl Inner {
+    fn next_tick(&mut self) -> u64 {
+        self.tick += 1;
+        self.tick
+    }
 }
 
 impl PreviewFeatureStore {
     pub fn new() -> Self {
         Self {
-            features: DashMap::new(),
+            inner: Mutex::new(Inner {
+                entries: HashMap::new(),
+                tick: 0,
+            }),
         }
     }
 
-    /// 同じジョブで登録し直したら丸ごと置き換える。
+    /// 同じジョブで登録し直したら丸ごと置き換える。上限を超えるなら最も長く使われていないものを捨てる。
     pub fn save(&self, job_id: VideoJobId, features: Arc<PreviewFeatures>) {
-        self.features.insert(job_id, features);
+        let mut inner = self.lock();
+        if !inner.entries.contains_key(&job_id) && inner.entries.len() >= MAX_PREVIEW_FEATURES {
+            let oldest = inner
+                .entries
+                .iter()
+                .min_by_key(|(_, (_, used))| *used)
+                .map(|(id, _)| *id);
+            if let Some(oldest) = oldest {
+                inner.entries.remove(&oldest);
+            }
+        }
+        let tick = inner.next_tick();
+        inner.entries.insert(job_id, (features, tick));
     }
 
+    /// 取得したものは「最近使った」扱いになる。
     pub fn get(&self, job_id: &VideoJobId) -> Option<Arc<PreviewFeatures>> {
-        self.features.get(job_id).map(|e| Arc::clone(e.value()))
+        let mut inner = self.lock();
+        let tick = inner.next_tick();
+        inner.entries.get_mut(job_id).map(|(features, used)| {
+            *used = tick;
+            Arc::clone(features)
+        })
     }
 
     pub fn remove(&self, job_id: &VideoJobId) {
-        self.features.remove(job_id);
+        self.lock().entries.remove(job_id);
     }
 
     /// `keep` が `false` を返した ID の特徴量を消す（ジョブが既に無いのに残ったものを掃除するため）。
     pub fn retain_ids(&self, keep: impl Fn(&VideoJobId) -> bool) {
-        self.features.retain(|id, _| keep(id));
+        self.lock().entries.retain(|id, _| keep(id));
     }
 
     #[cfg(test)]
     pub fn len(&self) -> usize {
-        self.features.len()
+        self.lock().entries.len()
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
+        self.inner
+            .lock()
+            .expect("プレビューの特徴量の Mutex が壊れている")
     }
 }
 
@@ -49,9 +94,9 @@ mod preview_feature_store_test {
 
     fn features() -> Arc<PreviewFeatures> {
         Arc::new(PreviewFeatures {
-            feats0: Array4::zeros((1, 1, 1, 1)),
-            feats1: Array4::zeros((1, 1, 1, 1)),
-            feats2_no_mem: Array4::zeros((1, 1, 1, 1)),
+            feats0: Array4::from_elem((1, 1, 1, 1), half::f16::ZERO),
+            feats1: Array4::from_elem((1, 1, 1, 1), half::f16::ZERO),
+            feats2_no_mem: Array4::from_elem((1, 1, 1, 1), half::f16::ZERO),
             frame_width: 4,
             frame_height: 3,
         })
@@ -68,5 +113,29 @@ mod preview_feature_store_test {
         assert!(store.get(&a).is_none());
         store.retain_ids(|id| *id != b);
         assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn evicts_least_recently_used_beyond_the_cap() {
+        let store = PreviewFeatureStore::new();
+        let ids: Vec<VideoJobId> = (0..MAX_PREVIEW_FEATURES)
+            .map(|_| VideoJobId::new_random())
+            .collect();
+        for id in &ids {
+            store.save(*id, features());
+        }
+        assert_eq!(store.len(), MAX_PREVIEW_FEATURES);
+        // 一番古い ids[0] を使うと、次に古い ids[1] が捨てられる
+        assert!(store.get(&ids[0]).is_some());
+        let newcomer = VideoJobId::new_random();
+        store.save(newcomer, features());
+        assert_eq!(store.len(), MAX_PREVIEW_FEATURES);
+        assert!(store.get(&ids[1]).is_none());
+        assert!(store.get(&ids[0]).is_some());
+        assert!(store.get(&newcomer).is_some());
+        // 既にあるジョブの登録し直しでは何も捨てない
+        store.save(ids[2], features());
+        assert_eq!(store.len(), MAX_PREVIEW_FEATURES);
+        assert!(store.get(&ids[3]).is_some());
     }
 }

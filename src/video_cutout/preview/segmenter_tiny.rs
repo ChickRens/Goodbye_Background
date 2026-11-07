@@ -27,7 +27,7 @@ use crate::video_cutout::{
     preview::{
         error::PreviewError,
         image_math::resize_bilinear_rgb8,
-        segmenter::{PREVIEW_INPUT_SIZE, PreviewFeatures, PreviewSegmenter},
+        segmenter::{PREVIEW_INPUT_SIZE, PreviewDecoded, PreviewFeatures, PreviewSegmenter},
     },
 };
 
@@ -109,9 +109,11 @@ impl PreviewSegmenter for Sam2TinyPreviewSegmenter {
             vec![("pixel_values", Feed::F32(pixel_values.into_dyn()))],
             &["feats0", "feats1", "feats2_no_mem"],
         )?;
-        let mut take = |name: &str| -> Result<Array4<f32>, PreviewError> {
+        // 特徴量は f16 で持つ（fp16 のモデルならそのまま。f32 のモデルなら f16 に丸める）
+        let mut take = |name: &str| -> Result<Array4<f16>, PreviewError> {
             out.remove(name)
                 .expect("run が名前を全部返す")
+                .into_f16()
                 .into_dimensionality::<Ix4>()
                 .map_err(|e| PreviewError::Inference(format!("{name}: {e}")))
         };
@@ -128,22 +130,25 @@ impl PreviewSegmenter for Sam2TinyPreviewSegmenter {
         &self,
         features: &PreviewFeatures,
         points: &Points,
-    ) -> Result<Array2<f32>, PreviewError> {
+    ) -> Result<PreviewDecoded, PreviewError> {
         let (coords, labels) = point_inputs(points);
         let mut out = self.mask_decoder.run(
             vec![
-                ("feats0", Feed::F32(features.feats0.clone().into_dyn())),
-                ("feats1", Feed::F32(features.feats1.clone().into_dyn())),
+                ("feats0", Feed::F16(features.feats0.clone().into_dyn())),
+                ("feats1", Feed::F16(features.feats1.clone().into_dyn())),
                 (
                     "feats2_cond",
-                    Feed::F32(features.feats2_no_mem.clone().into_dyn()),
+                    Feed::F16(features.feats2_no_mem.clone().into_dyn()),
                 ),
                 ("input_points", Feed::F32(coords.into_dyn())),
                 ("input_labels", Feed::I32(labels.into_dyn())),
             ],
-            &["high_res_mask"],
+            &["high_res_mask", "object_score_logits"],
         )?;
-        let mask = out.remove("high_res_mask").expect("run が名前を全部返す");
+        let mask = out
+            .remove("high_res_mask")
+            .expect("run が名前を全部返す")
+            .into_f32();
         let s = PREVIEW_INPUT_SIZE;
         if mask.len() != s * s {
             return Err(PreviewError::Inference(format!(
@@ -151,15 +156,51 @@ impl PreviewSegmenter for Sam2TinyPreviewSegmenter {
                 mask.shape()
             )));
         }
-        Array2::from_shape_vec((s, s), mask.into_iter().collect())
-            .map_err(|e| PreviewError::Inference(e.to_string()))
+        let logits = Array2::from_shape_vec((s, s), mask.into_iter().collect())
+            .map_err(|e| PreviewError::Inference(e.to_string()))?;
+        // tracker.py と同じく先頭の値をスコアにする
+        let object_score = out
+            .remove("object_score_logits")
+            .expect("run が名前を全部返す")
+            .into_f32()
+            .iter()
+            .next()
+            .copied()
+            .ok_or_else(|| PreviewError::Inference("object_score_logits が空".to_string()))?;
+        Ok(PreviewDecoded {
+            logits,
+            object_score,
+        })
     }
 }
 
-/// グラフに渡す値（f32 か i32 で作り、モデルの宣言に合わせて変換する）。
+/// グラフに渡す値（f32・f16・i32 で作り、モデルの宣言に合わせて変換する）。
 enum Feed {
     F32(ArrayD<f32>),
+    F16(ArrayD<f16>),
     I32(ArrayD<i32>),
+}
+
+/// グラフの出力（モデルが出した型のまま持ち、使う側で f32 か f16 にする）。
+enum Output {
+    F32(ArrayD<f32>),
+    F16(ArrayD<f16>),
+}
+
+impl Output {
+    fn into_f32(self) -> ArrayD<f32> {
+        match self {
+            Output::F32(a) => a,
+            Output::F16(a) => a.mapv(f16::to_f32),
+        }
+    }
+
+    fn into_f16(self) -> ArrayD<f16> {
+        match self {
+            Output::F32(a) => a.mapv(f16::from_f32),
+            Output::F16(a) => a,
+        }
+    }
 }
 
 /// 1 つの ONNX グラフ。入力の型を読み込み時に覚えておく。
@@ -193,12 +234,12 @@ impl OnnxGraph {
         })
     }
 
-    /// `outputs` に挙げた出力を f32 で返す。
+    /// `outputs` に挙げた出力を返す。
     fn run(
         &self,
         feeds: Vec<(&str, Feed)>,
         outputs: &[&str],
-    ) -> Result<HashMap<String, ArrayD<f32>>, PreviewError> {
+    ) -> Result<HashMap<String, Output>, PreviewError> {
         let inputs = feeds
             .into_iter()
             .map(|(name, feed)| Ok((name, self.tensor(name, feed)?)))
@@ -210,7 +251,7 @@ impl OnnxGraph {
         let result = session.run(inputs).map_err(|e| self.err(e))?;
         outputs
             .iter()
-            .map(|name| Ok((name.to_string(), self.output_f32(&result, name)?)))
+            .map(|name| Ok((name.to_string(), self.output(&result, name)?)))
             .collect()
     }
 
@@ -222,6 +263,10 @@ impl OnnxGraph {
             (Feed::F32(a), TensorElementType::Float32) => Tensor::from_array(a).map(|t| t.upcast()),
             (Feed::F32(a), TensorElementType::Float16) => {
                 Tensor::from_array(a.mapv(f16::from_f32)).map(|t| t.upcast())
+            }
+            (Feed::F16(a), TensorElementType::Float16) => Tensor::from_array(a).map(|t| t.upcast()),
+            (Feed::F16(a), TensorElementType::Float32) => {
+                Tensor::from_array(a.mapv(f16::to_f32)).map(|t| t.upcast())
             }
             (Feed::I32(a), TensorElementType::Int32) => Tensor::from_array(a).map(|t| t.upcast()),
             (Feed::I32(a), TensorElementType::Int64) => {
@@ -237,34 +282,31 @@ impl OnnxGraph {
         tensor.map_err(|e| self.err(e))
     }
 
-    fn output_f32(
-        &self,
-        outputs: &SessionOutputs,
-        name: &str,
-    ) -> Result<ArrayD<f32>, PreviewError> {
+    fn output(&self, outputs: &SessionOutputs, name: &str) -> Result<Output, PreviewError> {
         let value = outputs
             .get(name)
             .ok_or_else(|| PreviewError::Inference(format!("{}: 出力 {name} が無い", self.name)))?;
-        let (shape, data): (Vec<usize>, Vec<f32>) = match value.dtype().tensor_type() {
+        let shape_err = |e: ndarray::ShapeError| PreviewError::Inference(format!("{name}: {e}"));
+        match value.dtype().tensor_type() {
             Some(TensorElementType::Float32) => {
                 let (shape, data) = value.try_extract_tensor::<f32>().map_err(|e| self.err(e))?;
-                (shape.iter().map(|&d| d as usize).collect(), data.to_vec())
+                let shape: Vec<usize> = shape.iter().map(|&d| d as usize).collect();
+                ArrayD::from_shape_vec(shape, data.to_vec())
+                    .map(Output::F32)
+                    .map_err(shape_err)
             }
             Some(TensorElementType::Float16) => {
                 let (shape, data) = value.try_extract_tensor::<f16>().map_err(|e| self.err(e))?;
-                (
-                    shape.iter().map(|&d| d as usize).collect(),
-                    data.iter().map(|v| v.to_f32()).collect(),
-                )
+                let shape: Vec<usize> = shape.iter().map(|&d| d as usize).collect();
+                ArrayD::from_shape_vec(shape, data.to_vec())
+                    .map(Output::F16)
+                    .map_err(shape_err)
             }
-            other => {
-                return Err(PreviewError::Inference(format!(
-                    "{}: 出力 {name} の型 {other:?} には対応していない",
-                    self.name
-                )));
-            }
-        };
-        ArrayD::from_shape_vec(shape, data).map_err(|e| PreviewError::Inference(e.to_string()))
+            other => Err(PreviewError::Inference(format!(
+                "{}: 出力 {name} の型 {other:?} には対応していない",
+                self.name
+            ))),
+        }
     }
 
     fn err(&self, e: ort::Error) -> PreviewError {
@@ -325,15 +367,30 @@ mod segmenter_tiny_test {
         assert_eq!(labels.iter().copied().collect::<Vec<_>>(), vec![1, 0]);
     }
 
+    #[test]
+    fn features_round_trip_through_f16_within_its_precision() {
+        let values = vec![1.0f32, 0.1, -3.3333, 1000.5, 1e-3, 0.0];
+        let stored =
+            Output::F32(ArrayD::from_shape_vec(vec![6], values.clone()).unwrap()).into_f16();
+        let back = Output::F16(stored).into_f32();
+        for (x, y) in values.iter().zip(back.iter()) {
+            // f16 の仮数は 10 bit なので、相対誤差は 2^-11 以下
+            assert!((x - y).abs() <= x.abs() * 2f32.powi(-11), "{x} -> {y}");
+        }
+        // f16 の出力を f16 で持つときは値が変わらない（fp16 のモデルでは f32 で持つのと同じ結果）
+        let h =
+            ArrayD::from_shape_vec(vec![2], vec![f16::from_f32(0.1), f16::from_f32(-2.5)]).unwrap();
+        assert_eq!(Output::F16(h.clone()).into_f16(), h);
+    }
+
     /// 実モデルで動かす（`SAM2_TINY_MODEL_DIR` に `models/sam2.1-tiny-video` と同じ構成のディレクトリを指定）。
     /// 例: `SAM2_TINY_MODEL_DIR=models/sam2.1-tiny-video cargo test -- --ignored tiny_model`
     #[test]
     #[ignore]
     fn tiny_model_encodes_and_decodes() {
-        let Ok(dir) = std::env::var("SAM2_TINY_MODEL_DIR") else {
-            eprintln!("SAM2_TINY_MODEL_DIR が無いので飛ばす");
-            return;
-        };
+        let dir = std::env::var("SAM2_TINY_MODEL_DIR").expect(
+            "SAM2_TINY_MODEL_DIR にモデルのディレクトリ（models/sam2.1-tiny-video と同じ構成）を指定して実行すること",
+        );
         let segmenter = Sam2TinyPreviewSegmenter::new(Path::new(&dir)).unwrap();
         let frame = RgbImage::from_fn(320, 240, |x, y| {
             image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
@@ -348,8 +405,9 @@ mod segmenter_tiny_test {
             NormalizedPoint::new(0.1, 0.1, PointLabel::Exclude).unwrap(),
         ])
         .unwrap();
-        let logits = segmenter.decode(&features, &points).unwrap();
-        assert_eq!(logits.dim(), (512, 512));
-        assert!(logits.iter().all(|v| v.is_finite()));
+        let decoded = segmenter.decode(&features, &points).unwrap();
+        assert_eq!(decoded.logits.dim(), (512, 512));
+        assert!(decoded.logits.iter().all(|v| v.is_finite()));
+        assert!(decoded.object_score.is_finite());
     }
 }
