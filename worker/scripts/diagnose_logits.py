@@ -5,8 +5,8 @@
 前者なら合成をいじっても直らない（案 B / 案 C が必要）。後者なら合成の閾値で取り戻せる。
 
 出力（取得先のフォルダに作る）:
-  diagnose.mp4  左から [本番と同じ合成] [ロジットの色分け + 0 と -2 の等高線] [閾値を -2 にずらした合成]
-  diagnose.csv  フレームごとの object_score と、ロジットが 0 / -1 / -2 / -4 を超える面積（512x512 の画素数）
+  diagnose-<model>.mp4  左から [本番と同じ合成] [ロジットの色分け + 0 と -2 の等高線] [閾値を -2 にずらした合成]
+  diagnose-<model>.csv  フレームごとの object_score と、ロジットが 0 / -1 / -2 / -4 を超える面積（モデルの解像度での画素数）
 
 使い方（worker フォルダで。モデルは全グラフが要る。初回は約 150MB を取得する）:
   uv run python scripts/diagnose_logits.py <元の動画> --point 0.50,0.42 [--point x,y,exclude] [--start-ms 0]
@@ -30,12 +30,12 @@ sys.path.insert(0, str(ROOT / "worker"))  # scripts/ から実行しても cutou
 
 from cutout.compositor import EDGE_SHARPNESS, alpha_from_logits, composite  # noqa: E402
 from cutout.contract import NormalizedPoint  # noqa: E402
-from cutout.models import MODEL_REVISION, fetch_models, load_constants, load_sessions  # noqa: E402
+from cutout.models import VIDEO_MODELS, fetch_models, load_constants, load_sessions  # noqa: E402
 from cutout.tracker import Sam2VideoTracker  # noqa: E402
 from cutout.video_io import MAX_FRAMES, FrameReader, Mp4Writer, output_geometry, probe  # noqa: E402
 
 # worker/models/ は git 管理外かつ Docker イメージに入らない（ルートの models/ に置くとイメージが太る）
-DEFAULT_MODEL_DIR = ROOT / "worker" / "models" / "sam2.1-tiny-video-full"
+MODELS_ROOT = ROOT / "worker" / "models"
 GREEN = (0, 255, 0)
 THRESHOLDS = (0.0, -1.0, -2.0, -4.0)
 SHIFTED = -2.0  # 3 枚目のパネルで使う閾値
@@ -53,7 +53,7 @@ def parse_point(s: str) -> NormalizedPoint:
 
 
 def area_stats(logits_512: np.ndarray) -> list[int]:
-    """ロジットが各閾値を超える画素数（512x512 のまま数える）。"""
+    """ロジットが各閾値を超える画素数（モデルの解像度のまま数える。tiny は 512x512、small 以上は 1024x1024）。"""
     return [int((logits_512 > t).sum()) for t in THRESHOLDS]
 
 
@@ -98,7 +98,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("video", type=Path)
     ap.add_argument("--point", type=parse_point, action="append", required=True)
     ap.add_argument("--start-ms", type=int, default=0)
-    ap.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR)
+    ap.add_argument("--model", choices=list(VIDEO_MODELS), default="tiny", help="比べるモデル（既定は本番と同じ tiny）")
+    ap.add_argument("--model-dir", type=Path, default=None, help="省略時は worker/models/sam2.1-<model>-video-full")
+    ap.add_argument("--frames", type=int, default=None, help="先頭から何フレームだけ処理するか（速さを測るとき）")
     ap.add_argument("--out-dir", type=Path, default=ROOT / "results" / "diagnose")
     args = ap.parse_args(argv)
     problem = preflight(args.video)
@@ -106,20 +108,27 @@ def main(argv: list[str]) -> int:
         print(problem, file=sys.stderr)
         return 1
 
-    fetch_models(args.model_dir, MODEL_REVISION)  # 全グラフ。取得済みは飛ばす
-    sessions = load_sessions(args.model_dir, "cpu")
-    constants = load_constants(args.model_dir)
+    repo, revision = VIDEO_MODELS[args.model]
+    model_dir = args.model_dir or MODELS_ROOT / f"sam2.1-{args.model}-video-full"
+    fetch_models(model_dir, revision, repo=repo)  # 全グラフ。取得済みは飛ばす
+    sessions = load_sessions(model_dir, "cpu")
+    constants = load_constants(model_dir)
 
     info = probe(args.video)
     width, height, fps = output_geometry(info)
     end_ms = min(args.start_ms + 10_000, info.duration_ms)
     total = max(1, min(MAX_FRAMES, round((end_ms - args.start_ms) / 1000 * fps)))
+    if args.frames is not None:
+        total = max(1, min(total, args.frames))
     tracker = Sam2VideoTracker(sessions, constants, total)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    mp4 = args.out_dir / "diagnose.mp4"
-    csv_path = args.out_dir / "diagnose.csv"
-    print(f"{width}x{height} {fps}fps {total} フレーム EDGE_SHARPNESS={EDGE_SHARPNESS} 点={args.point}")
+    mp4 = args.out_dir / f"diagnose-{args.model}.mp4"
+    csv_path = args.out_dir / f"diagnose-{args.model}.csv"
+    print(
+        f"{args.model}（{constants.get('image_size')}）{width}x{height} {fps}fps {total} フレーム"
+        f" EDGE_SHARPNESS={EDGE_SHARPNESS} 点={args.point}"
+    )
     started = time.monotonic()
     with FrameReader(args.video, args.start_ms, end_ms, width, height, fps, info.is_hdr) as reader, Mp4Writer(
         mp4, width * 3, height, fps, None, 0, 0
@@ -127,6 +136,8 @@ def main(argv: list[str]) -> int:
         out = csv.writer(f)
         out.writerow(["frame", "present"] + [f"area_gt_{t:g}" for t in THRESHOLDS])
         for i, frame in enumerate(reader):
+            if i >= total:
+                break
             r = tracker.process(frame, args.point if i == 0 else None)
             logits = r.high_res_logits
             if r.object_present:
@@ -139,7 +150,8 @@ def main(argv: list[str]) -> int:
             if i % 30 == 0:
                 print(f"  {i}/{total} フレーム  {time.monotonic() - started:.0f} 秒")
         writer.close()
-    print(f"できました:\n  {mp4}\n  {csv_path}")
+    elapsed = time.monotonic() - started
+    print(f"できました（{elapsed:.0f} 秒、1 フレームあたり {elapsed / max(1, i + 1):.2f} 秒）:\n  {mp4}\n  {csv_path}")
     return 0
 
 

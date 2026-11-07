@@ -14,6 +14,14 @@ import onnxruntime as ort
 # Hugging Face のコミットハッシュに固定する（main は動くため再現性が無い）。Modal での計測に使ったもの。
 MODEL_REVISION = "66673b5db39371b7dd7847f4d3bc0d4f4179b79e"
 REPO_URL = "https://huggingface.co/diffusionstudio/sam2.1-tiny-video-onnx-fp16/resolve/{revision}/"
+# 同じ形式（5 グラフ・同じ constants.json の項目）で書き出された大きいモデル。違いは入力の解像度と画像エンコーダの大きさ。
+# 案 C（大きいモデル）の比較用。名前 → (Hugging Face のリポジトリ, コミットハッシュ)。2026-11-07 に API で確認
+VIDEO_MODELS = {
+    "tiny": ("diffusionstudio/sam2.1-tiny-video-onnx-fp16", MODEL_REVISION),  # 512。vision_encoder 58MB
+    "small": ("diffusionstudio/sam2.1-small-video-onnx-fp16", "927ecec6e6ae2727d0af7720eefdb07f2efe4689"),  # 1024。84MB
+    "base-plus": ("diffusionstudio/sam2.1-base-plus-video-onnx-fp16", "386b83e09a774fe2782d86fd1b8cb5aaf718aa9d"),  # 1024。156MB
+    "large": ("diffusionstudio/sam2.1-large-video-onnx-fp16", "98dbd222d9b3f75d15fe63a5c2a22b0b0029eea1"),  # 1024。447MB
+}
 GRAPH_NAMES = ["vision_encoder", "mask_decoder", "memory_encoder", "memory_attention", "pointer_tpos"]
 
 _NP_TYPES = {
@@ -25,13 +33,19 @@ _NP_TYPES = {
 }
 
 
-def fetch_models(model_dir: Path, revision: str, graphs: list[str] | None = None) -> Path:
+def fetch_models(
+    model_dir: Path, revision: str, graphs: list[str] | None = None, repo: str | None = None
+) -> Path:
     """constants.json と onnx/*.onnx を model_dir に取得する。既にあるファイルは飛ばす。
 
     graphs を渡すとそのグラフだけ取得する（Rust のプレビューは vision_encoder と mask_decoder だけ使う）。
     省略時は GRAPH_NAMES の全部（ワーカー用）。
+    repo を省略すると tiny（REPO_URL）。大きいモデルは VIDEO_MODELS のリポジトリを渡す。
     """
-    base = REPO_URL.format(revision=revision)
+    if repo is None:
+        base = REPO_URL.format(revision=revision)
+    else:
+        base = f"https://huggingface.co/{repo}/resolve/{revision}/"
     files = ["constants.json"] + [f"onnx/{g}.onnx" for g in (GRAPH_NAMES if graphs is None else graphs)]
     for rel in files:
         dst = model_dir / rel

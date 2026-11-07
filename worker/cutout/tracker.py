@@ -24,8 +24,7 @@ from cutout.memory import (
     pointer_tokens,
 )
 
-S = 512  # モデル入力の一辺
-F = 32  # 特徴マップの一辺
+DEFAULT_IMAGE_SIZE = 512  # constants.json に image_size が無いとき（tiny は 512、small 以上は 1024）
 RECENT_FRAMES = MEM_FRAMES - 1  # 保持する直近メモリ数（6）
 RECENT_PTRS = MAX_PTRS - 1  # 保持する直近ポインタ数（15）
 
@@ -46,21 +45,22 @@ class Sam2Sessions(Protocol):
 
 @dataclass(frozen=True)
 class FrameResult:
-    high_res_logits: np.ndarray  # [512,512] float32 のロジット
+    high_res_logits: np.ndarray  # [S,S] float32 のロジット（S = モデルの image_size）
     object_present: bool  # object_score_logits > 0
 
 
-def to_pixel_values(frame_rgb: np.ndarray, mean, std) -> np.ndarray:
-    """RGB フレームを 512x512 に縮め、正規化して [1,3,512,512] にする。"""
-    x = cv2.resize(frame_rgb, (S, S), interpolation=cv2.INTER_LINEAR)
+def to_pixel_values(frame_rgb: np.ndarray, mean, std, size: int = DEFAULT_IMAGE_SIZE) -> np.ndarray:
+    """RGB フレームを size x size に縮め、正規化して [1,3,size,size] にする。"""
+    x = cv2.resize(frame_rgb, (size, size), interpolation=cv2.INTER_LINEAR)
     x = (x.astype(np.float32) / 255.0 - np.array(mean, np.float32)) / np.array(std, np.float32)
     return x.transpose(2, 0, 1)[None]
 
 
 def chw_to_tokens(feats: np.ndarray) -> np.ndarray:
-    """[1,C,32,32] を [1024,1,C] に並べ替える。"""
+    """[1,C,F,F] を [F*F,1,C] に並べ替える（F は 512 で 32、1024 で 64）。"""
     c = feats.shape[1]
-    return feats.reshape(c, F * F).T.reshape(F * F, 1, c)
+    n = feats.shape[2] * feats.shape[3]
+    return feats.reshape(c, n).T.reshape(n, 1, c)
 
 
 class Sam2VideoTracker:
@@ -68,6 +68,7 @@ class Sam2VideoTracker:
         self._s = sessions
         self._mean = constants["image_mean"]
         self._std = constants["image_std"]
+        self._size = int(constants.get("image_size", DEFAULT_IMAGE_SIZE))
         self._tpos = np.asarray(
             constants["memory_temporal_positional_encoding"], np.float32
         ).reshape(MEM_FRAMES, 64)
@@ -91,11 +92,12 @@ class Sam2VideoTracker:
         if not first and points is not None:
             raise ValueError("2 枚目以降は points を渡さない")
         enc = self._s.vision_encoder.run(
-            pixel_values=to_pixel_values(frame_rgb, self._mean, self._std)
+            pixel_values=to_pixel_values(frame_rgb, self._mean, self._std, self._size)
         )
         if first:
             feats_cond = enc["feats2_no_mem"]
-            coords = np.array([[[[p.x * S, p.y * S] for p in points]]], np.float32)
+            s = self._size
+            coords = np.array([[[[p.x * s, p.y * s] for p in points]]], np.float32)
             labels = np.array([[[1 if p.label == "include" else 0 for p in points]]], np.int32)
         else:
             mem, pos = assemble_memory(t, self._cond, self._recent, self._tpos)
@@ -136,5 +138,5 @@ class Sam2VideoTracker:
             self._recent_ptrs.pop(t - RECENT_PTRS, None)
         self.last_low_res = np.asarray(dec["low_res_mask"], np.float32).reshape(256, 256)
         self._t += 1
-        high = np.asarray(dec["high_res_mask"], np.float32).reshape(S, S)
+        high = np.asarray(dec["high_res_mask"], np.float32).reshape(self._size, self._size)
         return FrameResult(high_res_logits=high, object_present=score > 0)

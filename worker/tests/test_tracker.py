@@ -24,32 +24,33 @@ class _Graph:
 class RecordingSessions:
     """5 つのグラフを偽物に差し替え、受け取った入力を calls に記録する。"""
 
-    def __init__(self, object_score: float):
+    def __init__(self, object_score: float, size: int = 512):
         self.calls: dict[str, list[dict]] = {}
         z = np.zeros
         c = self.calls
-        self.vision_encoder = _Graph("vision_encoder", c, lambda f: {
-            "feats0": z((1, 32, 128, 128), np.float32),
-            "feats1": z((1, 64, 64, 64), np.float32),
-            "feats2": z((1, 256, 32, 32), np.float32),
-            "feats2_no_mem": z((1, 256, 32, 32), np.float32),
-            "vision_pos_embed": z((1, 256, 32, 32), np.float32),
+        f = size // 16  # 特徴マップの一辺（512 → 32、1024 → 64）
+        self.vision_encoder = _Graph("vision_encoder", c, lambda _: {
+            "feats0": z((1, 32, f * 4, f * 4), np.float32),
+            "feats1": z((1, 64, f * 2, f * 2), np.float32),
+            "feats2": z((1, 256, f, f), np.float32),
+            "feats2_no_mem": z((1, 256, f, f), np.float32),
+            "vision_pos_embed": z((1, 256, f, f), np.float32),
         })
-        self.memory_attention = _Graph("memory_attention", c, lambda f: {
-            "conditioned_feats": z((1, 256, 32, 32), np.float32),
+        self.memory_attention = _Graph("memory_attention", c, lambda _: {
+            "conditioned_feats": z((1, 256, f, f), np.float32),
         })
-        self.pointer_tpos = _Graph("pointer_tpos", c, lambda f: {
+        self.pointer_tpos = _Graph("pointer_tpos", c, lambda _: {
             "pointer_pos": z((16, 64), np.float32),
         })
-        self.mask_decoder = _Graph("mask_decoder", c, lambda f: {
+        self.mask_decoder = _Graph("mask_decoder", c, lambda _: {
             "object_score_logits": np.array([[object_score]], np.float32),
-            "high_res_mask": z((1, 1, 512, 512), np.float32),
+            "high_res_mask": z((1, 1, size, size), np.float32),
             "low_res_mask": z((1, 1, 256, 256), np.float32),
             "object_pointer": z((1, 256), np.float32),
         })
-        self.memory_encoder = _Graph("memory_encoder", c, lambda f: {
-            "memory_tokens": z((1024, 1, 64), np.float32),
-            "memory_pos": z((1024, 1, 64), np.float32),
+        self.memory_encoder = _Graph("memory_encoder", c, lambda _: {
+            "memory_tokens": z((f * f, 1, 64), np.float32),
+            "memory_pos": z((f * f, 1, 64), np.float32),
         })
 
 
@@ -110,3 +111,24 @@ def test_points_on_later_frame_rejected():
     tr.process(rgb(), [NormalizedPoint(0.5, 0.5, "include")])
     with pytest.raises(ValueError):
         tr.process(rgb(), [NormalizedPoint(0.5, 0.5, "include")])
+
+
+def test_image_size_1024_from_constants():
+    """small / base+ / large（constants.json の image_size=1024）も同じコードで動く。"""
+    s = RecordingSessions(object_score=1.0, size=1024)
+    tr = Sam2VideoTracker(s, {**CONSTANTS, "image_size": 1024}, total_frames=3)
+    r0 = tr.process(rgb(), [NormalizedPoint(0.5, 0.25, "include")])
+    tr.process(rgb(), None)
+
+    assert s.calls["vision_encoder"][0]["pixel_values"].shape == (1, 3, 1024, 1024)
+    assert s.calls["mask_decoder"][0]["input_points"].tolist() == [[[[512.0, 256.0]]]]
+    att = s.calls["memory_attention"][0]
+    assert att["current_vision_features"].shape == (4096, 1, 256)
+    assert att["memory"].shape == (7 * 4096 + 64, 1, 64)
+    assert r0.high_res_logits.shape == (1024, 1024)
+
+
+def test_image_size_defaults_to_512():
+    s = RecordingSessions(object_score=1.0)
+    Sam2VideoTracker(s, CONSTANTS, total_frames=1).process(rgb(), [NormalizedPoint(0.5, 0.5, "include")])
+    assert s.calls["vision_encoder"][0]["pixel_values"].shape == (1, 3, 512, 512)

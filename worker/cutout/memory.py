@@ -12,14 +12,13 @@ import numpy as np
 
 MEM_FRAMES = 7  # 条件メモリ 1 + 直近 6 フレーム
 MAX_PTRS = 16
-F2 = 1024  # 特徴マップのトークン数（32x32）
 COND_ROW = 6  # 条件メモリの時間埋め込みの行
 COND_FRAME = 0
 
 
 @dataclass(frozen=True)
 class MemoryEntry:
-    """1 フレーム分のメモリ。tokens / pos はどちらも [1024, 1, 64]。"""
+    """1 フレーム分のメモリ。tokens / pos はどちらも [F*F, 1, 64]（512 で 1024、1024 で 4096）。"""
 
     tokens: np.ndarray
     pos: np.ndarray
@@ -53,11 +52,11 @@ def assemble_memory(
     recent: dict[int, MemoryEntry],
     tpos: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """メモリトークン [7168,64] と、時間埋め込みを足した位置埋め込み [7168,64] を返す。"""
+    """メモリトークン [7*F*F,64] と、時間埋め込みを足した位置埋め込み [7*F*F,64] を返す。"""
     blocks = memory_blocks(t, recent)
     entries = [(cond if which == "cond" else recent[which], row) for which, row in blocks]
-    mem = np.concatenate([e.tokens.reshape(F2, 64) for e, _ in entries])
-    pos = np.concatenate([e.pos.reshape(F2, 64) + tpos[row][None] for e, row in entries])
+    mem = np.concatenate([e.tokens.reshape(-1, 64) for e, _ in entries])
+    pos = np.concatenate([e.pos.reshape(-1, 64) + tpos[row][None] for e, row in entries])
     return mem, pos
 
 
