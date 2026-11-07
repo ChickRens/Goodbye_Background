@@ -273,7 +273,8 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 ## 9. 動画切り抜き（video_cutout）
 
 仕様は `docs/superpowers/specs/2026-11-05-video-cutout-design.md`。重い処理（SAM2 の追跡・エンコード）は
-Modal 上の Python ワーカーで行い、Rust 側はジョブの管理・回数制限・署名付き URL の発行だけを行う。
+Modal 上の Python ワーカーで行い、Rust 側はジョブの管理・回数制限・署名付き URL の発行と、
+1 フレーム目のプレビュー（本番と同じ SAM2.1 tiny を Cloud Run の CPU で動かす。§9.4）を行う。
 
 ### 9.1 構成
 
@@ -281,6 +282,8 @@ Modal 上の Python ワーカーで行い、Rust 側はジョブの管理・回�
 ブラウザ ──POST /video-jobs──────────► CreateVideoJob（回数 > 0 を確認、Created で保存）→ 201 {job_id, upload_url}
    │──PUT upload_url（動画本体）──────► Cloudflare R2（サーバーを経由しない）
    │──POST /video-jobs/{id}/start ────► StartVideoJob（R2 に HEAD → 回数を消費 → Queued → Modal に投入）→ 202
+   │──POST /video-jobs/{id}/preview-frame（1 枚目の静止画）► SetPreviewFrame（tiny でエンコードして特徴量を保存）→ 204
+   │──POST /video-jobs/{id}/preview（点）► PreviewMask（tiny のデコーダ → alpha の PNG）→ 200 image/png
    │──GET /video-jobs/{id}（1 秒ごと）► GetVideoJob（期限切れなら Failed(timeout)、Done なら download_url）→ 200
 Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）──► ReportVideoJobEvent → 204
 ```
@@ -288,10 +291,11 @@ Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）�
 - ファサードは画像の `App` とは別の `VideoCutoutApp`（`composition/video_wiring.rs`）。`App::new` は SAM2 のモデルを
   読むため、動画だけをモデル無しで組み立て・テストできるように分けた（設計判断 R4）。ハンドラは
   `State<Arc<VideoCutoutApp>>` を取り、そのメソッドだけを呼ぶ
-- 動画の環境変数（`.env.example`）が 1 つでも欠けると `VideoCutoutApp` は空になり、動画の 4 ルートは
-  本文を読む前に 503 `VIDEO_CUTOUT_DISABLED` を返す。画像機能はそのまま動く
+- 動画の環境変数（`.env.example`）が 1 つでも欠ける、またはプレビューのモデル（§9.4）が無い・読めないと
+  `VideoCutoutApp` は空になり、動画の 6 ルートは本文を読む前に 503 `VIDEO_CUTOUT_DISABLED` を返す
+  （足りないものの名前は起動ログに出る）。画像機能はそのまま動く
 - ポート（`VideoObjectStorage` = R2、`CutoutWorker` = Modal、`DailyQuota` = 利用ログと同じ DB）は非同期の trait。
-  ネットワーク待ちだけなので `spawn_blocking` は使わない
+  ネットワーク待ちだけなので `spawn_blocking` は使わない（例外はプレビューの推論。ユースケースの中で `spawn_blocking` する）
 - ジョブはインメモリ（`VideoJobRepositoryInMemory`）。TtlStore の GC ではなく、状態ごとの期限（仕様 §5.2）で
   `DeleteExpiredVideoJobsUseCase` が消す。Cloud Run はリクエストベースの CPU で裏のタスクがほとんど進まないため、
   動画 API の各メソッドの先頭で `VideoCleanupThrottle`（60 秒に 1 回）が許せば await して実行する
@@ -304,6 +308,8 @@ Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）�
 | `POST /video-jobs` | 記録（`create-video-job`） | `client-id` ヘッダー（無い・UUID でない → 400 `MISSING_CLIENT_ID`） |
 | `POST /video-jobs/{id}/start` | 記録（`start-video-job`） | 持ち主の `client-id` |
 | `GET /video-jobs/{id}` | 記録しない（ポーリング） | 持ち主の `client-id` |
+| `POST /video-jobs/{id}/preview-frame` | 記録しない（回数も消費しない） | 持ち主の `client-id`。`created` のときだけ（以降は 409 `VIDEO_JOB_INVALID_STATE`） |
+| `POST /video-jobs/{id}/preview` | 記録しない（回数も消費しない） | 持ち主の `client-id`。`created` のときだけ。フレーム未登録は 409 `PREVIEW_FRAME_NOT_FOUND` |
 | `POST /internal/video-jobs/{id}/events` | 記録しない | HMAC-SHA256（401 `INVALID_SIGNATURE`）。パスと本文の `job_id` が違えば 400 `JOB_ID_MISMATCH` |
 
 - `router.rs` の `video_routes` が（記録する, しない）の 2 つの Router を返し、`route` が `track_usage` の前と後に merge する
@@ -325,3 +331,24 @@ Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）�
 - 署名付き URL（`X-Amz-Credential` / `X-Amz-Signature`）をログに出さない。reqwest のエラーは URL を含むので、
   文字列にするときは必ず `without_url()` を通す
 - 回数の返却は消費した日（`VideoJob::quota_day`、日本時間）の分を戻す。日付をまたいで失敗しても翌日の枠は増えない
+
+### 9.4 プレビュー（SAM2.1 tiny を Rust の CPU で）
+
+当初（仕様 D8）は画像機能の SAM2.1 small（1024px）を流用していたが、ベストを 1 点タップしたとき small は人物全体、
+本番の tiny はベストだけを選ぶ、という食い違いが本番で出た（2026-11-07）。そこで「プレビューで見えた範囲 = 出力の 1 フレーム目」に
+なるよう、本番のワーカーと同じモデル・同じ計算を Rust で動かす（D8 を置き換え。計画 `docs/superpowers/plans/2026-11-07-video-preview-tiny.md`）。
+
+- モデル: `models/sam2.1-tiny-video/`（git 管理外。`constants.json`・`onnx/vision_encoder.onnx`・`onnx/mask_decoder.onnx`。
+  `diffusionstudio/sam2.1-tiny-video-onnx-fp16` のワーカーと同じリビジョン）。カレントディレクトリからの相対パス
+- `video_cutout/preview/`: `PreviewSegmenter`（trait）と `Sam2TinyPreviewSegmenter`（ort。グラフごとに `Mutex<Session>`）。
+  入力の型はモデルの宣言に合わせ（fp16 なら変換）、fp16 の出力は f32 にする（`worker/cutout/models.py` の `OnnxGraph` と同じ）
+- 計算は `worker/cutout/tracker.py` の 1 枚目と `compositor.py` の `alpha_from_logits` と同じ:
+  512×512 に引き伸ばし → mean/std で正規化 → `vision_encoder` → `feats2_no_mem` を `feats2_cond` に、点は ×512・include=1 / exclude=0
+  → `mask_decoder` の `high_res_mask` → フレームの大きさにバイリニア拡大 → ±50 → ×16 → ±50 → sigmoid → グレースケール PNG。
+  バイリニアは `preview/image_math.rs` が OpenCV の `cv2.resize(INTER_LINEAR)` をなぞる（uint8 は完全一致を確認済み）
+- フレームの登録時に 1 回だけエンコードし、特徴量（`feats0`/`feats1`/`feats2_no_mem` を f32 で約 4MB）とフレームの大きさを
+  `PreviewFeatureStore` にジョブごとに置く。点が変わるたびにデコーダだけを回す
+- 特徴量の寿命はジョブと同じ: `DeleteExpiredVideoJobsUseCase` がジョブを消すときに一緒に消す（ジョブの無い特徴量も掃除する）。
+  登録はジョブのロックを持ったまま行うので、片付けとすれ違って消えたジョブの特徴量が残ることはない
+- 登録できる画像: PNG / JPEG、10MB 以下（`preview-frame` のルートにだけ `DefaultBodyLimit`）、長辺 2000px 以下。
+  違えば 400 `INVALID_PREVIEW_IMAGE`。推論の失敗は 500 `PREVIEW_FAILED`

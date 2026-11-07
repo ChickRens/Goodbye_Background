@@ -16,8 +16,9 @@ use crate::{
     parent_error,
     video_cutout::{
         create_job::error::CreateVideoJobError, error::VideoCutoutError,
-        get_job::error::GetVideoJobError,
-        report_event::error::ReportVideoJobEventError, start_job::error::StartVideoJobError,
+        get_job::error::GetVideoJobError, preview_mask::error::PreviewMaskError,
+        report_event::error::ReportVideoJobEventError,
+        set_preview_frame::error::SetPreviewFrameError, start_job::error::StartVideoJobError,
     },
 };
 
@@ -35,6 +36,8 @@ parent_error!(
         StartVideoJobUseCase(StartVideoJobError),
         GetVideoJobUseCase(GetVideoJobError),
         ReportVideoJobEventUseCase(ReportVideoJobEventError),
+        SetPreviewFrameUseCase(SetPreviewFrameError),
+        PreviewMaskUseCase(PreviewMaskError),
         VideoCutout(VideoCutoutError),
     }
 );

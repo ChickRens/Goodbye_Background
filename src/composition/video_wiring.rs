@@ -7,7 +7,10 @@
 //! 動画のポート（R2・Modal・回数の DB）はネットワーク待ちだけの非同期 trait なので、
 //! 画像と違って `spawn_blocking` は使わない（CLAUDE.md の例外）。
 //!
-//! 設定（`VideoCutoutConfig`）が無ければ何も持たず、全メソッドが `VIDEO_CUTOUT_DISABLED`（503）を返す。
+//! 例外はプレビュー（SAM2.1 tiny の推論）。CPU を使うのでユースケースの中で `spawn_blocking` する。
+//!
+//! 設定（`VideoCutoutConfig`）が無い、またはプレビューのモデルを読めなければ何も持たず、
+//! 全メソッドが `VIDEO_CUTOUT_DISABLED`（503）を返す。
 
 use std::sync::Arc;
 
@@ -29,10 +32,21 @@ use crate::{
             input::GetVideoJobInput, output::GetVideoJobOutput, usecase::GetVideoJobUseCase,
         },
         job::{locks::VideoJobLocks, repository_impl::VideoJobRepositoryInMemory},
+        preview::{
+            feature_store::PreviewFeatureStore, segmenter::PreviewSegmenter,
+            segmenter_tiny::Sam2TinyPreviewSegmenter,
+        },
+        preview_mask::{
+            input::PreviewMaskInput, output::PreviewMaskOutput, usecase::PreviewMaskUseCase,
+        },
         quota::daily_quota::DailyQuota,
         report_event::{
             input::ReportVideoJobEventInput, output::ReportVideoJobEventOutput,
             usecase::ReportVideoJobEventUseCase,
+        },
+        set_preview_frame::{
+            input::SetPreviewFrameInput, output::SetPreviewFrameOutput,
+            usecase::SetPreviewFrameUseCase,
         },
         start_job::{
             input::StartVideoJobInput, output::StartVideoJobOutput, usecase::StartVideoJobUseCase,
@@ -56,6 +70,8 @@ struct VideoCutout {
     start: StartVideoJobUseCase,
     get: GetVideoJobUseCase,
     report: ReportVideoJobEventUseCase,
+    set_preview_frame: SetPreviewFrameUseCase,
+    preview_mask: PreviewMaskUseCase,
     cleanup: DeleteExpiredVideoJobsUseCase,
     throttle: VideoCleanupThrottle,
     clock: Arc<dyn VideoClock>,
@@ -66,10 +82,19 @@ struct VideoCutout {
 
 impl VideoCutoutApp {
     /// `quota` は利用ログと同じ DB の `SqliteDailyQuota` / `PostgresDailyQuota`（main.rs で作る）。
+    /// プレビューのモデル（`config.preview_model_dir`）はここで読む。読めなければ理由をログに出して無効にする。
     pub fn new(quota: Arc<dyn DailyQuota>, config: Option<VideoCutoutConfig>) -> Self {
         let Some(config) = config else {
             return Self { inner: None };
         };
+        let preview: Arc<dyn PreviewSegmenter> =
+            match Sam2TinyPreviewSegmenter::new(&config.preview_model_dir) {
+                Ok(segmenter) => Arc::new(segmenter),
+                Err(e) => {
+                    eprintln!("動画切り抜き: プレビューのモデルを読めない: {:?}", e);
+                    return Self { inner: None };
+                }
+            };
         let storage: Arc<dyn VideoObjectStorage> = Arc::new(R2VideoObjectStorage::new(
             config.r2_account_id,
             config.r2_bucket,
@@ -86,6 +111,7 @@ impl VideoCutoutApp {
                 storage,
                 worker,
                 quota,
+                preview,
                 Arc::new(RealVideoClock),
                 config.public_base_url,
                 config.worker_callback_secret.into_bytes(),
@@ -95,7 +121,7 @@ impl VideoCutoutApp {
         }
     }
 
-    /// 偽物の R2・ワーカー・回数・時計で組み立てる（ルーターのテスト用。SAM2 のモデルは要らない）。
+    /// 偽物の R2・ワーカー・回数・時計・プレビューで組み立てる（ルーターのテスト用。SAM2 のモデルは要らない）。
     #[cfg(test)]
     pub fn for_test(
         storage: Arc<crate::video_cutout::testing::FakeStorage>,
@@ -109,6 +135,7 @@ impl VideoCutoutApp {
                 storage,
                 worker,
                 quota,
+                Arc::new(crate::video_cutout::testing::FakePreviewSegmenter::new()),
                 clock,
                 crate::video_cutout::testing::PUBLIC_BASE_URL.to_string(),
                 callback_secret.as_bytes().to_vec(),
@@ -163,6 +190,26 @@ impl VideoCutoutApp {
         Ok(video.report.execute(input).await?)
     }
 
+    /// プレビュー用のフレームを登録する（回数は消費しない）。
+    pub async fn set_preview_frame(
+        &self,
+        input: SetPreviewFrameInput,
+    ) -> Result<SetPreviewFrameOutput, ApplicationError> {
+        let video = self.enabled()?;
+        video.maybe_cleanup().await;
+        Ok(video.set_preview_frame.execute(input).await?)
+    }
+
+    /// 登録したフレームと点から、1 フレーム目のマスクの PNG を返す（回数は消費しない）。
+    pub async fn preview_mask(
+        &self,
+        input: PreviewMaskInput,
+    ) -> Result<PreviewMaskOutput, ApplicationError> {
+        let video = self.enabled()?;
+        video.maybe_cleanup().await;
+        Ok(video.preview_mask.execute(input).await?)
+    }
+
     /// 期限切れのジョブを今すぐ片付ける（main.rs の GC タスク用。スロットルを通さない）。無効なら何もしない。
     pub async fn cleanup_video_jobs(&self) {
         if let Some(video) = &self.inner {
@@ -205,6 +252,7 @@ impl VideoCutout {
         storage: Arc<dyn VideoObjectStorage>,
         worker: Arc<dyn CutoutWorker>,
         quota: Arc<dyn DailyQuota>,
+        preview: Arc<dyn PreviewSegmenter>,
         clock: Arc<dyn VideoClock>,
         public_base_url: String,
         callback_secret: Vec<u8>,
@@ -214,6 +262,8 @@ impl VideoCutout {
         // ジョブは状態ごとの期限で DeleteExpiredVideoJobsUseCase が消す（TtlStore の GC には登録しない）
         let repository = Arc::new(VideoJobRepositoryInMemory::new());
         let locks = Arc::new(VideoJobLocks::new());
+        // プレビューの特徴量はジョブと同じ寿命（DeleteExpiredVideoJobsUseCase がジョブと一緒に消す）
+        let features = Arc::new(PreviewFeatureStore::new());
         Self {
             create: CreateVideoJobUseCase::new(
                 storage.clone(),
@@ -244,7 +294,14 @@ impl VideoCutout {
                 quota.clone(),
                 clock.clone(),
             ),
-            cleanup: DeleteExpiredVideoJobsUseCase::new(storage, repository, locks, quota),
+            set_preview_frame: SetPreviewFrameUseCase::new(
+                preview.clone(),
+                repository.clone(),
+                locks.clone(),
+                features.clone(),
+            ),
+            preview_mask: PreviewMaskUseCase::new(preview, repository.clone(), features.clone()),
+            cleanup: DeleteExpiredVideoJobsUseCase::new(storage, repository, locks, quota, features),
             throttle: VideoCleanupThrottle::new(),
             clock,
             callback_secret,

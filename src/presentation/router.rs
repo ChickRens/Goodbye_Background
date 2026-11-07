@@ -16,10 +16,12 @@ use crate::{
     },
     api::handler::video_cutout::{
         create_job::handler::create_video_job, get_job::handler::get_video_job,
-        report_event::handler::report_video_job_event, start_job::handler::start_video_job,
+        preview_mask::handler::preview_video_mask, report_event::handler::report_video_job_event,
+        set_preview_frame::handler::set_preview_frame, start_job::handler::start_video_job,
     },
     composition::{video_wiring::VideoCutoutApp, wiring::App},
     presentation::middleware::usage_tracking::track_usage,
+    video_cutout::set_preview_frame::usecase::MAX_PREVIEW_IMAGE_BYTES,
 };
 
 /// ルーティング定義。画像の API は全て POST（GET の `/get-preview` などもボディに JSON を取るため POST）。
@@ -39,9 +41,10 @@ use crate::{
 /// エラー時は `{ "code": "..." }` の JSON（`AppError::into_response`）。
 ///
 /// レイヤーの注意点（axum の `.layer` は「それ以前に追加した route」にだけ掛かる）:
-/// - `DefaultBodyLimit` 10MB: アップロード画像の上限。画像のルートにだけ掛ける（動画の本文は小さい JSON）
+/// - `DefaultBodyLimit` 10MB: アップロード画像の上限。画像のルートと、動画のプレビュー用フレームの登録にだけ掛ける
+///   （それ以外の動画の本文は小さい JSON）
 /// - `track_usage`: 画像の 7 API と、動画の作成・開始の利用ログを記録する
-/// - 動画の取得（ポーリング）と通知は `track_usage` の後に merge するので記録しない
+/// - 動画の取得（ポーリング）・プレビュー・通知は `track_usage` の後に merge するので記録しない
 /// - `fallback_service`: それ以外のパスは `frontend/` ディレクトリを静的配信（相対パス。cwd 依存）
 pub fn route(app: Arc<App>, video: Arc<VideoCutoutApp>) -> Router {
     let (video_tracked, video_untracked) = video_routes(video);
@@ -69,9 +72,12 @@ pub fn route(app: Arc<App>, video: Arc<VideoCutoutApp>) -> Router {
 /// | `POST /video-jobs` | `create_video_job` | `{size_bytes, content_type, start_ms, end_ms}` | 201 `{job_id, upload_url, remaining_today}` | 記録する |
 /// | `POST /video-jobs/{id}/start` | `start_video_job` | `{points: [{x, y, label}], background}` | 202 `{phase, failure_code, remaining_today}` | 記録する |
 /// | `GET /video-jobs/{id}` | `get_video_job` | なし | 200 `{phase, progress, failure_code, quota_refunded, download_url, remaining_today}` | しない（ポーリング） |
+/// | `POST /video-jobs/{id}/preview-frame` | `set_preview_frame` | multipart（`file`。PNG / JPEG、10MB 以下、長辺 2000px 以下） | 204 | しない |
+/// | `POST /video-jobs/{id}/preview` | `preview_video_mask` | `{points: [{x, y, label}]}` | 200 `image/png`（グレースケールの alpha。フレームと同じ大きさ） | しない |
 /// | `POST /internal/video-jobs/{id}/events` | `report_video_job_event` | `WorkerEvent`（HMAC 署名付き） | 204 | しない |
 ///
-/// 利用者向けの 3 つは `client-id` ヘッダー（UUID）が必須（無ければ 400 `MISSING_CLIENT_ID`）。
+/// 利用者向けの 5 つは `client-id` ヘッダー（UUID）が必須（無ければ 400 `MISSING_CLIENT_ID`）。
+/// プレビューの 2 つはジョブの持ち主だけ・`created` のときだけ使え、回数を消費しない。
 /// IP は `presentation::client_ip`（`TRUSTED_PROXY_HOPS`）で取るので、serve は `into_make_service_with_connect_info` が必要。
 pub fn video_routes(video: Arc<VideoCutoutApp>) -> (Router, Router) {
     let tracked = Router::new()
@@ -80,6 +86,11 @@ pub fn video_routes(video: Arc<VideoCutoutApp>) -> (Router, Router) {
         .with_state(video.clone());
     let untracked = Router::new()
         .route("/video-jobs/{id}", get(get_video_job))
+        .route(
+            "/video-jobs/{id}/preview-frame",
+            post(set_preview_frame).layer(DefaultBodyLimit::max(MAX_PREVIEW_IMAGE_BYTES)),
+        )
+        .route("/video-jobs/{id}/preview", post(preview_video_mask))
         .route("/internal/video-jobs/{id}/events", post(report_video_job_event))
         .with_state(video);
     (tracked, untracked)
@@ -104,7 +115,7 @@ mod router_test {
         video_cutout::{
             clock_impl::FakeVideoClock,
             signature::sign,
-            testing::{FakeStorage, FakeWorker, InMemoryQuota, NOW_MS},
+            testing::{FakeStorage, FakeWorker, InMemoryQuota, NOW_MS, png_bytes},
         },
     };
 
@@ -176,6 +187,36 @@ mod router_test {
         json!({"points": [{"x": 0.5, "y": 0.4, "label": "include"}], "background": "green"})
     }
 
+    const BOUNDARY: &str = "preview-frame-boundary";
+
+    fn preview_frame_with_client(id: &str, image: &[u8], client_id: &str) -> Request<Body> {
+        let mut body = format!(
+            "--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"frame.png\"\r\nContent-Type: image/png\r\n\r\n"
+        )
+        .into_bytes();
+        body.extend_from_slice(image);
+        body.extend_from_slice(format!("\r\n--{BOUNDARY}--\r\n").as_bytes());
+        Request::post(format!("/video-jobs/{id}/preview-frame"))
+            .header("client-id", client_id)
+            .header("content-type", format!("multipart/form-data; boundary={BOUNDARY}"))
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    fn preview_frame(id: &str, image: &[u8]) -> Request<Body> {
+        preview_frame_with_client(id, image, CLIENT_ID)
+    }
+
+    fn preview_body() -> Value {
+        json!({"points": [{"x": 0.25, "y": 0.5, "label": "include"}, {"x": 0.75, "y": 0.5, "label": "exclude"}]})
+    }
+
+    async fn created_job(router: &Router) -> String {
+        let (status, created) = send(router, post_json("/video-jobs", create_body())).await;
+        assert_eq!(status, StatusCode::CREATED);
+        created["job_id"].as_str().unwrap().to_string()
+    }
+
     async fn started_job(router: &Router) -> String {
         let (status, created) = send(router, post_json("/video-jobs", create_body())).await;
         assert_eq!(status, StatusCode::CREATED);
@@ -200,6 +241,10 @@ mod router_test {
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         let (status, _) =
             send(&router, event(id, &json!({}), Some("00".to_string()))).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        let (status, _) = send(&router, preview_frame(id, &png_bytes(4, 4))).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        let (status, _) = send(&router, post_json(&format!("/video-jobs/{id}/preview"), preview_body())).await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     }
 
@@ -314,5 +359,116 @@ mod router_test {
         assert_eq!(got["failure_code"], json!("subject_not_found"));
         assert_eq!(got["quota_refunded"], json!(true));
         assert_eq!(got["remaining_today"], json!(3));
+    }
+
+    #[tokio::test]
+    async fn preview_frame_then_preview_returns_png_without_consuming_quota() {
+        let router = enabled_router();
+        let id = created_job(&router).await;
+        let (status, body) = send(&router, preview_frame(&id, &png_bytes(40, 30))).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(body, Value::Null);
+
+        let response = router
+            .clone()
+            .oneshot(post_json(&format!("/video-jobs/{id}/preview"), preview_body()))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-type"], "image/png");
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let mask = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).unwrap();
+        assert_eq!(mask.color(), image::ColorType::L8);
+        let mask = mask.to_luma8();
+        assert_eq!(mask.dimensions(), (40, 30));
+        assert_eq!(mask.get_pixel(0, 0).0, [255]);
+        assert_eq!(mask.get_pixel(39, 0).0, [0]);
+
+        let (_, got) = send(&router, get(&format!("/video-jobs/{id}"))).await;
+        assert_eq!(got["phase"], json!("created"));
+        assert_eq!(got["remaining_today"], json!(3));
+    }
+
+    #[tokio::test]
+    async fn preview_without_frame_is_409() {
+        let router = enabled_router();
+        let id = created_job(&router).await;
+        let (status, body) =
+            send(&router, post_json(&format!("/video-jobs/{id}/preview"), preview_body())).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body, json!({"code": "PREVIEW_FRAME_NOT_FOUND"}));
+    }
+
+    #[tokio::test]
+    async fn preview_after_start_is_409_invalid_state() {
+        let router = enabled_router();
+        let id = created_job(&router).await;
+        let (status, _) = send(&router, preview_frame(&id, &png_bytes(8, 8))).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, _) = send(&router, post_json(&format!("/video-jobs/{id}/start"), start_body())).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+
+        let (status, body) =
+            send(&router, post_json(&format!("/video-jobs/{id}/preview"), preview_body())).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body, json!({"code": "VIDEO_JOB_INVALID_STATE"}));
+        let (status, body) = send(&router, preview_frame(&id, &png_bytes(8, 8))).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body, json!({"code": "VIDEO_JOB_INVALID_STATE"}));
+    }
+
+    #[tokio::test]
+    async fn preview_of_other_clients_job_is_404() {
+        let router = enabled_router();
+        let id = created_job(&router).await;
+        let (status, _) = send(&router, preview_frame(&id, &png_bytes(8, 8))).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let other = "99999999-2222-4333-8444-555555555555";
+        let (status, body) = send(&router, preview_frame_with_client(&id, &png_bytes(8, 8), other)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body, json!({"code": "VIDEO_JOB_NOT_FOUND"}));
+        let request = Request::post(format!("/video-jobs/{id}/preview"))
+            .header("client-id", other)
+            .header("content-type", "application/json")
+            .body(Body::from(preview_body().to_string()))
+            .unwrap();
+        let (status, body) = send(&router, request).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body, json!({"code": "VIDEO_JOB_NOT_FOUND"}));
+    }
+
+    #[tokio::test]
+    async fn preview_rejects_zero_or_too_many_points() {
+        let router = enabled_router();
+        let id = created_job(&router).await;
+        let (status, _) = send(&router, preview_frame(&id, &png_bytes(8, 8))).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let uri = format!("/video-jobs/{id}/preview");
+        let nine: Vec<Value> = (0..9).map(|_| json!({"x": 0.5, "y": 0.5, "label": "include"})).collect();
+        for body in [json!({"points": []}), json!({"points": nine})] {
+            let (status, got) = send(&router, post_json(&uri, body)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(got, json!({"code": "INVALID_POINTS"}));
+        }
+    }
+
+    #[tokio::test]
+    async fn preview_frame_rejects_too_large_images() {
+        let router = enabled_router();
+        let id = created_job(&router).await;
+        // 長辺が 2000px を超える
+        let (status, body) = send(&router, preview_frame(&id, &png_bytes(2001, 4))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body, json!({"code": "INVALID_PREVIEW_IMAGE"}));
+        // 本文が 10MB を超える
+        let huge = vec![0u8; 10 * 1024 * 1024 + 1];
+        let (status, body) = send(&router, preview_frame(&id, &huge)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body, json!({"code": "INVALID_PREVIEW_IMAGE"}));
+        // 画像ではない
+        let (status, body) = send(&router, preview_frame(&id, b"hello")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body, json!({"code": "INVALID_PREVIEW_IMAGE"}));
     }
 }

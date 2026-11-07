@@ -2,7 +2,7 @@
 //!
 //! ジョブごとにロックを持ったまま期限を確かめ直してから処理する。
 //! - 進行中（`Queued`〜`Finishing`）: `Failed(timeout)` にして回数を返し、保存し直す（30 分後にもう一度期限が来る）。
-//! - `Created` / `Done` / `Failed`: 入出力ファイルを削除し（失敗はログだけ）、ストア → ロックの順に消す。
+//! - `Created` / `Done` / `Failed`: 入出力ファイルを削除し（失敗はログだけ）、プレビューの特徴量 → ストア → ロックの順に消す。
 
 use std::sync::Arc;
 
@@ -14,6 +14,7 @@ use crate::video_cutout::{
         repository::VideoJobRepository,
         video_job::VideoJob,
     },
+    preview::feature_store::PreviewFeatureStore,
     quota::daily_quota::DailyQuota,
     storage::video_object_storage::VideoObjectStorage,
 };
@@ -23,6 +24,7 @@ pub struct DeleteExpiredVideoJobsUseCase {
     repository: Arc<dyn VideoJobRepository>,
     locks: Arc<VideoJobLocks>,
     quota: Arc<dyn DailyQuota>,
+    features: Arc<PreviewFeatureStore>,
 }
 
 impl DeleteExpiredVideoJobsUseCase {
@@ -31,12 +33,14 @@ impl DeleteExpiredVideoJobsUseCase {
         repository: Arc<dyn VideoJobRepository>,
         locks: Arc<VideoJobLocks>,
         quota: Arc<dyn DailyQuota>,
+        features: Arc<PreviewFeatureStore>,
     ) -> Self {
         Self {
             storage,
             repository,
             locks,
             quota,
+            features,
         }
     }
 
@@ -71,7 +75,8 @@ impl DeleteExpiredVideoJobsUseCase {
                         eprintln!("期限切れのファイルの削除に失敗 key={}: {:?}", key, e);
                     }
                 }
-                // ストア → ロックの順に消す（ロックを持ったまま。待っている側は取り直して NotFound になる）
+                // 特徴量 → ストア → ロックの順に消す（ロックを持ったまま。待っている側は取り直して NotFound になる）
+                self.features.remove(&job.id);
                 self.repository.remove(&job.id);
                 self.locks.remove(&job.id);
             }
@@ -79,6 +84,7 @@ impl DeleteExpiredVideoJobsUseCase {
         }
         // ジョブが無いのに残ったロック（存在確認とロック作成の間に消された場合など）を掃除する
         self.locks.retain_ids(|id| self.repository.get(id).is_some());
+        self.features.retain_ids(|id| self.repository.get(id).is_some());
         processed
     }
 }
@@ -121,6 +127,24 @@ mod delete_expired_video_jobs_usecase_test {
         assert!(deleted.contains(&job.input_key()) && deleted.contains(&job.output_key()));
         // ロックも消えている（新しい Mutex が作られる）
         assert!(!Arc::ptr_eq(&old_lock, &h.locks.lock_for(&id)));
+    }
+
+    #[tokio::test]
+    async fn cleanup_drops_preview_features_with_the_job() {
+        let h = harness();
+        let id = h.created_job().await;
+        h.set_frame.execute(frame_input(id, png_bytes(4, 4))).await.unwrap();
+        // ジョブが無いのに残った特徴量も消える
+        let orphan = crate::video_cutout::job::id::VideoJobId::new_random();
+        h.features.save(orphan, h.features.get(&id).unwrap());
+        h.clock.advance(30 * 60_000);
+        assert_eq!(h.cleanup.execute(h.clock_now()).await, 0);
+        assert!(h.features.get(&id).is_some());
+        assert!(h.features.get(&orphan).is_none());
+        h.clock.advance(1);
+        assert_eq!(h.cleanup.execute(h.clock_now()).await, 1);
+        assert!(h.features.get(&id).is_none());
+        assert_eq!(h.features.len(), 0);
     }
 
     #[tokio::test]

@@ -27,22 +27,26 @@ pub struct PointRequest {
 
 impl StartVideoJobRequest {
     pub fn points(&self) -> Result<Points, VideoJobError> {
-        let points = self
-            .points
-            .iter()
-            .map(|p| {
-                let label = match p.label.as_str() {
-                    "include" => PointLabel::Include,
-                    "exclude" => PointLabel::Exclude,
-                    _ => return Err(VideoJobError::InvalidPoints),
-                };
-                NormalizedPoint::new(p.x, p.y, label)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Points::new(points)
+        parse_points(&self.points)
     }
 
     pub fn background(&self) -> Result<Background, VideoJobError> {
         Background::from_str(&self.background)
     }
+}
+
+/// 点の一覧をドメインの `Points` にする（プレビューの `POST /video-jobs/{id}/preview` でも使う）。
+pub fn parse_points(points: &[PointRequest]) -> Result<Points, VideoJobError> {
+    let points = points
+        .iter()
+        .map(|p| {
+            let label = match p.label.as_str() {
+                "include" => PointLabel::Include,
+                "exclude" => PointLabel::Exclude,
+                _ => return Err(VideoJobError::InvalidPoints),
+            };
+            NormalizedPoint::new(p.x, p.y, label)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Points::new(points)
 }

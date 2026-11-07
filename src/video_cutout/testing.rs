@@ -3,11 +3,13 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use image::{ImageFormat, RgbImage};
+use ndarray::{Array2, Array4};
 use uuid::Uuid;
 
 use crate::video_cutout::{
@@ -25,6 +27,12 @@ use crate::video_cutout::{
         repository::VideoJobRepository,
         repository_impl::VideoJobRepositoryInMemory,
     },
+    preview::{
+        error::PreviewError,
+        feature_store::PreviewFeatureStore,
+        segmenter::{PREVIEW_INPUT_SIZE, PreviewFeatures, PreviewSegmenter},
+    },
+    preview_mask::{input::PreviewMaskInput, usecase::PreviewMaskUseCase},
     quota::{
         daily_quota::{DAILY_LIMIT, DailyQuota, QuotaKeys},
         error::QuotaError,
@@ -34,6 +42,7 @@ use crate::video_cutout::{
         input::{ReportVideoJobEventInput, WorkerEvent},
         usecase::ReportVideoJobEventUseCase,
     },
+    set_preview_frame::{input::SetPreviewFrameInput, usecase::SetPreviewFrameUseCase},
     start_job::{input::StartVideoJobInput, usecase::StartVideoJobUseCase},
     storage::{error::StorageError, video_object_storage::VideoObjectStorage},
     worker::{cutout_worker::CutoutWorker, error::WorkerError, request::WorkerJobRequest},
@@ -140,6 +149,80 @@ impl CutoutWorker for FakeWorker {
             return Err(WorkerError::Dispatch("fake failure".to_string()));
         }
         Ok(())
+    }
+}
+
+// ---- FakePreviewSegmenter ----
+
+/// エンコードの回数とデコードに渡された点を記録する。
+/// デコードは左半分（x < 256）を前景（ロジット +10）、右半分を背景（-10）にした 512x512 を返す。
+pub struct FakePreviewSegmenter {
+    encoded: AtomicUsize,
+    decoded: Mutex<Vec<Points>>,
+}
+
+impl FakePreviewSegmenter {
+    pub fn new() -> Self {
+        Self { encoded: AtomicUsize::new(0), decoded: Mutex::new(Vec::new()) }
+    }
+
+    pub fn encoded(&self) -> usize {
+        self.encoded.load(Ordering::SeqCst)
+    }
+
+    pub fn decoded_points(&self) -> Vec<Points> {
+        self.decoded.lock().unwrap().clone()
+    }
+}
+
+impl PreviewSegmenter for FakePreviewSegmenter {
+    fn encode(&self, frame: &RgbImage) -> Result<PreviewFeatures, PreviewError> {
+        self.encoded.fetch_add(1, Ordering::SeqCst);
+        Ok(PreviewFeatures {
+            feats0: Array4::zeros((1, 1, 1, 1)),
+            feats1: Array4::zeros((1, 1, 1, 1)),
+            feats2_no_mem: Array4::zeros((1, 1, 1, 1)),
+            frame_width: frame.width(),
+            frame_height: frame.height(),
+        })
+    }
+
+    fn decode(&self, _features: &PreviewFeatures, points: &Points) -> Result<Array2<f32>, PreviewError> {
+        self.decoded.lock().unwrap().push(points.clone());
+        let s = PREVIEW_INPUT_SIZE;
+        Ok(Array2::from_shape_fn((s, s), |(_, x)| if x < s / 2 { 10.0 } else { -10.0 }))
+    }
+}
+
+/// `width` x `height` の PNG（中身は適当な模様）。
+pub fn png_bytes(width: u32, height: u32) -> Vec<u8> {
+    encoded_frame(width, height, ImageFormat::Png)
+}
+
+pub fn jpeg_bytes(width: u32, height: u32) -> Vec<u8> {
+    encoded_frame(width, height, ImageFormat::Jpeg)
+}
+
+fn encoded_frame(width: u32, height: u32, format: ImageFormat) -> Vec<u8> {
+    let img = RgbImage::from_fn(width, height, |x, y| image::Rgb([x as u8, y as u8, 128]));
+    let mut bytes = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), format).unwrap();
+    bytes
+}
+
+pub fn frame_input(job_id: VideoJobId, image: Vec<u8>) -> SetPreviewFrameInput {
+    SetPreviewFrameInput { client_id: client_id(), job_id, image }
+}
+
+pub fn mask_input(job_id: VideoJobId) -> PreviewMaskInput {
+    PreviewMaskInput {
+        client_id: client_id(),
+        job_id,
+        points: Points::new(vec![
+            NormalizedPoint::new(0.25, 0.5, PointLabel::Include).unwrap(),
+            NormalizedPoint::new(0.75, 0.5, PointLabel::Exclude).unwrap(),
+        ])
+        .unwrap(),
     }
 }
 
@@ -261,6 +344,10 @@ pub struct Harness {
     pub get: GetVideoJobUseCase,
     pub report_uc: ReportVideoJobEventUseCase,
     pub cleanup: DeleteExpiredVideoJobsUseCase,
+    pub set_frame: SetPreviewFrameUseCase,
+    pub preview_mask: PreviewMaskUseCase,
+    pub preview: Arc<FakePreviewSegmenter>,
+    pub features: Arc<PreviewFeatureStore>,
     pub storage: Arc<FakeStorage>,
     pub worker: Arc<FakeWorker>,
     pub quota: Arc<InMemoryQuota>,
@@ -277,6 +364,16 @@ impl Harness {
         let repository = Arc::new(VideoJobRepositoryInMemory::new());
         let locks = Arc::new(VideoJobLocks::new());
         let clock = Arc::new(FakeVideoClock::new(NOW_MS));
+        let preview = Arc::new(FakePreviewSegmenter::new());
+        let features = Arc::new(PreviewFeatureStore::new());
+        let set_frame = SetPreviewFrameUseCase::new(
+            preview.clone(),
+            repository.clone(),
+            locks.clone(),
+            features.clone(),
+        );
+        let preview_mask =
+            PreviewMaskUseCase::new(preview.clone(), repository.clone(), features.clone());
         let create = CreateVideoJobUseCase::new(
             storage.clone(),
             repository.clone(),
@@ -311,6 +408,7 @@ impl Harness {
             repository.clone(),
             locks.clone(),
             quota.clone(),
+            features.clone(),
         );
         Self {
             create,
@@ -318,6 +416,10 @@ impl Harness {
             get,
             report_uc,
             cleanup,
+            set_frame,
+            preview_mask,
+            preview,
+            features,
             storage,
             worker,
             quota,

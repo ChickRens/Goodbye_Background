@@ -1,7 +1,15 @@
-//! 動画切り抜きの設定（環境変数。仕様 §4.7）。
+//! 動画切り抜きの設定（環境変数。仕様 §4.7）と、プレビューのモデルの有無。
 //!
 //! `TRUSTED_PROXY_HOPS`・`LOG_CLIENT_IP_DEBUG`（どちらも任意）以外が 1 つでも欠けて（空文字も欠けている扱い）いたら `None` を返し、
 //! 動画のルートは 503 `VIDEO_CUTOUT_DISABLED` になる（画像機能はそのまま動く）。
+//! プレビューのモデル（`PREVIEW_MODEL_DIR` の `PREVIEW_MODEL_FILES`）が 1 つでも無いときも同じく `None`（`from_env`）。
+
+use std::path::{Path, PathBuf};
+
+use crate::video_cutout::preview::segmenter_tiny::PREVIEW_MODEL_FILES;
+
+/// プレビュー用の SAM2.1 tiny のモデルの置き場所（カレントディレクトリからの相対パス。画像の `models/` と同じ扱い）。
+pub const PREVIEW_MODEL_DIR: &str = "models/sam2.1-tiny-video";
 
 pub struct VideoCutoutConfig {
     pub r2_account_id: String,
@@ -21,6 +29,8 @@ pub struct VideoCutoutConfig {
     /// IP の取り方を 1 行ログに出す（`presentation::client_ip::client_ip_debug_line`）。任意（無くても動画は有効）。
     /// `TRUSTED_PROXY_HOPS` の確認が終わったら外す。
     pub log_client_ip_debug: bool,
+    /// プレビュー用の SAM2.1 tiny のモデルのディレクトリ（`PREVIEW_MODEL_DIR`）。
+    pub preview_model_dir: PathBuf,
 }
 
 /// 必須の環境変数名（`missing_required` が足りないものを報告する順番）。
@@ -44,9 +54,25 @@ fn missing_required(var: impl Fn(&str) -> Option<String>) -> Vec<&'static str> {
         .collect()
 }
 
+/// `dir` の中に無いプレビューのモデルのファイルのパスを `PREVIEW_MODEL_FILES` の順で返す。
+pub fn missing_preview_model_files(dir: &Path) -> Vec<String> {
+    PREVIEW_MODEL_FILES
+        .iter()
+        .map(|file| dir.join(file))
+        .filter(|path| !path.is_file())
+        .map(|path| path.display().to_string())
+        .collect()
+}
+
 impl VideoCutoutConfig {
     pub fn from_env() -> Option<Self> {
-        Self::from_vars(|name| std::env::var(name).ok())
+        let config = Self::from_vars(|name| std::env::var(name).ok())?;
+        let missing = missing_preview_model_files(&config.preview_model_dir);
+        if !missing.is_empty() {
+            eprintln!("動画切り抜き: プレビューのモデルが無い: {}", missing.join(", "));
+            return None;
+        }
+        Some(config)
     }
 
     /// `var(name)` で値を引く。テストで環境変数を触らずに済むように分けてある。
@@ -88,6 +114,7 @@ impl VideoCutoutConfig {
             public_base_url: required("PUBLIC_BASE_URL")?,
             trusted_proxy_hops,
             log_client_ip_debug: var("LOG_CLIENT_IP_DEBUG").as_deref() == Some("1"),
+            preview_model_dir: PathBuf::from(PREVIEW_MODEL_DIR),
         })
     }
 }
@@ -96,7 +123,7 @@ impl VideoCutoutConfig {
 mod config_test {
     use std::collections::HashMap;
 
-    use super::{VideoCutoutConfig, missing_required};
+    use super::{VideoCutoutConfig, missing_preview_model_files, missing_required};
 
     fn all_vars() -> HashMap<&'static str, String> {
         [
@@ -202,5 +229,24 @@ mod config_test {
         let config = VideoCutoutConfig::from_vars(move |k| vars.get(k).cloned()).unwrap();
         assert_eq!(config.worker_callback_secret, "secret-value");
         assert_eq!(config.r2_secret_access_key, "r2-secret");
+    }
+
+    #[test]
+    fn missing_preview_model_files_lists_absent_files() {
+        let dir = std::env::temp_dir().join(format!("preview-model-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("onnx")).unwrap();
+        std::fs::write(dir.join("constants.json"), "{}").unwrap();
+        let missing = missing_preview_model_files(&dir);
+        assert_eq!(
+            missing,
+            vec![
+                dir.join("onnx/vision_encoder.onnx").display().to_string(),
+                dir.join("onnx/mask_decoder.onnx").display().to_string(),
+            ]
+        );
+        std::fs::write(dir.join("onnx/vision_encoder.onnx"), "x").unwrap();
+        std::fs::write(dir.join("onnx/mask_decoder.onnx"), "x").unwrap();
+        assert!(missing_preview_model_files(&dir).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

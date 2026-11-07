@@ -3,7 +3,9 @@
 use crate::{
     common::traits::ErrorType,
     leaf_error, parent_error,
-    video_cutout::{job::error::VideoJobError, signature::SignatureError},
+    video_cutout::{
+        job::error::VideoJobError, preview::error::PreviewInputError, signature::SignatureError,
+    },
 };
 
 leaf_error!(
@@ -19,5 +21,6 @@ parent_error!(
         Request(VideoRequestError),
         Signature(SignatureError),
         Job(VideoJobError),
+        Preview(PreviewInputError),
     }
 );

@@ -31,6 +31,8 @@ docker compose up --build
 - `models/` は git 管理外。起動には以下が必要（無いと `App::new` で panic）:
   `sam2.1_hiera_small_{image_encoder,prompt_encoder,mask_decoder}.onnx`, `image_pe.bin`
   → `scripts/` の Python（SAM2 公式リポジトリを `SAM2/` に置いて実行）で生成する
+- 動画切り抜きのプレビューには `models/sam2.1-tiny-video/`（`constants.json`, `onnx/{vision_encoder,mask_decoder}.onnx`）も必要。
+  無いと動画機能ごと無効（503。起動ログに足りないファイル名が出る）。画像機能は動く
 - `cargo test` は ONNX Runtime のリンクが必要。テストは models/ 無しでも動く（Sam2Segmenter::new を呼ばない）。
   ort-sys のダウンロードが通らない環境では、PyPI の `onnxruntime==1.24.2` の wheel から
   `libonnxruntime.so.1.24.2` を取り出し、`ORT_LIB_LOCATION=<dir> ORT_PREFER_DYNAMIC_LINK=1
@@ -46,8 +48,8 @@ composition/wiring.rs  ★ DI。全オブジェクトの生成と配線。App = 
 composition/video_wiring.rs  動画切り抜きの DI。VideoCutoutApp = 動画のハンドラから見たファサード
 presentation/        router（ルート定義）, AppError→HTTP 変換, 利用ログミドルウェア, client_ip（回数制限用の IP）
 api/handler/image_cutout/<ep>/  画像切り抜きのエンドポイントごとの handler.rs / request.rs / response.rs
-api/handler/video_cutout/<ep>/  動画切り抜きのエンドポイント（create_job / start_job / get_job / report_event）
-video_cutout/        動画切り抜き機能（ジョブ・回数制限・R2/Modal のポート・ユースケース・config.rs）
+api/handler/video_cutout/<ep>/  動画切り抜きのエンドポイント（create_job / start_job / get_job / report_event / set_preview_frame / preview_mask）
+video_cutout/        動画切り抜き機能（ジョブ・回数制限・R2/Modal のポート・プレビュー（preview/。SAM2.1 tiny）・ユースケース・config.rs）
 image_cutout/        画像切り抜き機能（既存の画像機能は全てここ）
   image_io/          ユースケース: upload / get_preview / get_completed
   editing/           ユースケース: prepare_segment / segment / undo / redo / save
@@ -75,7 +77,8 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
   `application/error.rs` の `ApplicationError` にも variant を追加する
 - **重い処理は `spawn_blocking`**: segment/undo/redo/save/upload ハンドラはそうしている。新規 API も同様に。
   **例外は動画**: 動画のポート（R2・Modal・回数の DB）はネットワーク待ちだけの非同期 trait なので、
-  動画のハンドラは `spawn_blocking` を使わずそのまま await する（ブロッキング用スレッドを待ちで占有しないため）
+  動画のハンドラは `spawn_blocking` を使わずそのまま await する（ブロッキング用スレッドを待ちで占有しないため）。
+  ただし動画のプレビューの推論（CPU）はユースケースの中で `spawn_blocking` する
 - **動画のファサードは `VideoCutoutApp`**（`composition/video_wiring.rs`）。画像の `App` には動画のメソッドを足さない。
   `App::new` は SAM2 のモデルを読むので、動画をモデル無しで組み立て・テストできるよう分けている（設計判断 R4）。
   ルーターのテストは `VideoCutoutApp::for_test`（偽の R2/ワーカー/回数/時計）で組む
@@ -125,6 +128,10 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
     0 = 接続元。Cloud Run で 0 のままだと全員が同じ IP になり、全員で 1 日 3 回になる。本番で実際の値を確かめて決める。
     確かめる間だけ `LOG_CLIENT_IP_DEBUG=1` を付けると `POST /video-jobs` ごとに `[client-ip-debug]` の行
     （生の `X-Forwarded-For`・接続元・hops・選ばれた IP）が出る。**確認が終わったら外す**（環境変数を消す。手順は `docs/video-cutout-deploy.md`）
+16. **動画のプレビューは本番と同じ SAM2.1 tiny を Rust（CPU）で動かす**（仕様 D8 を置き換え。docs/ARCHITECTURE.md §9.4）。
+    画像の small を流用すると、本番の tiny と選ぶ範囲が食い違ったため。`video_cutout/preview/` の前処理・alpha は
+    `worker/cutout/tracker.py`・`compositor.py` と同じ数値になるよう書いてある（EDGE_SHARPNESS などを変えるときは両方直す）。
+    特徴量はジョブごとに約 4MB をメモリに置き、ジョブの削除・期限切れで消す
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）
 
