@@ -214,9 +214,6 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
    `.env.example` も有効な URL 形式に修正。
    テスト: `sqlite_migration_test::*`（新規 DB / 既存 DB の更新）。Postgres はローカルの PostgreSQL 16 で
    「空の DB」「手動でテーブル作成済みの DB」の両方を手動確認
-   - 注意: もし過去に sqlx-cli で Postgres に旧マイグレーションを適用していた場合、2本目のチェックサムが
-     変わっているので起動時にエラーになる（アプリ本体は Postgres でマイグレーションを実行していなかったので、
-     通常は該当しない）
    - **本番 DB との互換（2026-11-07）**: 本番（Cloud Run・PostgreSQL）は master ではなく Google ログインのブランチ
      （`feat/user-google-login`）からデプロイされていた。そのブランチは平らな `migrations/` を使っており、本番の
      `_sqlx_migrations` には `20260919032531` / `20261004122625`（`ADD COLUMN client_id TEXT;`、末尾改行なし）/
@@ -228,8 +225,16 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
        ファイルにコメントを足すとチェックサムが変わるので、説明はここに書く
      - `20261107000000_drop_users_and_login_sessions.sql`（両 DB）で users / login_sessions を消す
        （オーナー判断: Google ログインは本番から外したので個人情報を残さない）
+     - **改行も本番どおり**: オーナーは Windows（`core.autocrlf=true`）でチェックアウトしてイメージを作っていたので、
+       本番が適用したバイト列は `20260919032531` と `20261004122625` が CRLF、`20261101090000` が LF
+       （本番の `_sqlx_migrations.checksum` の先頭 16 桁: `7d1303a9617d0b61` / `2085933da5d32124` / `d7cbb94d73748d77`）。
+       リポジトリの `migrations/postgres/` にはこの混在した改行のまま置き、`.gitattributes` の `migrations/** -text` で
+       チェックアウト・コミット時の改行変換を止めている（autocrlf の設定に関係なく、ビルドにはリポジトリのバイト列が入る）。
+       これから追加する `20261106000000` / `20261107000000` も、最初にデプロイしたバイト列（LF）で固定され、以後変えてはいけない
+     - `migrations/sqlite/` は開発用なので LF のまま。Google ログインのブランチを Windows で動かして作った手元の SQLite の DB は
+       CRLF のチェックサムを持っていて `VersionMismatch` になることがある。利用ログしか入っていないので、ファイルを消して作り直せばよい
      - これらのファイルは絶対に編集しない。チェックサムはテスト
-       `postgres_migration_checksum_test` で本番の値に固定している。
+       `postgres_migration_checksum_test` で本番の値（SHA-384 全桁）に固定している。
        テスト: `sqlite_migration_test::sqlite_migrations_upgrade_google_login_branch_database_and_drop_login_tables`。
        Postgres はローカルの PostgreSQL 16 で「本番の再現（ブランチの3本＋ログインの行）→ このブランチ」
        「空の DB」の両方を確認（修正前のマイグレーションでは `VersionMissing(20261101090000)` が再現した）

@@ -204,6 +204,32 @@ git switch claude/video-crop-handoff-1i1r2g
 git pull
 ```
 
+**マイグレーションのファイルを取り直して、本番と同じバイト列か確かめる**（ビルドの前に必ず）:
+
+本番の DB は、適用したマイグレーションのファイルのチェックサム（SHA-384）を覚えていて、起動時にイメージの中のファイルと比べます。
+1 文字でも（改行コードの CRLF / LF の違いでも）違うと起動しません。このブランチには改行を変換しない設定（`.gitattributes`）が
+入っていますが、**既にチェックアウト済みのファイルには効かない**ので、一度消して取り直します:
+
+```powershell
+Remove-Item -Recurse -Force migrations
+git checkout -- migrations
+Get-FileHash -Algorithm SHA384 migrations\postgres\20260919032531_usage_records.sql
+Get-FileHash -Algorithm SHA384 migrations\postgres\20261004122625_add_client_id_to_usage_records.sql
+Get-FileHash -Algorithm SHA384 migrations\postgres\20261101090000_users_and_login_sessions.sql
+```
+
+**確認**: `Hash` の**先頭 16 文字**が次と同じ（PowerShell は大文字で表示します。大文字・小文字は区別しません）:
+
+| ファイル | 先頭 16 文字 |
+|---|---|
+| `20260919032531_usage_records.sql` | `7D1303A9617D0B61` |
+| `20261004122625_add_client_id_to_usage_records.sql` | `2085933DA5D32124` |
+| `20261101090000_users_and_login_sessions.sql` | `D7CBB94D73748D77` |
+
+- 3 つとも一致したらビルドに進んでください。違う場合はビルドせず、`git status` に migrations の変更が出ていないか確認し、チャットで相談してください
+- 新しく足した `20261106000000` / `20261107000000` は、最初にデプロイしたときのバイト列で本番に記録され、以後は変えてはいけません
+  （`.gitattributes` があるので、Windows でもリポジトリと同じバイト列になり、変わりません）
+
 ### 4-2. モデルがあることを確かめる
 
 `DockerFile` は `models/` をイメージにコピーします（無いとビルドが失敗するか、起動時に落ちます）:
@@ -348,7 +374,8 @@ gcloud run services update $SERVICE --region $REGION `
 ### 以後のデプロイ（2 回目以降はこちら）
 
 環境変数とシークレットはサービスに保存されていて、デプロイし直しても残ります。**2 回目以降は動画の設定を付けずに**デプロイしてください
-（手順 4-3 のコマンドを使い回すと、確認用のログが復活し、`TRUSTED_PROXY_HOPS` が `1` に戻ります）:
+（手順 4-3 のコマンドを使い回すと、確認用のログが復活し、`TRUSTED_PROXY_HOPS` が `1` に戻ります）。
+ビルドの前に、手順 4-1 の「マイグレーションのファイルの確認」（`Get-FileHash` の 3 行）も行ってください:
 
 ```powershell
 $TAG   = "video-" + (Get-Date -Format "yyyyMMdd-HHmm")

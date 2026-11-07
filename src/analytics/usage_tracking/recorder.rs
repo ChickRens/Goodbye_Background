@@ -254,13 +254,16 @@ mod sqlite_migration_test {
 
 // 本番の PostgreSQL は feat/user-google-login ブランチの migrations/ で作られた。
 // 適用済みのファイルのチェックサムが変わると起動しなくなるので、本番が適用したときの値に固定する。
+// オーナーは Windows（core.autocrlf=true）でイメージを作ったので、本番が適用したバイト列は
+// 0919 と 1004 が CRLF、1101 が LF。リポジトリにはそのバイト列を置き、.gitattributes（migrations/** -text）で
+// チェックアウト時の改行変換を止めている。値は本番の _sqlx_migrations.checksum（SHA-384）と同じ。
 #[cfg(test)]
 mod postgres_migration_checksum_test {
     #[test]
     fn postgres_migrations_applied_in_production_keep_their_checksums() {
         let expected = [
-            (20260919032531_i64, "6db901ba69bd19fa05bfb784ee17d914a6c031a8d603c44d88a56e01c292b7dd8cf69c659a66a4306c3c914e9ae77186"),
-            (20261004122625, "fce80b3766c787fce6fcd9203eea21a3b13e9989e89ae1daf5cad3a470f412b8bd4f318dcd22184818df3d86d0536c52"),
+            (20260919032531_i64, "7d1303a9617d0b615e2f94960ddd2ea5060ab477dbb52ee0261a83b458387ee33bc26e2aa474045b0748b95ed6dcfa4b"),
+            (20261004122625, "2085933da5d321246556501b6fe2238847a00bce75df957ba24d82e78ef99c8f0b923ac6e0ec88c4335a1eb422d433d0"),
             (20261101090000, "d7cbb94d73748d77f08c55249b9401e2341af4f92c4cf5f2c3f7d6337e56c2111155a58cbf83ed3a56f5da069ffede63"),
         ];
         let migrator = sqlx::migrate!("./migrations/postgres");

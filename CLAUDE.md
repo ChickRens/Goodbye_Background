@@ -115,7 +115,10 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 13. **マイグレーションは DB ごと**: `migrations/sqlite/` と `migrations/postgres/` の両方に追加する。
     適用済みのファイルは絶対に書き換えない（sqlx のチェックサム不一致で起動しなくなる）。
     本番 DB は Google ログインのブランチ（feat/user-google-login）の平らな `migrations/` で作られたので、
-    `postgres/20261004122625` と `20261101090000` は本番が適用したものとバイト単位で同じに保つ（絶対に編集しない。テストで固定）
+    `postgres/20260919032531`・`20261004122625`・`20261101090000` は本番が適用したバイト列そのもの
+    （改行が混在: CRLF / CRLF / LF。オーナーが Windows の autocrlf でビルドしたため）。絶対に編集しない（テストで固定）。
+    `.gitattributes`（`migrations/** -text`）で migrations の改行変換を止めているので、エディタで改行を変えないこと。
+    `migrations/sqlite/` は開発用で LF のまま
 14. **Cloud Run の最大インスタンス数は 1 のまま変えない**: 動画ジョブはインメモリなので、2 台以上にすると
     ポーリングやワーカーの通知が別の台に届いて 404 になる（docs/ARCHITECTURE.md §9）
 15. **`TRUSTED_PROXY_HOPS`**: 回数制限の IP を `X-Forwarded-For` の右から何番目で取るか（`presentation/client_ip.rs`）。
