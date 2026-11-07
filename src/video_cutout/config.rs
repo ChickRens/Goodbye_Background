@@ -23,6 +23,27 @@ pub struct VideoCutoutConfig {
     pub log_client_ip_debug: bool,
 }
 
+/// 必須の環境変数名（`missing_required` が足りないものを報告する順番）。
+const REQUIRED_VARS: [&str; 9] = [
+    "R2_ACCOUNT_ID",
+    "R2_BUCKET",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+    "MODAL_ENDPOINT_URL",
+    "MODAL_KEY",
+    "MODAL_SECRET",
+    "WORKER_CALLBACK_SECRET",
+    "PUBLIC_BASE_URL",
+];
+
+/// 足りない（無い・空白だけ）必須の環境変数の名前を `REQUIRED_VARS` の順で返す。値は見ない・返さない。
+fn missing_required(var: impl Fn(&str) -> Option<String>) -> Vec<&'static str> {
+    REQUIRED_VARS
+        .into_iter()
+        .filter(|name| var(name).is_none_or(|v| v.trim().is_empty()))
+        .collect()
+}
+
 impl VideoCutoutConfig {
     pub fn from_env() -> Option<Self> {
         Self::from_vars(|name| std::env::var(name).ok())
@@ -49,6 +70,12 @@ impl VideoCutoutConfig {
                 }
             },
         };
+        let missing = missing_required(&var);
+        if !missing.is_empty() {
+            // 名前だけを出す（値は秘密なので出さない）
+            eprintln!("動画切り抜き: 環境変数が足りない: {}", missing.join(", "));
+            return None;
+        }
         Some(Self {
             r2_account_id: required("R2_ACCOUNT_ID")?,
             r2_bucket: required("R2_BUCKET")?,
@@ -69,7 +96,7 @@ impl VideoCutoutConfig {
 mod config_test {
     use std::collections::HashMap;
 
-    use super::VideoCutoutConfig;
+    use super::{VideoCutoutConfig, missing_required};
 
     fn all_vars() -> HashMap<&'static str, String> {
         [
@@ -92,6 +119,21 @@ mod config_test {
         let mut vars = all_vars();
         vars.remove(name);
         move |k| vars.get(k).cloned()
+    }
+
+    #[test]
+    fn missing_required_lists_names_in_fixed_order() {
+        let mut vars = all_vars();
+        vars.remove("MODAL_KEY");
+        vars.insert("R2_ACCOUNT_ID", "  ".to_string()); // 空白だけも足りない扱い
+        let missing = missing_required(|k| vars.get(k).cloned());
+        assert_eq!(missing, vec!["R2_ACCOUNT_ID", "MODAL_KEY"]);
+    }
+
+    #[test]
+    fn missing_required_is_empty_when_all_present() {
+        let vars = all_vars();
+        assert!(missing_required(|k| vars.get(k).cloned()).is_empty());
     }
 
     #[test]
