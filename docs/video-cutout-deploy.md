@@ -315,6 +315,17 @@ Get-ChildItem models
 
 `sam2.1_hiera_small_image_encoder.onnx`・`sam2.1_hiera_small_prompt_encoder.onnx`・`sam2.1_hiera_small_mask_decoder.onnx`・`image_pe.bin` の 4 つがあれば OK です。
 
+**動画のプレビュー用のモデル（SAM2.1 tiny）を取得する**（初回だけ。手順 9-1 と同じ）。無いと動画機能ごと無効になります:
+
+```powershell
+cd worker
+uv run python scripts/fetch_preview_models.py
+cd ..
+Get-ChildItem -Recurse models\sam2.1-tiny-video
+```
+
+`constants.json`・`onnx\vision_encoder.onnx`・`onnx\mask_decoder.onnx` の 3 つがあれば OK です。
+
 ### 4-3. ビルド・プッシュ・デプロイ（初回）
 
 **いつもと同じ流れ**で行います。**このコマンドは動画の設定を入れる初回だけ**使います（2 回目以降は手順 5 の後の「以後のデプロイ」）。名前はいつも使っているものに置き換えてください（例は Artifact Registry の場合）:
@@ -350,8 +361,10 @@ https://console.cloud.google.com/run → サービス → **ログ** タブ（�
 動画切り抜き: IP の確認用ログ（[client-ip-debug]）を出します
 ```
 
-「動画切り抜き: 無効（環境変数が足りないため、動画の API は 503 を返す）」と出た場合は、手順 3 の値のどれかが欠けています
-（`TRUSTED_PROXY_HOPS` が数値でない場合は、その前に「TRUSTED_PROXY_HOPS が数値ではないため…」の行が出ます）。
+「動画切り抜き: 無効（環境変数かプレビューのモデルが足りないため、動画の API は 503 を返す）」と出た場合は、その前の行に理由が出ています:
+「動画切り抜き: 環境変数が足りない: …」なら手順 3 の値のどれかが欠けている、
+「動画切り抜き: プレビューのモデルが無い: …」なら手順 4-2 のプレビュー用のモデルが足りない
+（`TRUSTED_PROXY_HOPS` が数値でない場合は「TRUSTED_PROXY_HOPS が数値ではないため…」の行が出ます）。
 画像の切り抜き（https://chickren.goodbye-background.com/app.html ）がいつも通り動くことも確かめてください。
 
 **マイグレーションのエラーで起動しない場合**（ログに `Failed to run PostgreSQL migrations: ...`）:
@@ -533,6 +546,75 @@ SELECT day, key_kind, count FROM video_quota_usage ORDER BY day DESC, key_kind;
 3. 手順 5 の後: `LOG_CLIENT_IP_DEBUG` を外したか
 4. 手順 6: `1 passed` か、`FAILED` / `SKIPPED` ならその行
 5. 手順 7: チェックリストの結果、コールド / ウォームの時間、うまくいかなかった項目の文言
+6. 手順 9: 起動ログの「動画切り抜き: 有効」が出たか、9-2 を行ったならその結果、9-4 のチェックの結果とプレビューにかかった時間
 
 **貼らないもの**: R2 の Secret Access Key、Modal の Token Secret（`ws-…`）、`WORKER_CALLBACK_SECRET`、
 署名付き URL（`X-Amz-Signature` を含む URL）、自分のグローバル IP、DB の `key` 列の値。
+
+---
+
+## 9. プレビューを本番と同じモデルにする（2026-11-07 の更新。デプロイ済みならここだけ）
+
+動画ページのプレビュー（手順 4 の「残す所をタップ」）を、画像機能のモデル（SAM2.1 small）から、
+本番の GPU ワーカーと同じ **SAM2.1 tiny** に変えました。プレビューで残った範囲が、そのまま出力の 1 フレーム目になります
+（以前は、ベストを 1 点タップするとプレビューは人物全体・本番はベストだけ、と食い違いました）。
+tiny は Cloud Run の CPU で動かすので、モデルのファイルをイメージに入れる必要があります。
+
+### 9-1. プレビュー用のモデルを取得する
+
+ワーカーと同じリビジョンに固定したモデルから、プレビューで使う 3 つだけを `models\sam2.1-tiny-video\` に取得します
+（取得済みのファイルは飛ばすので、何度実行しても構いません）:
+
+```powershell
+cd <Goodbye_Background のフォルダ>
+git switch claude/video-crop-handoff-1i1r2g
+git pull
+
+cd worker
+uv run python scripts/fetch_preview_models.py
+cd ..
+Get-ChildItem -Recurse models\sam2.1-tiny-video
+```
+
+**確認**: 次の 3 つがあり、どれも 0 バイトではない:
+
+```
+models\sam2.1-tiny-video\constants.json
+models\sam2.1-tiny-video\onnx\vision_encoder.onnx
+models\sam2.1-tiny-video\onnx\mask_decoder.onnx
+```
+
+（`models\` の中の small の 4 つ（手順 4-2）もそのまま残しておきます。`models\` は git 管理外です）
+
+### 9-2. （任意）自分の PC で実モデルのテストを動かす
+
+**Rust（`cargo`）が入っている場合だけ**行います。入っていなければ飛ばして 9-3 へ進んでください:
+
+```powershell
+$env:SAM2_TINY_MODEL_DIR = "models/sam2.1-tiny-video"
+cargo test -- --ignored tiny_model
+Remove-Item Env:SAM2_TINY_MODEL_DIR
+```
+
+**確認**: `test result: ok. 1 passed`。
+
+### 9-3. ビルド・デプロイ
+
+手順 4-1 の「マイグレーションのファイルの確認」（`Get-FileHash` の 3 行）をしてから、手順 5 の後の
+**「以後のデプロイ」のコマンド**でビルド・デプロイします（動画の設定は付けません）。
+
+**確認**: 新しいリビジョンの起動ログに `動画切り抜き: 有効` が出ている。
+`動画切り抜き: プレビューのモデルが無い: …` と出たら、9-1 のファイルが無い状態でビルドしています（9-1 からやり直す）。
+
+### 9-4. プレビューと仕上がりが一致するかの確認
+
+iPhone の Safari で https://chickren.goodbye-background.com/video.html を開き、**以前プレビューと仕上がりが食い違った同じ動画**で:
+
+- [ ] 前と同じ所（例: ベスト）を 1 点タップすると、プレビューで残る範囲が**タップした物だけ**になる
+- [ ] 送信して出来上がった動画の **1 フレーム目**で残っている範囲が、プレビューで残った範囲と**同じ**
+- [ ] 「この点では切り抜く対象が見つかりませんでした…」が出たときは、送信ボタンが押せない
+  （背景をタップすると出ることがあります。背景でも何かを選んで出ないこともあるので、出なければ飛ばして構いません）
+- [ ] 点を打つ・Undo・Redo のたびにプレビューが数秒以内に変わる（かかった時間の目安: ___ 秒）
+
+**確認**: 上のチェックがすべて付いた。食い違った場合は、動画・タップした位置・プレビューと 1 フレーム目のスクリーンショットを控える。
+結果は手順 8 の 6 のとおりチャットに貼ってください。

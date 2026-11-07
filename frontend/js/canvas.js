@@ -101,6 +101,17 @@ export function createCanvasController(canvasEl, { onPointAdd }) {
     });
   }
 
+  /**
+   * 読み込み済みの画像・canvas をそのままプレビュー画像にする（動画ページが手元で合成した切り抜き用）。
+   * canvas の解像度は source の大きさにする。
+   */
+  function setBaseSource(source) {
+    baseImage = source;
+    canvasEl.width = source.naturalWidth || source.width;
+    canvasEl.height = source.naturalHeight || source.height;
+    dirty = true;
+  }
+
   function loadOriginalImage(url, isStale) {
     if (!url) {
       originalImage = null;
@@ -239,5 +250,5 @@ export function createCanvasController(canvasEl, { onPointAdd }) {
     onPointAdd({ x, y, label: pointMode === 'positive' ? 1 : 0 });
   });
 
-  return { loadBaseImage, loadOriginalImage, setPoints, setPointMode, reset, draw };
+  return { loadBaseImage, setBaseSource, loadOriginalImage, setPoints, setPointMode, reset, draw };
 }

@@ -27,7 +27,8 @@ function clamp(value, min, max) {
 
 /**
  * プレビュー用に切り出すフレームの長辺の上限。
- * 既存の /upload は 10MB まで。4K のフレームを PNG にすると超え得るので縮小する
+ * POST /video-jobs/{id}/preview-frame が受け付けるのは長辺 2000px・10MB まで（サーバーと同じ値）。
+ * 4K のフレームを PNG にすると超え得るので縮小する（それでも 10MB を超えたら preview.js が JPEG にする）
  * （タップ点は 0〜1 の正規化座標で送るので、縮小しても座標はずれない）。
  */
 const FRAME_MAX_LONG_SIDE = 2000;

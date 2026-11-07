@@ -25,10 +25,14 @@ _NP_TYPES = {
 }
 
 
-def fetch_models(model_dir: Path, revision: str) -> Path:
-    """constants.json と onnx/*.onnx を model_dir に取得する。既にあるファイルは飛ばす。"""
+def fetch_models(model_dir: Path, revision: str, graphs: list[str] | None = None) -> Path:
+    """constants.json と onnx/*.onnx を model_dir に取得する。既にあるファイルは飛ばす。
+
+    graphs を渡すとそのグラフだけ取得する（Rust のプレビューは vision_encoder と mask_decoder だけ使う）。
+    省略時は GRAPH_NAMES の全部（ワーカー用）。
+    """
     base = REPO_URL.format(revision=revision)
-    files = ["constants.json"] + [f"onnx/{g}.onnx" for g in GRAPH_NAMES]
+    files = ["constants.json"] + [f"onnx/{g}.onnx" for g in (GRAPH_NAMES if graphs is None else graphs)]
     for rel in files:
         dst = model_dir / rel
         if dst.exists() and dst.stat().st_size > 0:

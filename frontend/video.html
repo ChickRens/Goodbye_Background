@@ -65,14 +65,15 @@
       <button id="upload-retry-btn" type="button" class="ghost-btn" hidden>アップロードをやり直す</button>
     </section>
 
-    <!-- 4. 残す所をタップ（アップロードと並行して、開始位置のフレームで既存の /upload・/segment を使う） -->
+    <!-- 4. 残す所をタップ（アップロードと並行して、開始位置のフレームを登録し、本番と同じモデルでプレビューする） -->
     <section id="step-preview" class="video-step" hidden>
       <h3 class="video-step-title"><span class="video-step-no">4</span>残す所をタップ</h3>
-      <p class="video-note">開始位置のフレームです。プレビューは目安です（実際の仕上がりとは少し違うことがあります）。</p>
+      <p class="video-note">開始位置のフレームです。ここで残った所が、仕上がりの最初のフレームになります（動きが速い所は途中で欠けることがあります）。</p>
       <div class="video-canvas-wrap">
         <canvas id="frame-canvas" role="img" aria-label="開始位置のフレーム。タップした位置を残す／除外する対象として指定できます"></canvas>
       </div>
       <p id="preview-status" class="edit-status" role="status" aria-live="polite"></p>
+      <p id="preview-warning" class="video-alert" role="alert" hidden>この点では切り抜く対象が見つかりませんでした。このまま送ると失敗するので、残したい物の真ん中をタップし直してください。</p>
       <div class="edit-toolbar">
         <button id="mode-toggle" type="button" class="icon-btn" data-mode="positive">➕ 含める</button>
         <button id="undo-btn" type="button" class="icon-btn" disabled>↺ Undo</button>

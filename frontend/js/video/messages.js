@@ -60,6 +60,10 @@ const API_ERROR_MESSAGES = {
   VIDEO_JOB_INVALID_STATE: 'このジョブはすでに送信済みです',
   VIDEO_JOB_NOT_FOUND: SERVER_RESTARTED_MESSAGE,
   WORKER_DISPATCH_FAILED: FAILURE_MESSAGES.dispatch_failed,
+  PREVIEW_BUSY: 'プレビューが混み合っています。少し待ってから「プレビューをやり直す」を押してください',
+  PREVIEW_FRAME_NOT_FOUND: 'プレビューの準備が消えました。「プレビューをやり直す」を押してください',
+  INVALID_PREVIEW_IMAGE: '開始位置のフレームを送れませんでした。開始位置を少しずらしてやり直してください',
+  PREVIEW_FAILED: 'サーバーでエラーが起きました。時間をおいて試してください',
 };
 
 /** api.js が投げたエラー（err.code / err.message）を画面に出す文言にする */

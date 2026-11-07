@@ -1,10 +1,12 @@
 /**
  * video.html のエントリーポイント。画面の流れ（仕様 §7）:
  *   1. 動画を選ぶ → 2. 範囲を選ぶ（10 秒まで）→「この範囲で決める」で POST /video-jobs
- *   3. 署名付き URL へ PUT（進捗バー）と、4. 開始位置のフレームで既存の /upload・/segment のプレビューを並行して進める
+ *   3. 署名付き URL へ PUT（進捗バー）と、4. 開始位置のフレームのプレビューを並行して進める
+ *      （POST /video-jobs/{id}/preview-frame で登録 → タップのたびに POST /video-jobs/{id}/preview。本番と同じ SAM2.1 tiny）
  *   5. 背景色を選んで送信（POST /video-jobs/{id}/start）→ 6. 1 秒ごとに GET して結果を出す
  *
- * 送信ボタンが押せるのは「アップロード完了」「点が 1 つ以上」「プレビューが処理中でない」「まだ送っていない」のときだけ。
+ * 送信ボタンが押せるのは「アップロード完了」「点が 1 つ以上」「今の点のプレビューが出ていて対象が見つかっている
+ * （X-Object-Present: true）」「まだ送っていない」のときだけ。
  * ジョブを作った後は範囲を変えさせない（ジョブの範囲はサーバーに登録済みのため）。
  * 残り回数は POST /video-jobs と GET の応答の remaining_today で更新する（それより前は「1日3回まで」）。
  * 0 になったら動画の選択で止める。
@@ -105,8 +107,12 @@ preview = createFramePreview({
   undoBtn: $('undo-btn'),
   redoBtn: $('redo-btn'),
   statusEl: $('preview-status'),
+  warningEl: $('preview-warning'),
   onChange: updateSendButton,
-  onError: (err, what) => showToast({ type: 'danger', message: `${what}に失敗しました: ${apiErrorMessage(err)}`, code: err.code }),
+  onError: (err, what) => {
+    showToast({ type: 'danger', message: `${what}に失敗しました: ${apiErrorMessage(err)}`, code: err.code });
+    if (!state.sent && !state.sending) el.previewRetryBtn.hidden = false;
+  },
 });
 
 // ---------- 残り回数 ----------
@@ -316,7 +322,7 @@ async function startPreview() {
       state.frameBlob = await captureFrame(el.video, state.startMs);
       if (gen !== generation) return;
     }
-    const ok = await preview.load(state.frameBlob);
+    const ok = await preview.load(state.job.jobId, state.frameBlob);
     if (gen !== generation) return;
     if (!ok) el.previewRetryBtn.hidden = false;
   } catch (err) {
@@ -337,7 +343,7 @@ function selectedBackground() {
 
 function updateSendButton() {
   if (!preview) return;
-  const ready = state.job !== null && state.uploadDone && preview.pointCount() >= 1 && preview.isReady();
+  const ready = state.job !== null && state.uploadDone && preview.canSend();
   el.sendBtn.disabled = !ready || state.sending || state.sent;
   el.backgroundField.disabled = state.sending || state.sent;
 
@@ -345,6 +351,8 @@ function updateSendButton() {
   if (state.sent || state.sending) hint = '';
   else if (!state.uploadDone) hint = 'アップロードが終わると送信できます';
   else if (preview.pointCount() === 0) hint = '残したい所を 1 か所以上タップすると送信できます';
+  else if (preview.objectMissing()) hint = '対象が見つからないため送信できません。点を打ち直してください';
+  else if (!preview.canSend()) hint = 'プレビューが出ると送信できます';
   else hint = '送信すると今日の回数を 1 回使います';
   el.sendHint.textContent = hint;
   updateSelectAvailability();

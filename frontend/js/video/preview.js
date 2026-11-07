@@ -1,23 +1,35 @@
 /**
  * 開始位置のフレームで「どこを切り抜くか」を決めるプレビュー。
  *
- * 既存の画像用 API をそのまま使う: フレームの PNG を /upload → タップごとに /segment、
- * 取り消しは /undo・/redo、表示は /get-preview。canvas の描画とタップの入力は既存の canvas.js。
- * 既存の画像編集（editor.js）と同じく、変更系のリクエストは同時に 1 つだけにする（busy）。
+ * 動画ジョブ専用の API を使う（本番のワーカーと同じ SAM2.1 tiny の 1 フレーム目をサーバーの CPU で計算する。仕様 D8）:
+ *   1. フレームを POST /video-jobs/{id}/preview-frame で 1 回だけ登録する（サーバーがエンコードして持つ）
+ *   2. 点が変わるたびに、今の点の一覧を丸ごと POST /video-jobs/{id}/preview に送り、alpha マスク（PNG）を受け取る
+ *   3. フレームにマスクを alpha として合成し、canvas.js で市松模様の上に表示する（消える所は薄いフレームが見える）
+ * どちらも回数は消費しない。
  *
- * 座標: canvas の解像度は /get-preview の画像（プレビュー画像）の実ピクセルなので、
- * タップ点はプレビュー画像の座標で届く。動画ジョブには toNormalized で 0〜1 にして送る
- * （仕様 §3。既存の 3 つの座標系とは混ざらない）。
+ * 点の一覧はこちらで持つ。Undo / Redo は手元の一覧を戻す・進めるだけで、そのたびに一覧を送り直す。
+ * リクエストは同時に 1 つだけ。応答待ちの間に点が変わったら、応答を捨てて最新の一覧でもう一度送る
+ * （画面に出すのは「今の一覧」に対する応答だけ）。
  *
- * 点の一覧はサーバーが返さないので、editor.js と同じく
- * 「undo 1 回 = 最後の 1 点を外す / redo 1 回 = 外した 1 点を戻す」でこちらでも持つ。
- * 送信するのは undo/redo を反映した今の点の一覧。
+ * サーバーの事情によるやり直し:
+ *   - 503 PREVIEW_BUSY（フレームの登録はサーバー全体で同時に 2 つまで）: 1 秒・2 秒・4 秒待って登録し直す
+ *   - 409 PREVIEW_FRAME_NOT_FOUND（混雑時や期限切れでサーバーが特徴量を捨てた）: 同じフレームを登録し直して 1 回だけやり直す
+ *
+ * 座標: canvas の解像度はフレーム画像の実ピクセルなので、タップ点はフレームの座標で届く。
+ * 動画ジョブには toNormalized で 0〜1 にして送る（仕様 §3。既存の 3 つの座標系とは混ざらない）。
  */
-import { uploadImage, getPreviewImage, segmentImage, undoEdit, redoEdit } from '../api.js';
+import { setVideoPreviewFrame, previewVideoMask } from '../api.js';
 import { createCanvasController } from '../canvas.js';
 
 /** 動画ジョブに送れる点の上限（サーバーの MAX_POINTS と同じ値） */
 export const MAX_POINTS = 8;
+
+/** PREVIEW_BUSY のときに待つ時間（ms）。この回数だけやり直す */
+export const BUSY_RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+/** /preview-frame が受け付けるフレームの大きさ（サーバーと同じ 10MB）。PNG で超えたら JPEG にする */
+const MAX_FRAME_BYTES = 10 * 1024 * 1024;
+const FALLBACK_JPEG_QUALITY = 0.92;
 
 /** プレビュー画像の座標 → 0〜1 の正規化座標（範囲外は 0〜1 に丸め込む） */
 export function toNormalized(previewX, previewY, previewW, previewH) {
@@ -33,33 +45,112 @@ function clamp01(value) {
 }
 
 /**
+ * フレームの RGBA にマスク（グレースケール。R = G = B = 濃さ）の濃さを alpha として入れる。
+ * frame は書き換える。2 つは同じ長さ（同じ大きさの画像）であること。
+ */
+export function applyMaskAlpha(frame, mask) {
+  for (let i = 3; i < frame.length; i += 4) {
+    frame[i] = mask[i - 3];
+  }
+  return frame;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+    img.src = url;
+  });
+}
+
+async function loadImageFromBlob(blob) {
+  const url = URL.createObjectURL(blob);
+  try {
+    return await loadImage(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** フレームにマスクを alpha として合成した canvas を返す（マスクの大きさが違えばフレームの大きさに引き伸ばす） */
+function composeCutout(frameImg, maskImg) {
+  const width = frameImg.naturalWidth;
+  const height = frameImg.naturalHeight;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(maskImg, 0, 0, width, height);
+  const mask = ctx.getImageData(0, 0, width, height).data;
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(frameImg, 0, 0, width, height);
+  const frame = ctx.getImageData(0, 0, width, height);
+  applyMaskAlpha(frame.data, mask);
+  ctx.putImageData(frame, 0, 0);
+  return canvas;
+}
+
+/** 10MB を超える PNG は JPEG にする（サーバーは PNG / JPEG を受け付ける） */
+function frameForUpload(frameBlob, frameImg) {
+  if (frameBlob.size <= MAX_FRAME_BYTES) return Promise.resolve(frameBlob);
+  const canvas = document.createElement('canvas');
+  canvas.width = frameImg.naturalWidth;
+  canvas.height = frameImg.naturalHeight;
+  canvas.getContext('2d').drawImage(frameImg, 0, 0);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('フレームを画像にできませんでした'))),
+      'image/jpeg',
+      FALLBACK_JPEG_QUALITY,
+    );
+  });
+}
+
+/**
  * @param {Object} opts
  * @param {HTMLCanvasElement} opts.canvasEl
  * @param {HTMLButtonElement} opts.modeToggleBtn
  * @param {HTMLButtonElement} opts.undoBtn
  * @param {HTMLButtonElement} opts.redoBtn
  * @param {HTMLElement} opts.statusEl
- * @param {() => void} opts.onChange 点の数・busy・読み込み状態が変わったら呼ぶ（送信ボタンの更新用）
+ * @param {HTMLElement} opts.warningEl 対象が見つからないときに出す欄
+ * @param {() => void} opts.onChange 点の数・計算中・結果が変わったら呼ぶ（送信ボタンの更新用）
  * @param {(err: Error, what: string) => void} opts.onError
  */
-export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, statusEl, onChange, onError }) {
+export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, statusEl, warningEl, onChange, onError }) {
   const controller = createCanvasController(canvasEl, { onPointAdd: handlePointAdd });
 
-  let generation = 0; // reset のたびに進める。古いリクエストの応答を捨てるため
-  let sessionId = null;
-  let size = null; // プレビュー画像の実ピクセル { width, height }
-  let points = []; // { x, y, label: 1 | 0 }（プレビュー画像の座標）
-  let redoStack = [];
-  let busy = false;
-  let locked = false; // 送信後は点を変えさせない
-  let previewUrl = null;
+  let generation = 0; // reset のたびに進める。前の動画の応答を捨てるため
+  let jobId = null;
+  let frameBlob = null;
   let frameUrl = null;
+  let frameImg = null;
+  let registered = false; // サーバーにフレームを登録できた
+  let points = []; // { x, y, label: 1 | 0 }（フレームの座標）
+  let redoStack = [];
+  let version = 0; // 点の一覧が変わるたびに進める
+  let shown = { version: 0, objectPresent: null }; // 画面に出ているマスクがどの一覧のものか
+  let computing = false; // /preview の応答待ち（登録し直しを含む）
+  let locked = false; // 送信後は点を変えさせない
 
   modeToggleBtn.addEventListener('click', () => {
     applyMode(modeToggleBtn.dataset.mode === 'positive' ? 'negative' : 'positive');
   });
-  undoBtn.addEventListener('click', () => runHistory(undoEdit, popLastPoint));
-  redoBtn.addEventListener('click', () => runHistory(redoEdit, restoreLastPoint));
+  undoBtn.addEventListener('click', () => {
+    if (locked || points.length === 0) return;
+    redoStack = [...redoStack, points[points.length - 1]];
+    points = points.slice(0, -1);
+    pointsChanged();
+  });
+  redoBtn.addEventListener('click', () => {
+    if (locked || redoStack.length === 0) return;
+    points = [...points, redoStack[redoStack.length - 1]];
+    redoStack = redoStack.slice(0, -1);
+    pointsChanged();
+  });
   applyMode('positive');
   sync();
 
@@ -69,11 +160,16 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
     controller.setPointMode(mode);
   }
 
+  function isCurrent() {
+    return shown.version === version;
+  }
+
   function sync() {
-    const disabled = busy || locked || !sessionId;
+    const disabled = locked || !registered;
     undoBtn.disabled = disabled || points.length === 0;
     redoBtn.disabled = disabled || redoStack.length === 0;
-    modeToggleBtn.disabled = locked || !sessionId;
+    modeToggleBtn.disabled = disabled;
+    warningEl.hidden = !(isCurrent() && shown.objectPresent === false);
     onChange();
   }
 
@@ -81,147 +177,162 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
     statusEl.textContent = text;
   }
 
-  function setBusy(value) {
-    busy = value;
-    sync();
+  /** PREVIEW_BUSY なら待ってやり直す。待つ間は「混み合っています…」を出す */
+  async function withBusyRetry(fn, gen) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await fn();
+      } catch (err) {
+        if (err.code !== 'PREVIEW_BUSY' || attempt >= BUSY_RETRY_DELAYS_MS.length || gen !== generation) throw err;
+        setStatus('混み合っています…');
+        await sleep(BUSY_RETRY_DELAYS_MS[attempt]);
+        if (gen !== generation) throw err;
+      }
+    }
   }
 
-  function replacePreviewUrl(url) {
-    if (previewUrl && previewUrl !== url) URL.revokeObjectURL(previewUrl);
-    previewUrl = url;
+  async function registerFrame(gen) {
+    const blob = await frameForUpload(frameBlob, frameImg);
+    await withBusyRetry(() => setVideoPreviewFrame(jobId, blob), gen);
   }
 
   /**
-   * フレームの PNG を既存の /upload に送り、最初のプレビューを出す。
-   * 失敗したら false（同じ Blob でもう一度呼べばやり直せる）。
+   * ジョブにフレームを登録し、タップできる状態にする。点があれば（やり直しのとき）計算し直す。
+   * 失敗したら false（同じ引数でもう一度呼べばやり直せる）。
    */
-  async function load(frameBlob) {
+  async function load(newJobId, newFrameBlob) {
     const gen = generation;
-    setBusy(true);
+    registered = false;
+    sync();
     setStatus('プレビューを準備中…');
-    if (frameUrl) URL.revokeObjectURL(frameUrl);
-    frameUrl = URL.createObjectURL(frameBlob);
-    let url = null;
     try {
-      const file = new File([frameBlob], 'frame.png', { type: 'image/png' });
-      const uploaded = await uploadImage(file);
-      if (gen !== generation) return;
-      url = await getPreviewImage(uploaded.imageId);
-      if (gen !== generation) return;
-      const loaded = await controller.loadBaseImage(url, () => gen !== generation);
-      if (!loaded) return;
-      replacePreviewUrl(url);
-      url = null;
-      sessionId = uploaded.sessionId;
-      size = loaded;
-      controller.loadOriginalImage(frameUrl, () => gen !== generation);
-      setStatus('残したい所をタップしてください');
+      if (frameBlob !== newFrameBlob || !frameImg) {
+        jobId = newJobId;
+        frameBlob = newFrameBlob;
+        if (frameUrl) URL.revokeObjectURL(frameUrl);
+        frameUrl = URL.createObjectURL(newFrameBlob);
+        const img = await loadImage(frameUrl);
+        if (gen !== generation) return false;
+        frameImg = img;
+        controller.setBaseSource(frameImg); // 点を打つまでは元のフレームをそのまま見せる
+        controller.loadOriginalImage(frameUrl, () => gen !== generation);
+      }
+      jobId = newJobId;
+      await registerFrame(gen);
+      if (gen !== generation) return false;
+      registered = true;
+      setStatus(points.length === 0 ? '残したい所をタップしてください' : '');
+      if (points.length > 0) {
+        // やり直し（登録の失敗・計算の失敗の後）: 今の一覧を計算し直す
+        shown = { version: -1, objectPresent: null };
+        requestPreview();
+      }
+      sync();
       return true;
     } catch (err) {
-      if (gen === generation) {
-        setStatus('');
-        onError(err, 'プレビューの準備');
-      }
+      if (gen !== generation) return false;
+      setStatus('');
+      onError(err, 'プレビューの準備');
+      sync();
       return false;
-    } finally {
-      if (url) URL.revokeObjectURL(url);
-      if (gen === generation) setBusy(false);
     }
   }
 
   function handlePointAdd(point) {
-    if (!sessionId || locked) return;
-    if (busy) {
-      setStatus('処理中です。完了までお待ちください');
+    if (locked) return;
+    if (!registered) {
+      setStatus('準備中です。少しお待ちください');
       return;
     }
     if (points.length >= MAX_POINTS) {
       setStatus(`点は ${MAX_POINTS} 個までです。Undo で減らしてから打ち直してください`);
       return;
     }
-    const previousRedoStack = redoStack;
     points = [...points, point];
     redoStack = [];
+    pointsChanged();
+  }
+
+  function pointsChanged() {
+    version += 1;
     controller.setPoints(points);
-    runSegment(point, previousRedoStack);
-  }
-
-  async function runSegment(point, previousRedoStack) {
-    const gen = generation;
-    setBusy(true);
-    setStatus('切り抜きを計算中…');
-    let applied = false;
-    try {
-      const { imageId } = await segmentImage(sessionId, point);
-      applied = true; // ここから先の失敗はサーバー側では適用済み。点は戻さない
-      if (gen !== generation) return;
-      await showPreview(imageId, gen);
-      setStatus('');
-    } catch (err) {
-      if (gen !== generation) return;
-      if (!applied) {
-        points = points.filter((p) => p !== point);
-        redoStack = previousRedoStack;
-        controller.setPoints(points);
-      }
-      setStatus('');
-      onError(err, '切り抜きの計算');
-    } finally {
-      if (gen === generation) setBusy(false);
-    }
-  }
-
-  function popLastPoint() {
-    if (points.length === 0) return;
-    redoStack = [...redoStack, points[points.length - 1]];
-    points = points.slice(0, -1);
-    controller.setPoints(points);
-  }
-
-  function restoreLastPoint() {
-    if (redoStack.length === 0) return;
-    points = [...points, redoStack[redoStack.length - 1]];
-    redoStack = redoStack.slice(0, -1);
-    controller.setPoints(points);
-  }
-
-  async function runHistory(apiFn, localPointSync) {
-    if (!sessionId || busy || locked) return;
-    const gen = generation;
-    setBusy(true);
-    setStatus('処理中…');
-    try {
-      const { imageId } = await apiFn(sessionId);
-      if (gen !== generation) return;
-      localPointSync(); // サーバーの履歴は進んだので、点の一覧も合わせる
-      await showPreview(imageId, gen);
-      setStatus('');
-    } catch (err) {
-      if (gen !== generation) return;
-      setStatus('');
-      onError(err, '取り消し・やり直し');
-    } finally {
-      if (gen === generation) setBusy(false);
-    }
-  }
-
-  async function showPreview(imageId, gen) {
-    const url = await getPreviewImage(imageId);
-    if (gen !== generation) {
-      URL.revokeObjectURL(url);
+    if (points.length === 0) {
+      // 点が無いときは送らない（サーバーは 1〜8 個）。元のフレームに戻す
+      controller.setBaseSource(frameImg);
+      shown = { version, objectPresent: null };
+      setStatus('残したい所をタップしてください');
+      sync();
       return;
     }
-    replacePreviewUrl(url);
-    await controller.loadBaseImage(url, () => gen !== generation);
+    requestPreview();
+    sync();
   }
 
-  /** 動画ジョブに送る点（undo/redo を反映した今の一覧、0〜1 の正規化座標） */
+  /** 今の点の一覧のマスクを取りに行く。応答待ちの間に一覧が変わったら、最新の一覧でもう一度送る */
+  async function requestPreview() {
+    if (computing) return; // 応答が来たら下のループが最新の一覧で送り直す
+    const gen = generation;
+    computing = true;
+    sync();
+    try {
+      while (gen === generation && registered && points.length > 0 && !isCurrent()) {
+        const sentVersion = version;
+        setStatus('切り抜きを計算中…');
+        try {
+          const { maskBlob, objectPresent } = await fetchMask(videoPoints(), gen);
+          if (gen !== generation || sentVersion !== version) continue;
+          const maskImg = await loadImageFromBlob(maskBlob);
+          if (gen !== generation || sentVersion !== version) continue;
+          controller.setBaseSource(composeCutout(frameImg, maskImg));
+          shown = { version: sentVersion, objectPresent };
+          setStatus(''); // 対象が見つからないときは warningEl を出す（sync）
+        } catch (err) {
+          if (gen !== generation || sentVersion !== version) continue;
+          shown = { version: sentVersion, objectPresent: null }; // この一覧はもう送らない（点を変えるか、やり直しで送る）
+          setStatus('');
+          onError(err, 'プレビューの計算');
+        }
+      }
+    } finally {
+      if (gen === generation) {
+        computing = false;
+        sync();
+      }
+    }
+  }
+
+  /** /preview。フレームの特徴量が消えていたら登録し直して 1 回だけやり直す */
+  async function fetchMask(sentPoints, gen) {
+    const call = () => withBusyRetry(() => previewVideoMask(jobId, sentPoints), gen);
+    try {
+      return await call();
+    } catch (err) {
+      if (err.code !== 'PREVIEW_FRAME_NOT_FOUND' || gen !== generation) throw err;
+      setStatus('プレビューを準備し直しています…');
+      await registerFrame(gen);
+      if (gen !== generation) throw err;
+      setStatus('切り抜きを計算中…');
+      return call();
+    }
+  }
+
+  /** 動画ジョブに送る点（Undo / Redo を反映した今の一覧、0〜1 の正規化座標） */
   function videoPoints() {
-    if (!size) return [];
+    if (!frameImg) return [];
     return points.map((p) => ({
-      ...toNormalized(p.x, p.y, size.width, size.height),
+      ...toNormalized(p.x, p.y, frameImg.naturalWidth, frameImg.naturalHeight),
       label: p.label === 1 ? 'include' : 'exclude',
     }));
+  }
+
+  /** 送信してよいか: 登録済み・点が 1 つ以上・今の一覧のマスクが出ていて対象が見つかっている */
+  function canSend() {
+    return registered && !computing && points.length > 0 && isCurrent() && shown.objectPresent === true;
+  }
+
+  /** 今の一覧のマスクで、対象が見つからなかった */
+  function objectMissing() {
+    return isCurrent() && points.length > 0 && shown.objectPresent === false;
   }
 
   /** 送信後は点を変えさせない */
@@ -240,15 +351,18 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
   /** 最初からやり直すとき。進行中の応答は generation で捨てる */
   function reset() {
     generation += 1;
-    sessionId = null;
-    size = null;
-    points = [];
-    redoStack = [];
-    busy = false;
-    locked = false;
-    replacePreviewUrl(null);
+    jobId = null;
+    frameBlob = null;
     if (frameUrl) URL.revokeObjectURL(frameUrl);
     frameUrl = null;
+    frameImg = null;
+    registered = false;
+    points = [];
+    redoStack = [];
+    version = 0;
+    shown = { version: 0, objectPresent: null };
+    computing = false;
+    locked = false;
     controller.reset();
     applyMode('positive');
     setStatus('');
@@ -261,7 +375,8 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
     unlock,
     reset,
     videoPoints,
+    canSend,
+    objectMissing,
     pointCount: () => points.length,
-    isReady: () => sessionId !== null && !busy,
   };
 }

@@ -301,3 +301,38 @@ export async function getVideoJob(jobId) {
     remainingToday: data.remaining_today,
   };
 }
+
+/**
+ * POST /video-jobs/{id}/preview-frame
+ * request : multipart/form-data, field "file"（開始位置のフレーム。PNG / JPEG、10MB 以下、長辺 2000px 以下）
+ * response: 204（本文なし）。サーバーがフレームを 1 回だけエンコードしてジョブごとに持つ
+ *   - 回数は消費しない。ジョブの持ち主だけ、送信（start）前だけ使える
+ *   - 503 PREVIEW_BUSY: 同時に登録できる数（サーバー全体で 2）を超えた。少し待ってやり直す
+ */
+export async function setVideoPreviewFrame(jobId, frameBlob) {
+  const formData = new FormData();
+  const name = frameBlob.type === 'image/jpeg' ? 'frame.jpg' : 'frame.png';
+  formData.append('file', frameBlob, name);
+  const res = await request(
+    `/video-jobs/${encodeURIComponent(jobId)}/preview-frame`,
+    { method: 'POST', headers: buildHeaders(), body: formData },
+    LONG_TIMEOUT_MS,
+  );
+  if (!res.ok) await throwApiError(res);
+}
+
+/**
+ * POST /video-jobs/{id}/preview
+ * request : { points: [{ x, y, label: "include" | "exclude" }] }（/start と同じ形。1〜8 個、0〜1 の正規化座標）
+ * response: 200 image/png（グレースケール 8bit の alpha マスク。255 = 残す。大きさは登録したフレームと同じ）
+ *   - ヘッダー X-Object-Present: "false" なら対象が見つからない（このまま送ると subject_not_found で失敗する）
+ *   - 409 PREVIEW_FRAME_NOT_FOUND: フレームが未登録か、サーバーが特徴量を捨てた。登録し直してやり直す
+ * 戻り値: { maskBlob, objectPresent }
+ */
+export async function previewVideoMask(jobId, points) {
+  const res = await postJson(`/video-jobs/${encodeURIComponent(jobId)}/preview`, { points });
+  if (!res.ok) await throwApiError(res);
+  const objectPresent = res.headers.get('x-object-present') === 'true';
+  const maskBlob = await res.blob();
+  return { maskBlob, objectPresent };
+}

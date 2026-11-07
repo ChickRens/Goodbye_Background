@@ -38,11 +38,11 @@ js/
   video/       動画の切り抜きページ(video.html)専用（後述「動画の切り抜き」）
     page.js      エントリーポイント。画面の流れと送信ボタンの有効/無効
     range.js     範囲の丸め込み(clampRange)・開始位置のフレームの切り出し(captureFrame)
-    preview.js   開始フレームのプレビュー（既存の /upload・/segment・/undo・/redo）と toNormalized
+    preview.js   開始フレームのプレビュー（/video-jobs/{id}/preview-frame・/preview。本番と同じ SAM2.1 tiny）と toNormalized・applyMaskAlpha
     upload.js    署名付き URL への PUT（XMLHttpRequest で進捗を出す。{ promise, abort } を返す）
     job.js       ジョブの状態のポーリング(pollJob)
     messages.js  失敗コード・状態・エラーコード → 日本語の文言
-    selftest.html 純粋な関数(clampRange / toNormalized)の自己テスト。ブラウザで開いて確かめる
+    selftest.html 純粋な関数(clampRange / toNormalized / applyMaskAlpha)の自己テスト。ブラウザで開いて確かめる
   intro.js     機能紹介ページ(index.html)のオープニング動画と背景動画ループ
                （app.html では使わない。app.js とは無関係に index.html から単独で読み込む）
 assets/        画像・動画
@@ -204,14 +204,23 @@ assets/        画像・動画
    **Content-Type は 1. で決めた文字列をそのまま付ける**（署名の一部なので、違うと R2 が 403 を返す）。
    R2 は別オリジンなので `client-id` は付けない。失敗したら「アップロードをやり直す」（URL は 15 分有効）。
 4. **残す所をタップ**（3. と並行）… `captureFrame` で開始位置のフレームを canvas に描き、長辺 2000px 以下に
-   縮小して PNG にする（既存の `/upload` は 10MB まで）。iOS Safari で `seeked` がデコードより先に来て真っ黒になるのを避けるため、
+   縮小して PNG にする（`/preview-frame` は長辺 2000px・10MB まで。10MB を超えたら JPEG にして送る）。iOS Safari で `seeked` がデコードより先に来て真っ黒になるのを避けるため、
    停止 → 移動 → `loadeddata`/`canplay`・`requestVideoFrameCallback` を待つ → 描いた結果が全部黒/透明なら
-   ミュートで play()→pause() して 1 回だけやり直す（それでも駄目なら「プレビューをやり直す」）。それを `frame.png` として既存の `/upload` に送り、
-   タップごとに `/segment`、取り消しは `/undo`・`/redo`（描画は既存の `canvas.js`）。「プレビューは目安です」と表示。
-   点は 8 個まで（サーバーの上限）。
+   ミュートで play()→pause() して 1 回だけやり直す（それでも駄目なら「プレビューをやり直す」）。それを `frame.png` として
+   `POST /video-jobs/{id}/preview-frame` で登録する（サーバーが 1 回だけエンコードしてジョブごとに持つ）。
+   タップのたびに今の点の一覧を丸ごと `POST /video-jobs/{id}/preview` に送り、返ってきた alpha マスク（グレースケール PNG）を
+   フレームに合成して（`applyMaskAlpha`）`canvas.js` で市松模様の上に出す（消える所は薄いフレームが透けて見える）。
+   Undo / Redo は手元の点の一覧を戻す・進めて送り直すだけ（画像機能の `/upload`・`/segment`・`/undo`・`/redo` は使わない）。
+   - リクエストは同時に 1 つ。応答待ちの間に点が変わったら、その応答は描かずに最新の一覧で送り直す
+   - `503 PREVIEW_BUSY`（登録はサーバー全体で同時 2 つまで）は「混み合っています…」を出して 1・2・4 秒待って登録し直す
+   - `409 PREVIEW_FRAME_NOT_FOUND`（混雑や期限切れで特徴量が捨てられた）は同じフレームを登録し直して 1 回だけやり直す
+   - `X-Object-Present: false` なら「対象が見つかりませんでした」の警告（`#preview-warning`）を出し、送信させない
+   - それ以外の失敗はトーストと「プレビューをやり直す」（登録し直して今の一覧を計算し直す）
+   プレビューは本番のワーカーと同じモデル（SAM2.1 tiny）の 1 フレーム目なので「目安」とは書かない。
+   動きが速い所は途中で欠けることがある旨だけ出す。点は 8 個まで（サーバーの上限）。
 5. **背景色を選んで送信** … グリーン（既定）/ ブルー / マゼンタ。送信ボタンが押せるのは
-   「アップロード完了」かつ「点が 1 つ以上」かつ「プレビューが処理中でない」かつ「まだ送っていない」とき。
-   送るのは undo/redo を反映した今の点の一覧を `toNormalized(プレビューx, プレビューy, プレビュー画像の幅, 高さ)`
+   「アップロード完了」かつ「点が 1 つ以上」かつ「今の点の一覧のプレビューが出ていて `X-Object-Present: true`」かつ「まだ送っていない」とき。
+   送るのは undo/redo を反映した今の点の一覧を `toNormalized(フレームx, フレームy, フレーム画像の幅, 高さ)`
    で 0〜1 にしたもの（`label` は含める → `include`、除外する → `exclude`）。
 6. **結果** … `pollJob` が 1 秒ごとに `GET /video-jobs/{id}`。タブが表示に戻ったら（`visibilitychange`）すぐ 1 回取る。
    `queued` は「準備中（GPU を起動しています）」、`tracking` は「処理中 NN%」。`done` で結果の再生とダウンロード
@@ -232,12 +241,17 @@ assets/        画像・動画
 |---|---|---|---|
 | POST | `/video-jobs` | `{ size_bytes, content_type, start_ms, end_ms }` | 201 `{ job_id, upload_url, remaining_today }` |
 | PUT | `upload_url`（R2 の署名付き URL） | 動画そのもの。`Content-Type` は申告したものと同じ | 200 |
+| POST | `/video-jobs/{id}/preview-frame` | `multipart/form-data`, フィールド名 `file`（PNG / JPEG、10MB 以下、長辺 2000px 以下） | 204 |
+| POST | `/video-jobs/{id}/preview` | `{ points: [{ x, y, label }] }`（1〜8 個。`/start` と同じ形） | 200 `image/png`（グレースケール 8bit の alpha マスク、255 = 残す。大きさは登録したフレームと同じ）、ヘッダー `X-Object-Present: true \| false` |
 | POST | `/video-jobs/{id}/start` | `{ points: [{ x, y, label }], background }` | 202 `{ phase, failure_code, remaining_today }` |
 | GET | `/video-jobs/{id}` | なし | 200 `{ phase, progress, failure_code, quota_refunded, download_url, remaining_today }` |
 
 - エラーコード: 400 `INVALID_REQUEST_BODY` / `INVALID_RANGE` / `INVALID_POINTS` / `TOO_LARGE` /
   `UNSUPPORTED_CONTENT_TYPE` / `MISSING_CLIENT_ID`、404 `VIDEO_JOB_NOT_FOUND`、409 `UPLOAD_NOT_FOUND` /
-  `VIDEO_JOB_INVALID_STATE`、429 `QUOTA_EXCEEDED`、503 `VIDEO_CUTOUT_DISABLED`（動画の環境変数が無いとき）。
+  `VIDEO_JOB_INVALID_STATE`、429 `QUOTA_EXCEEDED`、503 `VIDEO_CUTOUT_DISABLED`（動画の環境変数かプレビューのモデルが無いとき）。
+- プレビューのエラーコード: 400 `INVALID_PREVIEW_IMAGE`（フレームが PNG / JPEG でない・大きすぎる）、
+  409 `PREVIEW_FRAME_NOT_FOUND`（フレーム未登録か特徴量が捨てられた）/ `VIDEO_JOB_INVALID_STATE`（送信後）、
+  500 `PREVIEW_FAILED`、503 `PREVIEW_BUSY`。プレビューの 2 つはジョブの持ち主だけ・送信前だけ使え、利用ログにも記録しない。
 - 回数を使うのは `/start` のときだけ（作成・アップロード・プレビューでは減らない）。
 - `phase`: `created` / `queued` / `downloading` / `tracking`（`progress` 0〜1）/ `finishing` / `done` / `failed`。
 
