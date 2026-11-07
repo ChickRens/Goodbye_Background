@@ -120,10 +120,15 @@ gcloud services enable secretmanager.googleapis.com
 
 ```powershell
 function Add-VideoSecretVersion([string]$Name, [int]$ExpectedLength = 0) {
-  $plain = (Get-Clipboard -Raw).Trim()
+  $plain = "$(Get-Clipboard -Raw)".Trim()
+  if ($plain.Length -eq 0) {
+    Write-Host "クリップボードが空です（値をコピーしてから実行）" -ForegroundColor Red
+    return
+  }
   Write-Host "$Name : $($plain.Length) 文字"
   if ($ExpectedLength -gt 0 -and $plain.Length -ne $ExpectedLength) {
     Write-Host "長さが $ExpectedLength ではないので登録しません" -ForegroundColor Red
+    Set-Clipboard -Value " "
     return
   }
   $file = New-TemporaryFile
@@ -139,10 +144,10 @@ function Add-VideoSecretVersion([string]$Name, [int]$ExpectedLength = 0) {
 ```
 
 - 改行を付けずに一時ファイルへ書きます（PowerShell のパイプで渡すと末尾に改行が付き、署名が合わなくなるため）
-- 登録が終わるとクリップボードを空白 1 文字で上書きします（秘密が残らないように）
+- 登録が終わると（長さが合わずに登録をやめたときも）クリップボードを空白 1 文字で上書きします（秘密が残らないように）
 
 **使い方は「コピーしてから実行」の繰り返しです**: 1 つ目の値をコピー → 実行 → 次の値をコピー → 実行。
-実行する前に必ず、その値をコピーし直してください（クリップボードは実行のたびに消えるので、コピーし忘れると 1 文字（空白を除くと 0 文字）になります）。
+実行する前に必ず、その値をコピーし直してください（クリップボードは実行のたびに空白 1 文字で上書きされるので、コピーし忘れると「クリップボードが空です」と出て、何も登録されません）。
 
 **初めて作るとき**は、先に空のシークレットを作ってから版を足します:
 
@@ -158,7 +163,7 @@ Add-VideoSecretVersion R2_ACCESS_KEY_ID 32
 | --- | --- | --- |
 | `R2_ACCESS_KEY_ID` | 手順 1-4 の Access Key ID | 32 |
 | `R2_SECRET_ACCESS_KEY` | 手順 1-4 の Secret Access Key | 64 |
-| `WORKER_CALLBACK_SECRET` | Modal の Secret `goodbye-background-video` に入れたのと同じ値 | 64 |
+| `WORKER_CALLBACK_SECRET` | Modal の Secret `goodbye-background-video` に入れたのと同じ値（`worker/README.md` の手順 1 で、ランダムな 32 バイトを 16 進数にした 64 文字を作っている） | 64 |
 | `MODAL_KEY` | Modal の Token ID（`wk-…`） | 決まった長さは無い（指定しない） |
 | `MODAL_SECRET` | Modal の Token Secret（`ws-…`） | 決まった長さは無い（指定しない） |
 
