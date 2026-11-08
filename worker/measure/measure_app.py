@@ -9,8 +9,6 @@
     modal run worker/measure/measure_app.py::main --video clip.mp4 --image slim --model small   # 案 C: small の時間と費用
 """
 
-from __future__ import annotations
-
 import json
 import sys
 import time
@@ -106,9 +104,9 @@ class _Measure:
     """Measure の中身。イメージだけが違う 2 つのクラス（MeasureCuda / MeasureSlim）が継承する。
 
     model はコンテナごとの引数（MeasureSlim(model="small")）。モデルが違うと別のコンテナになる。
+    引数（modal.parameter）は継承したクラス側に書く: Modal はクラス自身の __dict__ にある parameter しか見ない
+    （親に書くと「MeasureSlim() takes no arguments」でコンテナが起動しない。2026-11-08 に本番の計測で発生）。
     """
-
-    model: str = modal.parameter(default="tiny")
 
     @modal.enter()
     def load(self) -> None:
@@ -241,12 +239,12 @@ class _Measure:
 
 @app.cls(image=cuda_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60)
 class MeasureCuda(_Measure):
-    pass
+    model: str = modal.parameter(default="tiny")
 
 
 @app.cls(image=slim_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60)
 class MeasureSlim(_Measure):
-    pass
+    model: str = modal.parameter(default="tiny")
 
 
 MEASURE_CLASSES = {"cuda": MeasureCuda, "slim": MeasureSlim}
