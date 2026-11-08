@@ -272,6 +272,9 @@ modal run worker/measure/measure_app.py::main --video "C:\Dev\goodbye_background
 modal run worker/measure/measure_app.py::main --video "C:\Dev\goodbye_background\Goodbye_Background\worker\D_man.mp4" --start 10.7 --end 20.7 --x 0.5 --y 0.42 --image slim --model base-plus --policy sam2 --out measure_out\V
 ```
 
+- **点を複数打つ**ときは、`--x --y` の代わりに `--points "0.5,0.42;0.5,0.6"` のように `;` で区切って書きます。
+  消す点（プレビューの「消す」）は 3 つ目に `exclude` を付けます（例: `--points "0.5,0.42;0.15,0.45,exclude"`）。
+  比べるときは 4 つとも同じ `--points` にしてください
 - 出力は `measure_out\V\` に、`D_man_<モデル>_<記憶>_report.md`・`_results.json`・`_run1.mp4`・`_run2.mp4` の名前でできます
 - 画面の「1 回目: … 秒 / {...}」の `{...}` は、DAM4SAM が見分ける用の記憶に足したフレーム（`drm_added`）と、
   SAMURAI が候補を選び直した回数（`samurai_switched`）です。0 や空なら、その手法はこの動画では働いていません

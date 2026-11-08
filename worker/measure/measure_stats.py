@@ -15,6 +15,29 @@ _STAGE_LABELS = [
 ]
 
 
+def parse_points(text: str) -> list[tuple[float, float, int]]:
+    """--points の文字列を [(x, y, label)] にする。label は 1=残す / 0=消す（measure の points と同じ）。
+
+    書き方: "x,y;x,y,exclude"（点は ; で区切る。0〜1 の割合。3 つ目に exclude を書くと消す点）。
+    例: "0.5,0.42;0.5,0.6;0.2,0.5,exclude"
+    """
+    points = []
+    for part in text.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        fields = [f.strip() for f in part.split(",")]
+        if len(fields) not in (2, 3) or (len(fields) == 3 and fields[2] not in ("include", "exclude")):
+            raise ValueError(f"点は x,y または x,y,exclude で書く: {part!r}")
+        x, y = float(fields[0]), float(fields[1])
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            raise ValueError(f"x, y は 0〜1: {part!r}")
+        points.append((x, y, 0 if len(fields) == 3 and fields[2] == "exclude" else 1))
+    if not points or not any(label == 1 for _, _, label in points):
+        raise ValueError("残す点が 1 つも無い")
+    return points
+
+
 def summarize_ms(values: list[float]) -> dict:
     """ミリ秒のリストを件数・平均・中央値・最大にまとめる（小数 1 桁）。"""
     if not values:

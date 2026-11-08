@@ -362,6 +362,7 @@ def main(
     end: float = 10.0,
     x: float = 0.5,
     y: float = 0.5,
+    points: str = "",
     runs: int = 2,
     out: str = "measure_out",
     image: str = "cuda",
@@ -372,6 +373,7 @@ def main(
 
     image: cuda = 1 回目の計測と同じ CUDA イメージ / slim = 軽いイメージ（未検証なので既定は cuda）
     model: tiny = 本番 / small = 案 C（入力 1024）
+    points: 複数の点・消す点を "x,y;x,y;x,y,exclude" で指定（指定すると --x --y は使わない）
     """
     if image not in MEASURE_CLASSES:
         raise SystemExit(f"--image は {' / '.join(MEASURE_CLASSES)} のどれか: {image!r}")
@@ -381,7 +383,10 @@ def main(
         raise SystemExit(f"--policy は {' / '.join(MEASURE_POLICIES)} のどれか: {policy!r}")
     label = f"{model}_{policy}"
     sys.path.insert(0, str(HERE))
-    from measure_stats import format_report, summarize_ms
+    from measure_stats import format_report, parse_points, summarize_ms
+
+    # --points があればそちらを使う（複数の点・消す点）。無ければ --x --y の 1 点
+    pts = parse_points(points) if points else [(x, y, 1)]
 
     src = Path(video).expanduser().resolve()
     video_bytes = src.read_bytes()
@@ -395,7 +400,7 @@ def main(
         call_started_at = time.time()
         t = time.perf_counter()
         server = measurer.measure.remote(
-            video_bytes, int(start * 1000), int(end * 1000), [(x, y, 1)], (0, 255, 0)
+            video_bytes, int(start * 1000), int(end * 1000), pts, (0, 255, 0)
         )
         wall = time.perf_counter() - t
         mp4 = server.pop("output_mp4")
@@ -406,7 +411,7 @@ def main(
 
     report = format_report(src.name, results, image=f"{image} / モデル: {model} / 記憶: {policy}")
     (out_dir / f"{src.stem}_{label}_results.json").write_text(
-        json.dumps({"video": src.name, "image": image, "model": model, "policy": policy, "start": start, "end": end, "x": x, "y": y, "runs": results},
+        json.dumps({"video": src.name, "image": image, "model": model, "policy": policy, "start": start, "end": end, "points": pts, "runs": results},
                    ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

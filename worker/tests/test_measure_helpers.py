@@ -6,6 +6,7 @@ from measure.measure_stats import (
     estimate_cost_usd,
     format_probe_report,
     format_report,
+    parse_points,
     probe_breakdown,
     probe_verdict,
     summarize_ms,
@@ -198,3 +199,14 @@ def test_probe_verdict_ignores_cpu_probe_and_needs_gpu_values():
     v = probe_verdict([_probe(1, "cpu_cuda_image", 500.0), _probe(1, "gpu_tiny_image", 10.0)])
     assert "判定: 判定できない" in v
     assert "slim イメージの上乗せ: - 秒" in v
+
+
+def test_parse_points_multiple_and_exclude():
+    assert parse_points("0.5,0.42") == [(0.5, 0.42, 1)]
+    assert parse_points("0.5,0.42; 0.5,0.6 ;0.2,0.5,exclude") == [(0.5, 0.42, 1), (0.5, 0.6, 1), (0.2, 0.5, 0)]
+
+
+@pytest.mark.parametrize("bad", ["", "0.5", "1.5,0.2", "0.5,0.5,maybe", "0.2,0.5,exclude"])
+def test_parse_points_rejects_bad_input(bad):
+    with pytest.raises(ValueError):
+        parse_points(bad)
