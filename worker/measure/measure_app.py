@@ -7,6 +7,7 @@
     modal run worker/measure/measure_app.py::main --video C:\\path\\to\\clip.mov --x 0.5 --y 0.5 --image slim
     modal run worker/measure/measure_app.py::probe --rounds 3   # コールドスタートの原因の切り分け
     modal run worker/measure/measure_app.py::main --video clip.mp4 --image slim --model small   # 案 C: small の時間と費用
+    modal run worker/measure/measure_app.py::main --video clip.mp4 --image slim --model small --policy dam4sam   # 記憶の選び方の比較
 """
 
 import json
@@ -24,7 +25,9 @@ CUTOUT_DIR = HERE.parent / "cutout"  # worker/cutout（リポジトリのどこ�
 
 # 計測で選べるモデル（cutout.models.VIDEO_MODELS の名前）。どれもリビジョン固定でイメージに焼き込む。
 # small は案 C（大きいモデル）の時間と費用を GPU で測るため（2026-11-08。CPU では tiny の約 7 倍だった）
-MEASURE_MODELS = ["tiny", "small"]
+MEASURE_MODELS = ["tiny", "small", "base-plus"]
+# 記憶の選び方（cutout.tracker_variants.POLICIES）。sam2 = 本番の追跡（tracker.py）をそのまま使う
+MEASURE_POLICIES = ["sam2", "dam4sam", "samurai"]
 MODEL_ROOT = Path("/models")
 
 
@@ -51,7 +54,8 @@ def download_models() -> None:
 
 
 # worker/uv.lock と同じ版
-_PY_DEPS = ["numpy==2.5.4", "opencv-python-headless==5.0.0.93", "httpx==0.28.1"]
+# onnx は記憶の選び方の比較（dam4sam / samurai）で、マスクデコーダの候補マスクを出力に足すのに使う
+_PY_DEPS = ["numpy==2.5.4", "opencv-python-headless==5.0.0.93", "httpx==0.28.1", "onnx==1.23.2"]
 
 
 def _with_cutout_and_models(img: modal.Image) -> modal.Image:
@@ -116,9 +120,15 @@ class _Measure:
         from cutout.models import load_constants, load_sessions
 
         # device="cuda" は CUDA EP が先頭でなければ例外になる（= CPU に落ちていないことの確認）
+        from cutout.tracker_variants import CANDIDATE_OUTPUTS
+
         if self.model not in MEASURE_MODELS:
             raise ValueError(f"model は {' / '.join(MEASURE_MODELS)} のどれか: {self.model!r}")
-        self.sessions = load_sessions(model_dir(self.model), "cuda")
+        if self.policy not in MEASURE_POLICIES:
+            raise ValueError(f"policy は {' / '.join(MEASURE_POLICIES)} のどれか: {self.policy!r}")
+        # sam2 は本番と同じ読み込み方（候補マスクの出力を足さない = 本番と同じ速さ）
+        extra = None if self.policy == "sam2" else CANDIDATE_OUTPUTS
+        self.sessions = load_sessions(model_dir(self.model), "cuda", decoder_extra_outputs=extra)
         self.constants = load_constants(model_dir(self.model))
         self.model_load_s = time.time() - t0
         self.import_to_ready_s = time.time() - _MODULE_IMPORTED_AT
@@ -147,6 +157,7 @@ class _Measure:
         from cutout.compositor import LogoBadge, alpha_from_logits, composite
         from cutout.contract import NormalizedPoint
         from cutout.tracker import Sam2VideoTracker
+        from cutout.tracker_variants import VariantTracker
         from cutout.video_io import MAX_FRAMES, FrameReader, Mp4Writer, output_geometry, probe
 
         cold = self.calls == 0
@@ -166,7 +177,10 @@ class _Measure:
             end_ms = min(end_ms, info.duration_ms)
             width, height, fps = output_geometry(info)
             total = max(1, min(MAX_FRAMES, round((end_ms - start_ms) / 1000 * fps)))
-            tracker = Sam2VideoTracker(self.sessions, self.constants, total)
+            if self.policy == "sam2":
+                tracker = Sam2VideoTracker(self.sessions, self.constants, total)
+            else:
+                tracker = VariantTracker(self.sessions, self.constants, total, self.policy)
 
             decode, track, comp, write = [], [], [], []
             frames = lost = 0
@@ -232,6 +246,9 @@ class _Measure:
             "available_providers": self.providers,
             "gpu_name": self.gpu_name,
             "model_sha": self.model_sha,
+            "policy": self.policy,
+            # DAM4SAM: DRM に足したフレーム / SAMURAI: IoU 最大以外の候補を選んだ回数（sam2 は無し）
+            "variant_stats": getattr(tracker, "stats", None),
             "module_imported_at": _MODULE_IMPORTED_AT,
             "output_mp4": output_mp4,
         }
@@ -240,11 +257,13 @@ class _Measure:
 @app.cls(image=cuda_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60)
 class MeasureCuda(_Measure):
     model: str = modal.parameter(default="tiny")
+    policy: str = modal.parameter(default="sam2")
 
 
 @app.cls(image=slim_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60)
 class MeasureSlim(_Measure):
     model: str = modal.parameter(default="tiny")
+    policy: str = modal.parameter(default="sam2")
 
 
 MEASURE_CLASSES = {"cuda": MeasureCuda, "slim": MeasureSlim}
@@ -347,6 +366,7 @@ def main(
     out: str = "measure_out",
     image: str = "cuda",
     model: str = "tiny",
+    policy: str = "sam2",
 ) -> None:
     """video を runs 回つづけて処理する（1 回目 = コールド、2 回目以降 = ウォーム）。x, y は 1 枚目の被写体の位置（0〜1）。
 
@@ -357,6 +377,9 @@ def main(
         raise SystemExit(f"--image は {' / '.join(MEASURE_CLASSES)} のどれか: {image!r}")
     if model not in MEASURE_MODELS:
         raise SystemExit(f"--model は {' / '.join(MEASURE_MODELS)} のどれか: {model!r}")
+    if policy not in MEASURE_POLICIES:
+        raise SystemExit(f"--policy は {' / '.join(MEASURE_POLICIES)} のどれか: {policy!r}")
+    label = f"{model}_{policy}"
     sys.path.insert(0, str(HERE))
     from measure_stats import format_report, summarize_ms
 
@@ -364,9 +387,9 @@ def main(
     video_bytes = src.read_bytes()
     out_dir = Path(out).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"{src.name}（{len(video_bytes) / 1e6:.1f} MB）を {runs} 回処理します（イメージ: {image}、モデル: {model}）…")
+    print(f"{src.name}（{len(video_bytes) / 1e6:.1f} MB）を {runs} 回処理します（イメージ: {image}、モデル: {model}、記憶: {policy}）…")
 
-    measurer = MEASURE_CLASSES[image](model=model)
+    measurer = MEASURE_CLASSES[image](model=model, policy=policy)
     results = []
     for i in range(1, runs + 1):
         call_started_at = time.time()
@@ -376,18 +399,18 @@ def main(
         )
         wall = time.perf_counter() - t
         mp4 = server.pop("output_mp4")
-        (out_dir / f"{src.stem}_{model}_run{i}.mp4").write_bytes(mp4)
+        (out_dir / f"{src.stem}_{label}_run{i}.mp4").write_bytes(mp4)
         server["stages_ms"] = {k: summarize_ms(v) for k, v in server["raw_ms"].items()}
         results.append({"run": i, "client_wall_s": wall, "call_started_at": call_started_at, "server": server})
-        print(f"  {i} 回目: {wall:.1f} 秒（{'コールド' if server['cold'] else 'ウォーム'}）")
+        print(f"  {i} 回目: {wall:.1f} 秒（{'コールド' if server['cold'] else 'ウォーム'}）/ {server['variant_stats']}")
 
-    report = format_report(src.name, results, image=image)
-    (out_dir / f"{src.stem}_{model}_results.json").write_text(
-        json.dumps({"video": src.name, "image": image, "model": model, "start": start, "end": end, "x": x, "y": y, "runs": results},
+    report = format_report(src.name, results, image=f"{image} / モデル: {model} / 記憶: {policy}")
+    (out_dir / f"{src.stem}_{label}_results.json").write_text(
+        json.dumps({"video": src.name, "image": image, "model": model, "policy": policy, "start": start, "end": end, "x": x, "y": y, "runs": results},
                    ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    (out_dir / f"{src.stem}_{model}_report.md").write_text(report, encoding="utf-8")
+    (out_dir / f"{src.stem}_{label}_report.md").write_text(report, encoding="utf-8")
     print()
     print(report)
     print()

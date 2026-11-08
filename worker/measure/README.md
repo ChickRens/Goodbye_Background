@@ -240,3 +240,41 @@ modal run worker/measure/measure_app.py::main --video "C:\Dev\goodbye_background
 
 **貼るもの**: 2 つの `*_report.md`（画面に出る結果の表と同じ）。出力の動画（`*_run2.mp4`）は貼らなくて構いません。
 見るのは、**ウォーム（2 回目）の全体の秒数**と、付いた GPU の名前（L4 / A10G / T4。費用の単価が違う）です。
+
+---
+
+## 案 C の続き: DAM4SAM・SAMURAI・base-plus を比べる（2026-11-08 の追加）
+
+small でも残る「同じ服の隣の人を拾う」問題に向けて、記憶の選び方を変えた 2 つの手法と、大きいモデルを比べます。
+
+| 指定 | 中身 |
+|---|---|
+| `--model small --policy sam2` | 今の比較の基準（small をそのまま） |
+| `--model small --policy dam4sam` | DAM4SAM（CVPR 2025）: 似た物体がいるフレームを「見分ける用の記憶」に入れる |
+| `--model small --policy samurai` | SAMURAI: 被写体の動きを予測して、候補の選択と記憶の選別に使う |
+| `--model base-plus --policy sam2` | 大きいモデル（入力 1024・画像エンコーダ 156MB） |
+
+モデルの ONNX は同じで、DAM4SAM・SAMURAI は `worker/cutout/tracker_variants.py` で記憶の組み立てだけを変えています
+（論文の実装との違いはそのファイルの先頭に書きました）。イメージに base-plus と onnx が増えたので、**1 回目はイメージを作り直す数分**がかかります。
+
+同じ動画・同じ点で、**1 つずつ**実行してください（前の結果が出てから次へ）:
+
+```powershell
+modal run worker/measure/measure_app.py::main --video "C:\Dev\goodbye_background\Goodbye_Background\worker\D_man.mp4" --start 10.7 --end 20.7 --x 0.5 --y 0.42 --image slim --model small --policy sam2 --out measure_out\V
+```
+```powershell
+modal run worker/measure/measure_app.py::main --video "C:\Dev\goodbye_background\Goodbye_Background\worker\D_man.mp4" --start 10.7 --end 20.7 --x 0.5 --y 0.42 --image slim --model small --policy dam4sam --out measure_out\V
+```
+```powershell
+modal run worker/measure/measure_app.py::main --video "C:\Dev\goodbye_background\Goodbye_Background\worker\D_man.mp4" --start 10.7 --end 20.7 --x 0.5 --y 0.42 --image slim --model small --policy samurai --out measure_out\V
+```
+```powershell
+modal run worker/measure/measure_app.py::main --video "C:\Dev\goodbye_background\Goodbye_Background\worker\D_man.mp4" --start 10.7 --end 20.7 --x 0.5 --y 0.42 --image slim --model base-plus --policy sam2 --out measure_out\V
+```
+
+- 出力は `measure_out\V\` に、`D_man_<モデル>_<記憶>_report.md`・`_results.json`・`_run1.mp4`・`_run2.mp4` の名前でできます
+- 画面の「1 回目: … 秒 / {...}」の `{...}` は、DAM4SAM が見分ける用の記憶に足したフレーム（`drm_added`）と、
+  SAMURAI が候補を選び直した回数（`samurai_switched`）です。0 や空なら、その手法はこの動画では働いていません
+- もし `crash-looping` が出たら、すぐ Ctrl+C で止めて、最初の 30 行くらいを貼ってください
+
+**貼るもの**: 4 つの `*_report.md`、4 つの `*_run1.mp4`（画質を比べるため）。`*_results.json` は無くても構いません。

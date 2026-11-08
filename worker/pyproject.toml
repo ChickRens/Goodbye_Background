@@ -12,6 +12,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "onnx>=1.23.2",
     "pillow>=13.0.0",
     "pytest",
 ]

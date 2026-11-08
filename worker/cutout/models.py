@@ -69,7 +69,13 @@ def load_constants(model_dir: Path) -> dict:
 class OnnxGraph:
     """1 つの ONNX グラフ。入力の dtype をモデルに合わせ、fp16 出力は float32 にして返す。"""
 
-    def __init__(self, path: Path, device: Literal["cpu", "cuda"], threads: int | None = None):
+    def __init__(
+        self,
+        path: Path,
+        device: Literal["cpu", "cuda"],
+        threads: int | None = None,
+        extra_outputs: list[str] | None = None,
+    ):
         so = ort.SessionOptions()
         if threads:
             so.intra_op_num_threads = threads
@@ -79,7 +85,8 @@ class OnnxGraph:
             ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
         )
         self.name = path.stem
-        self._s = ort.InferenceSession(str(path), so, providers=providers)
+        model = str(path) if not extra_outputs else with_extra_outputs(path, extra_outputs)
+        self._s = ort.InferenceSession(model, so, providers=providers)
         if device == "cuda" and self._s.get_providers()[0] != "CUDAExecutionProvider":
             raise RuntimeError(f"{self.name}: CUDA を使えない（使えたのは {self._s.get_providers()}）")
         self._inputs = {i.name: i for i in self._s.get_inputs()}
@@ -97,6 +104,24 @@ class OnnxGraph:
         return {n: (o.astype(np.float32) if o.dtype == np.float16 else o) for n, o in zip(self._out_names, out)}
 
 
+def with_extra_outputs(path: Path, names: list[str]) -> bytes:
+    """グラフの途中のテンソルを出力に足した ONNX（バイト列）を返す。名前が無ければ例外。
+
+    案 C の比較用（tracker_variants.py）。マスクデコーダが内部で計算している候補のマスク 4 つと
+    その IoU の予測を取り出すのに使う。onnx パッケージは開発用・計測用の依存（本番のワーカーは使わない）。
+    """
+    import onnx
+
+    model = onnx.load(str(path))
+    produced = {o for n in model.graph.node for o in n.output}
+    missing = [n for n in names if n not in produced]
+    if missing:
+        raise ValueError(f"{path.name} に {missing} が無い（書き出し方の違うモデル）")
+    for n in names:
+        model.graph.output.append(onnx.helper.make_empty_tensor_value_info(n))
+    return model.SerializeToString()
+
+
 @dataclass
 class Sam2Sessions:
     vision_encoder: OnnxGraph
@@ -106,10 +131,22 @@ class Sam2Sessions:
     pointer_tpos: OnnxGraph
 
 
-def load_sessions(model_dir: Path, device: Literal["cpu", "cuda"]) -> Sam2Sessions:
-    """5 グラフを読み込む。device="cuda" で CUDA EP が使えなければ例外。"""
+def load_sessions(
+    model_dir: Path, device: Literal["cpu", "cuda"], decoder_extra_outputs: list[str] | None = None
+) -> Sam2Sessions:
+    """5 グラフを読み込む。device="cuda" で CUDA EP が使えなければ例外。
+
+    decoder_extra_outputs: マスクデコーダに足す出力（tracker_variants.CANDIDATE_OUTPUTS）。本番は使わない。
+    """
     if device == "cuda" and hasattr(ort, "preload_dlls"):
         ort.preload_dlls()
     return Sam2Sessions(
-        **{g: OnnxGraph(model_dir / "onnx" / f"{g}.onnx", device) for g in GRAPH_NAMES}
+        **{
+            g: OnnxGraph(
+                model_dir / "onnx" / f"{g}.onnx",
+                device,
+                extra_outputs=decoder_extra_outputs if g == "mask_decoder" else None,
+            )
+            for g in GRAPH_NAMES
+        }
     )

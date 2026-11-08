@@ -32,6 +32,7 @@ from cutout.compositor import EDGE_SHARPNESS, alpha_from_logits, composite  # no
 from cutout.contract import NormalizedPoint  # noqa: E402
 from cutout.models import VIDEO_MODELS, fetch_models, load_constants, load_sessions  # noqa: E402
 from cutout.tracker import Sam2VideoTracker  # noqa: E402
+from cutout.tracker_variants import CANDIDATE_OUTPUTS, POLICIES, VariantTracker  # noqa: E402
 from cutout.video_io import MAX_FRAMES, FrameReader, Mp4Writer, output_geometry, probe  # noqa: E402
 
 # worker/models/ は git 管理外かつ Docker イメージに入らない（ルートの models/ に置くとイメージが太る）
@@ -100,6 +101,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--start-ms", type=int, default=0)
     ap.add_argument("--model", choices=list(VIDEO_MODELS), default="tiny", help="比べるモデル（既定は本番と同じ tiny）")
     ap.add_argument("--model-dir", type=Path, default=None, help="省略時は worker/models/sam2.1-<model>-video-full")
+    ap.add_argument("--policy", choices=list(POLICIES), default="sam2", help="記憶の選び方（sam2 = 本番と同じ）")
     ap.add_argument("--frames", type=int, default=None, help="先頭から何フレームだけ処理するか（速さを測るとき）")
     ap.add_argument("--out-dir", type=Path, default=ROOT / "results" / "diagnose")
     args = ap.parse_args(argv)
@@ -111,7 +113,7 @@ def main(argv: list[str]) -> int:
     repo, revision = VIDEO_MODELS[args.model]
     model_dir = args.model_dir or MODELS_ROOT / f"sam2.1-{args.model}-video-full"
     fetch_models(model_dir, revision, repo=repo)  # 全グラフ。取得済みは飛ばす
-    sessions = load_sessions(model_dir, "cpu")
+    sessions = load_sessions(model_dir, "cpu", decoder_extra_outputs=None if args.policy == "sam2" else CANDIDATE_OUTPUTS)
     constants = load_constants(model_dir)
 
     info = probe(args.video)
@@ -120,13 +122,17 @@ def main(argv: list[str]) -> int:
     total = max(1, min(MAX_FRAMES, round((end_ms - args.start_ms) / 1000 * fps)))
     if args.frames is not None:
         total = max(1, min(total, args.frames))
-    tracker = Sam2VideoTracker(sessions, constants, total)
+    if args.policy == "sam2":
+        tracker = Sam2VideoTracker(sessions, constants, total)
+    else:
+        tracker = VariantTracker(sessions, constants, total, args.policy)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    mp4 = args.out_dir / f"diagnose-{args.model}.mp4"
-    csv_path = args.out_dir / f"diagnose-{args.model}.csv"
+    label = args.model if args.policy == "sam2" else f"{args.model}-{args.policy}"
+    mp4 = args.out_dir / f"diagnose-{label}.mp4"
+    csv_path = args.out_dir / f"diagnose-{label}.csv"
     print(
-        f"{args.model}（{constants.get('image_size')}）{width}x{height} {fps}fps {total} フレーム"
+        f"{args.model}（{constants.get('image_size')}）記憶 {args.policy} {width}x{height} {fps}fps {total} フレーム"
         f" EDGE_SHARPNESS={EDGE_SHARPNESS} 点={args.point}"
     )
     started = time.monotonic()
