@@ -219,3 +219,24 @@ modal run worker/measure/measure_app.py::main --video "C:\Users\<あなた>\Vide
 | `has the following functions and local entrypoints` と出て止まる | コマンドに `::main` か `::probe` を付ける |
 | probe の表の備考に `失敗: ...` が出た | 表と一緒に、その上に出ているエラー全文を貼ってください |
 | `--image slim` で `ffmpeg に zscale が無い` という例外 | 軽いイメージの ffmpeg が HDR の変換に対応していません。エラー全文を貼ってください |
+
+---
+
+## 案 C: small の時間と費用を測る（2026-11-08 の追加）
+
+速く動く腕が消える問題は、SAM2.1 **small**（入力 1024）なら直ることを確かめました（`docs/video-cutout-measurements.md`）。
+CPU では tiny の約 7 倍遅かったものの、GPU での倍率は分からないので、本番と同じ GPU で測ります。
+本番のワーカーは変えません（この計測用のアプリだけで tiny と small を切り替えます）。
+
+イメージに tiny と small の両方を入れるように変えたので、**1 回目はイメージを作り直す数分**がかかります。
+同じ動画・同じ点で、tiny と small を続けて測ってください（`--image slim` は本番と同じ軽いイメージ）:
+
+```powershell
+modal run worker/measure/measure_app.py::main --video "C:\Dev\goodbye_background\Goodbye_Background\worker\D_man.mp4" --start 10.7 --end 20.7 --x 0.5 --y 0.42 --image slim --model tiny --out measure_out\C_tiny
+```
+```powershell
+modal run worker/measure/measure_app.py::main --video "C:\Dev\goodbye_background\Goodbye_Background\worker\D_man.mp4" --start 10.7 --end 20.7 --x 0.5 --y 0.42 --image slim --model small --out measure_out\C_small
+```
+
+**貼るもの**: 2 つの `*_report.md`（画面に出る結果の表と同じ）。出力の動画（`*_run2.mp4`）は貼らなくて構いません。
+見るのは、**ウォーム（2 回目）の全体の秒数**と、付いた GPU の名前（L4 / A10G / T4。費用の単価が違う）です。

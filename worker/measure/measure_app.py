@@ -6,6 +6,7 @@
 
     modal run worker/measure/measure_app.py::main --video C:\\path\\to\\clip.mov --x 0.5 --y 0.5 --image slim
     modal run worker/measure/measure_app.py::probe --rounds 3   # コールドスタートの原因の切り分け
+    modal run worker/measure/measure_app.py::main --video clip.mp4 --image slim --model small   # 案 C: small の時間と費用
 """
 
 from __future__ import annotations
@@ -23,9 +24,14 @@ _MODULE_IMPORTED_AT = time.time()
 HERE = Path(__file__).resolve().parent
 CUTOUT_DIR = HERE.parent / "cutout"  # worker/cutout（リポジトリのどこから実行しても解決できるようにする）
 
-MODEL_REPO = "diffusionstudio/sam2.1-tiny-video-onnx-fp16"
-MODEL_DIR = Path("/models")
-MODEL_SHA_FILE = MODEL_DIR / "MODEL_SHA"
+# 計測で選べるモデル（cutout.models.VIDEO_MODELS の名前）。どれもリビジョン固定でイメージに焼き込む。
+# small は案 C（大きいモデル）の時間と費用を GPU で測るため（2026-11-08。CPU では tiny の約 7 倍だった）
+MEASURE_MODELS = ["tiny", "small"]
+MODEL_ROOT = Path("/models")
+
+
+def model_dir(name: str) -> Path:
+    return MODEL_ROOT / name
 
 # L4 が埋まっていたら A10G → T4 の順に取る（Modal のフォールバック指定）。実際に付いた GPU 名は結果に出す
 GPU_FALLBACK = ["L4", "A10G", "T4"]
@@ -36,17 +42,14 @@ CUDA_IMAGE = "nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04"
 
 
 def download_models() -> None:
-    """イメージのビルド時に 1 回だけ動く。HF の現在のコミット sha を取り、その sha 固定でモデルを取得する。"""
-    import httpx
+    """イメージのビルド時に 1 回だけ動く。MEASURE_MODELS を、本番と同じくリビジョン固定で取得する。"""
+    from cutout.models import VIDEO_MODELS, fetch_models
 
-    from cutout.models import fetch_models
-
-    r = httpx.get(f"https://huggingface.co/api/models/{MODEL_REPO}", timeout=60, follow_redirects=True)
-    r.raise_for_status()
-    sha = r.json()["sha"]
-    fetch_models(MODEL_DIR, sha)
-    MODEL_SHA_FILE.write_text(sha)
-    print(f"モデルを取得しました: {MODEL_REPO}@{sha}")
+    for name in MEASURE_MODELS:
+        repo, revision = VIDEO_MODELS[name]
+        fetch_models(model_dir(name), revision, repo=repo)
+        (model_dir(name) / "MODEL_SHA").write_text(f"{repo}@{revision}")
+        print(f"モデルを取得しました: {repo}@{revision}")
 
 
 # worker/uv.lock と同じ版
@@ -100,7 +103,12 @@ def _gpu_name() -> str:
 
 
 class _Measure:
-    """Measure の中身。イメージだけが違う 2 つのクラス（MeasureCuda / MeasureSlim）が継承する。"""
+    """Measure の中身。イメージだけが違う 2 つのクラス（MeasureCuda / MeasureSlim）が継承する。
+
+    model はコンテナごとの引数（MeasureSlim(model="small")）。モデルが違うと別のコンテナになる。
+    """
+
+    model: str = modal.parameter(default="tiny")
 
     @modal.enter()
     def load(self) -> None:
@@ -110,13 +118,15 @@ class _Measure:
         from cutout.models import load_constants, load_sessions
 
         # device="cuda" は CUDA EP が先頭でなければ例外になる（= CPU に落ちていないことの確認）
-        self.sessions = load_sessions(MODEL_DIR, "cuda")
-        self.constants = load_constants(MODEL_DIR)
+        if self.model not in MEASURE_MODELS:
+            raise ValueError(f"model は {' / '.join(MEASURE_MODELS)} のどれか: {self.model!r}")
+        self.sessions = load_sessions(model_dir(self.model), "cuda")
+        self.constants = load_constants(model_dir(self.model))
         self.model_load_s = time.time() - t0
         self.import_to_ready_s = time.time() - _MODULE_IMPORTED_AT
         self.ort_version = ort.__version__
         self.providers = ort.get_available_providers()
-        self.model_sha = MODEL_SHA_FILE.read_text().strip()
+        self.model_sha = (model_dir(self.model) / "MODEL_SHA").read_text().strip()
         self.ffmpeg_version, self.zscale = _ffmpeg_info()
         if not self.zscale:
             # HDR のトーンマップ（video_io._HDR_TONEMAP）に要る。無いと HDR 動画のデコードが途中で失敗する
@@ -255,7 +265,7 @@ def _probe_load_models() -> dict:
     from cutout.models import load_sessions
 
     # device="cuda" は CUDA EP が先頭でなければ例外になる（= CUDA / cuDNN が読めていることの確認）
-    load_sessions(MODEL_DIR, "cuda")
+    load_sessions(model_dir("tiny"), "cuda")
     model_load_s = time.time() - t0
     ffmpeg_version, zscale = _ffmpeg_info()
     note = f"モデル読込 {model_load_s:.1f} 秒 / zscale {'あり' if zscale else 'なし'} / {ffmpeg_version}"
@@ -338,13 +348,17 @@ def main(
     runs: int = 2,
     out: str = "measure_out",
     image: str = "cuda",
+    model: str = "tiny",
 ) -> None:
     """video を runs 回つづけて処理する（1 回目 = コールド、2 回目以降 = ウォーム）。x, y は 1 枚目の被写体の位置（0〜1）。
 
     image: cuda = 1 回目の計測と同じ CUDA イメージ / slim = 軽いイメージ（未検証なので既定は cuda）
+    model: tiny = 本番 / small = 案 C（入力 1024）
     """
     if image not in MEASURE_CLASSES:
         raise SystemExit(f"--image は {' / '.join(MEASURE_CLASSES)} のどれか: {image!r}")
+    if model not in MEASURE_MODELS:
+        raise SystemExit(f"--model は {' / '.join(MEASURE_MODELS)} のどれか: {model!r}")
     sys.path.insert(0, str(HERE))
     from measure_stats import format_report, summarize_ms
 
@@ -352,9 +366,9 @@ def main(
     video_bytes = src.read_bytes()
     out_dir = Path(out).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"{src.name}（{len(video_bytes) / 1e6:.1f} MB）を {runs} 回処理します（イメージ: {image}）…")
+    print(f"{src.name}（{len(video_bytes) / 1e6:.1f} MB）を {runs} 回処理します（イメージ: {image}、モデル: {model}）…")
 
-    measurer = MEASURE_CLASSES[image]()
+    measurer = MEASURE_CLASSES[image](model=model)
     results = []
     for i in range(1, runs + 1):
         call_started_at = time.time()
@@ -364,18 +378,18 @@ def main(
         )
         wall = time.perf_counter() - t
         mp4 = server.pop("output_mp4")
-        (out_dir / f"{src.stem}_run{i}.mp4").write_bytes(mp4)
+        (out_dir / f"{src.stem}_{model}_run{i}.mp4").write_bytes(mp4)
         server["stages_ms"] = {k: summarize_ms(v) for k, v in server["raw_ms"].items()}
         results.append({"run": i, "client_wall_s": wall, "call_started_at": call_started_at, "server": server})
         print(f"  {i} 回目: {wall:.1f} 秒（{'コールド' if server['cold'] else 'ウォーム'}）")
 
     report = format_report(src.name, results, image=image)
-    (out_dir / f"{src.stem}_results.json").write_text(
-        json.dumps({"video": src.name, "image": image, "start": start, "end": end, "x": x, "y": y, "runs": results},
+    (out_dir / f"{src.stem}_{model}_results.json").write_text(
+        json.dumps({"video": src.name, "image": image, "model": model, "start": start, "end": end, "x": x, "y": y, "runs": results},
                    ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    (out_dir / f"{src.stem}_report.md").write_text(report, encoding="utf-8")
+    (out_dir / f"{src.stem}_{model}_report.md").write_text(report, encoding="utf-8")
     print()
     print(report)
     print()
