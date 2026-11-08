@@ -4,8 +4,8 @@
 //! 1. コマンドライン引数で利用ログの保存先 DB を選ぶ（なし/`--sqlite` → SQLite, `--postgres` → PostgreSQL）
 //! 2. DB に接続してマイグレーションを実行し、`UsageRecorder` と動画の回数制限（`DailyQuota`）を同じプールで作る
 //! 3. `App::new` で画像の全ユースケースを組み立てる（ここで `models/` の ONNX モデルを読み込む。無いと panic）
-//! 4. `VideoCutoutApp::new` で動画のユースケースを組み立てる（動画の環境変数か、プレビューの SAM2.1 tiny のモデル
-//!    `models/sam2.1-tiny-video/` が足りなければ無効 = 503。足りないものの名前は起動ログに出る）
+//! 4. `VideoCutoutApp::new` で動画のユースケースを組み立てる（動画の環境変数か、プレビューの SAM2.1 small のモデル
+//!    `models/sam2.1-small-video/` が足りなければ無効 = 503。足りないものの名前は起動ログに出る）
 //! 5. 期限切れデータ削除（GC）タスクを `CLEANUP_INTERVAL` ごとに回す（画像のストアと、補助として動画のジョブ）
 //! 6. axum でポート `PORT`（デフォルト 3000）を listen。API 以外のパスは `frontend/` を静的配信。
 //!    利用者の IP を取るため `into_make_service_with_connect_info` で serve する

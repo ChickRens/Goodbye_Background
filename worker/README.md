@@ -1,6 +1,6 @@
 # 動画切り抜きワーカー（Modal）
 
-動画の背景を SAM2.1-tiny（ONNX・fp16）のビデオトラッキングで消して、緑などの単色背景と合成した mp4 を作るワーカーです。
+動画の背景を SAM2.1 small（ONNX・fp16。2026-11-08 に tiny から切り替え）のビデオトラッキング（記憶の選び方は DAM4SAM）で消して、緑などの単色背景と合成した mp4 を作るワーカーです。
 Rust のサーバーから依頼を受け、Modal の GPU で 1 本ずつ処理し、結果を R2 に置いて Rust に通知します。
 
 ```
@@ -159,7 +159,7 @@ Remove-Item bad.json
 | 待機してから止めるまで | 60 秒（続けて来たジョブはモデルの読み込みを省ける） | `scaledown_window=60` |
 | Secret | `goodbye-background-video`（キー `WORKER_CALLBACK_SECRET`） | Modal の Secrets |
 | Rust 側に設定するもの | `MODAL_ENDPOINT_URL`・`MODAL_KEY`・`MODAL_SECRET`・`WORKER_CALLBACK_SECRET` | Cloud Run |
-| モデル | `diffusionstudio/sam2.1-tiny-video-onnx-fp16` @ `MODEL_REVISION` | `cutout/models.py` |
+| モデル | `diffusionstudio/sam2.1-small-video-onnx-fp16` @ `MODEL_REVISION` | `cutout/models.py` |
 
 ログ（`modal app logs goodbye-background-video` または Modal の画面）に署名付き URL を出さないよう、次のようにしています。
 

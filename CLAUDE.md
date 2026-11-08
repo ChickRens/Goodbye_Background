@@ -31,7 +31,7 @@ docker compose up --build
 - `models/` は git 管理外。起動には以下が必要（無いと `App::new` で panic）:
   `sam2.1_hiera_small_{image_encoder,prompt_encoder,mask_decoder}.onnx`, `image_pe.bin`
   → `scripts/` の Python（SAM2 公式リポジトリを `SAM2/` に置いて実行）で生成する
-- 動画切り抜きのプレビューには `models/sam2.1-tiny-video/`（`constants.json`, `onnx/{vision_encoder,mask_decoder}.onnx`）も必要。
+- 動画切り抜きのプレビューには `models/sam2.1-small-video/`（`constants.json`, `onnx/{vision_encoder,mask_decoder}.onnx`）も必要。
   無いと動画機能ごと無効（503。起動ログに足りないファイル名が出る）。画像機能は動く
 - `cargo test` は ONNX Runtime のリンクが必要。テストは models/ 無しでも動く（Sam2Segmenter::new を呼ばない）。
   ort-sys のダウンロードが通らない環境では、PyPI の `onnxruntime==1.24.2` の wheel から
@@ -49,7 +49,7 @@ composition/video_wiring.rs  動画切り抜きの DI。VideoCutoutApp = 動画�
 presentation/        router（ルート定義）, AppError→HTTP 変換, 利用ログミドルウェア, client_ip（回数制限用の IP）
 api/handler/image_cutout/<ep>/  画像切り抜きのエンドポイントごとの handler.rs / request.rs / response.rs
 api/handler/video_cutout/<ep>/  動画切り抜きのエンドポイント（create_job / start_job / get_job / report_event / set_preview_frame / preview_mask）
-video_cutout/        動画切り抜き機能（ジョブ・回数制限・R2/Modal のポート・プレビュー（preview/。SAM2.1 tiny）・ユースケース・config.rs）
+video_cutout/        動画切り抜き機能（ジョブ・回数制限・R2/Modal のポート・プレビュー（preview/。SAM2.1 small）・ユースケース・config.rs）
 image_cutout/        画像切り抜き機能（既存の画像機能は全てここ）
   image_io/          ユースケース: upload / get_preview / get_completed
   editing/           ユースケース: prepare_segment / segment / undo / redo / save
@@ -130,10 +130,15 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
     回数の IP のキーは、IPv4 はアドレス、**IPv6 は /64**（`quota/daily_quota.rs` の `ip_quota_key`。スマホは /64 の中でアドレスを使い捨てるため）。
     確かめる間だけ `LOG_CLIENT_IP_DEBUG=1` を付けると `POST /video-jobs` ごとに `[client-ip-debug]` の行
     （生の `X-Forwarded-For`・接続元・hops・選ばれた IP）が出る。**確認が終わったら外す**（環境変数を消す。手順は `docs/video-cutout-deploy.md`）
-16. **動画のプレビューは本番と同じ SAM2.1 tiny を Rust（CPU）で動かす**（仕様 D8 を置き換え。docs/ARCHITECTURE.md §9.4）。
-    画像の small を流用すると、本番の tiny と選ぶ範囲が食い違ったため。`video_cutout/preview/` の前処理・alpha は
+16. **動画のモデルは SAM2.1 small（動画用 ONNX、入力 1024）。GPU ワーカーと Rust（CPU）のプレビューで同じものを使う**
+    （2026-11-08 に tiny → small。オーナー判断。docs/video-cutout-measurements.md の案 C、docs/ARCHITECTURE.md §9.4）。
+    モデルのリビジョンは `worker/cutout/models.py` の `MODEL_REVISION` 1 か所。プレビューとワーカーでモデルが違うと
+    選ぶ範囲が食い違う（以前、画像の small と本番の tiny で起きた）。`video_cutout/preview/` の前処理・alpha は
     `worker/cutout/tracker.py`・`compositor.py` と同じ数値になるよう書いてある（EDGE_SHARPNESS などを変えるときは両方直す）。
-    特徴量はジョブごとに約 2MB（f16）をメモリに置き、開始・削除・期限切れで消す。最大 64 件（LRU）、
+    入力の大きさは両方とも `constants.json` の `image_size` から決める（512 の決め打ちはしない）。
+    ワーカーの記憶の選び方は **DAM4SAM**（`worker/cutout/tracker_variants.py` の `PRODUCTION_POLICY`）。
+    2 枚目以降の話なので、プレビュー（1 枚目）は SAM2 そのままの計算でワーカーと一致する（マスクの IoU 0.9999 を確認）。
+    特徴量はジョブごとに約 8MB（f16）をメモリに置き、開始・削除・期限切れで消す。最大 16 件（LRU。約 128MB）、
     フレームの登録は同時 2 件まで（超えたら 503 `PREVIEW_BUSY`）
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）

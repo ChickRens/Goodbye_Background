@@ -274,7 +274,7 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 
 仕様は `docs/superpowers/specs/2026-11-05-video-cutout-design.md`。重い処理（SAM2 の追跡・エンコード）は
 Modal 上の Python ワーカーで行い、Rust 側はジョブの管理・回数制限・署名付き URL の発行と、
-1 フレーム目のプレビュー（本番と同じ SAM2.1 tiny を Cloud Run の CPU で動かす。§9.4）を行う。
+1 フレーム目のプレビュー（本番と同じ SAM2.1 small を Cloud Run の CPU で動かす。§9.4）を行う。
 
 ### 9.1 構成
 
@@ -282,8 +282,8 @@ Modal 上の Python ワーカーで行い、Rust 側はジョブの管理・回�
 ブラウザ ──POST /video-jobs──────────► CreateVideoJob（回数 > 0 を確認、Created で保存）→ 201 {job_id, upload_url}
    │──PUT upload_url（動画本体）──────► Cloudflare R2（サーバーを経由しない）
    │──POST /video-jobs/{id}/start ────► StartVideoJob（R2 に HEAD → 回数を消費 → Queued → Modal に投入）→ 202
-   │──POST /video-jobs/{id}/preview-frame（1 枚目の静止画）► SetPreviewFrame（tiny でエンコードして特徴量を保存）→ 204
-   │──POST /video-jobs/{id}/preview（点）► PreviewMask（tiny のデコーダ → alpha の PNG）→ 200 image/png
+   │──POST /video-jobs/{id}/preview-frame（1 枚目の静止画）► SetPreviewFrame（small でエンコードして特徴量を保存）→ 204
+   │──POST /video-jobs/{id}/preview（点）► PreviewMask（small のデコーダ → alpha の PNG）→ 200 image/png
    │──GET /video-jobs/{id}（1 秒ごと）► GetVideoJob（期限切れなら Failed(timeout)、Done なら download_url）→ 200
 Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）──► ReportVideoJobEvent → 204
 ```
@@ -332,26 +332,29 @@ Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）�
   文字列にするときは必ず `without_url()` を通す
 - 回数の返却は消費した日（`VideoJob::quota_day`、日本時間）の分を戻す。日付をまたいで失敗しても翌日の枠は増えない
 
-### 9.4 プレビュー（SAM2.1 tiny を Rust の CPU で）
+### 9.4 プレビュー（本番と同じ SAM2.1 small を Rust の CPU で）
 
 当初（仕様 D8）は画像機能の SAM2.1 small（1024px）を流用していたが、ベストを 1 点タップしたとき small は人物全体、
 本番の tiny はベストだけを選ぶ、という食い違いが本番で出た（2026-11-07）。そこで「プレビューで見えた範囲 = 出力の 1 フレーム目」に
 なるよう、本番のワーカーと同じモデル・同じ計算を Rust で動かす（D8 を置き換え。計画 `docs/superpowers/plans/2026-11-07-video-preview-tiny.md`）。
+2026-11-08 に、速く動く腕が消える問題のため、ワーカーとプレビューの両方を tiny（512）から small（1024）に切り替えた
+（オーナー判断。ワーカーの記憶の選び方は DAM4SAM。`docs/video-cutout-measurements.md` の案 C）。
+同じ形式の ONNX なので、コードは `constants.json` の `image_size` から大きさを決めるだけで両方に対応する。
 
-- モデル: `models/sam2.1-tiny-video/`（git 管理外。`constants.json`・`onnx/vision_encoder.onnx`・`onnx/mask_decoder.onnx`。
-  `diffusionstudio/sam2.1-tiny-video-onnx-fp16` のワーカーと同じリビジョン）。カレントディレクトリからの相対パス
-- `video_cutout/preview/`: `PreviewSegmenter`（trait）と `Sam2TinyPreviewSegmenter`（ort。グラフごとに `Mutex<Session>`）。
+- モデル: `models/sam2.1-small-video/`（git 管理外。`constants.json`・`onnx/vision_encoder.onnx`・`onnx/mask_decoder.onnx`。
+  `diffusionstudio/sam2.1-small-video-onnx-fp16` のワーカーと同じリビジョン）。カレントディレクトリからの相対パス
+- `video_cutout/preview/`: `PreviewSegmenter`（trait）と `Sam2PreviewSegmenter`（ort。グラフごとに `Mutex<Session>`）。
   入力の型はモデルの宣言に合わせ（fp16 なら変換）、fp16 の出力は f32 にする（`worker/cutout/models.py` の `OnnxGraph` と同じ）
 - 計算は `worker/cutout/tracker.py` の 1 枚目と `compositor.py` の `alpha_from_logits` と同じ:
-  512×512 に引き伸ばし → mean/std で正規化 → `vision_encoder` → `feats2_no_mem` を `feats2_cond` に、点は ×512・include=1 / exclude=0
+  S×S（small は 1024）に引き伸ばし → mean/std で正規化 → `vision_encoder` → `feats2_no_mem` を `feats2_cond` に、点は ×S・include=1 / exclude=0
   → `mask_decoder` の `high_res_mask` → フレームの大きさにバイリニア拡大 → ±50 → ×16 → ±50 → sigmoid → グレースケール PNG。
   バイリニアは `preview/image_math.rs` が OpenCV の `cv2.resize(INTER_LINEAR)` をなぞる（uint8 は完全一致を確認済み）
-- フレームの登録時に 1 回だけエンコードし、特徴量（`feats0`/`feats1`/`feats2_no_mem` を f16 で約 2MB。モデルが fp16 なので
+- フレームの登録時に 1 回だけエンコードし（開発環境の 4 コアで約 2.5 秒。デコードは約 0.09 秒）、特徴量（`feats0`/`feats1`/`feats2_no_mem` を f16 で約 8MB。モデルが fp16 なので
   f32 で持つのと結果は同じ）とフレームの大きさを `PreviewFeatureStore` にジョブごとに置く。点が変わるたびにデコーダだけを回す
 - `/preview` はヘッダー `X-Object-Present: true|false` も返す（デコーダの `object_score_logits > 0`。ワーカーは 1 枚目でこれが偽だと
   `subject_not_found` で失敗する）
 - 作成は回数を消費しないので、メモリと CPU に上限を付けている:
-  - 特徴量は最大 `MAX_PREVIEW_FEATURES`（64）件。溢れたら最も長く使われていないもの（LRU）を捨てる。捨てられたジョブの `/preview` は
+  - 特徴量は最大 `MAX_PREVIEW_FEATURES`（16 件 ≒ 128MB。tiny の頃は 64 件 × 2MB）件。溢れたら最も長く使われていないもの（LRU）を捨てる。捨てられたジョブの `/preview` は
     409 `PREVIEW_FRAME_NOT_FOUND` になり、フロントがフレームを登録し直す
   - `preview-frame` は同時に `MAX_CONCURRENT_PREVIEW_ENCODES`（2）件まで（本文を読む前に `Semaphore` の `try_acquire`）。
     空きが無ければ待たずに 503 `PREVIEW_BUSY`

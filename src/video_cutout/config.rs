@@ -6,10 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::video_cutout::preview::segmenter_tiny::PREVIEW_MODEL_FILES;
+use crate::video_cutout::preview::segmenter_sam2::PREVIEW_MODEL_FILES;
 
-/// プレビュー用の SAM2.1 tiny のモデルの置き場所（カレントディレクトリからの相対パス。画像の `models/` と同じ扱い）。
-pub const PREVIEW_MODEL_DIR: &str = "models/sam2.1-tiny-video";
+/// プレビュー用の SAM2.1 small のモデルの置き場所（カレントディレクトリからの相対パス。画像の `models/` と同じ扱い）。
+pub const PREVIEW_MODEL_DIR: &str = "models/sam2.1-small-video";
 
 pub struct VideoCutoutConfig {
     pub r2_account_id: String,
@@ -29,7 +29,7 @@ pub struct VideoCutoutConfig {
     /// IP の取り方を 1 行ログに出す（`presentation::client_ip::client_ip_debug_line`）。任意（無くても動画は有効）。
     /// `TRUSTED_PROXY_HOPS` の確認が終わったら外す。
     pub log_client_ip_debug: bool,
-    /// プレビュー用の SAM2.1 tiny のモデルのディレクトリ（`PREVIEW_MODEL_DIR`）。
+    /// プレビュー用の SAM2.1 small のモデルのディレクトリ（`PREVIEW_MODEL_DIR`）。
     pub preview_model_dir: PathBuf,
 }
 

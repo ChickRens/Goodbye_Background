@@ -1,11 +1,11 @@
-"""動画ページのプレビュー（Rust の CPU 推論）用に、SAM2.1 tiny のモデルを取得する。
+"""動画ページのプレビュー（Rust の CPU 推論）用に、本番と同じ SAM2.1 small のモデルを取得する。
 
 ワーカーと同じリビジョン（cutout.models.MODEL_REVISION）に固定し、プレビューで使う
 constants.json と onnx/vision_encoder.onnx と onnx/mask_decoder.onnx だけを取得する。
 既にあるファイルは飛ばす（何度実行してもよい）。
 
 使い方: cd worker && uv run python scripts/fetch_preview_models.py [取得先]
-  取得先の省略時はリポジトリ直下の models/sam2.1-tiny-video/（サーバーが読む場所）
+  取得先の省略時はリポジトリ直下の models/sam2.1-small-video/（サーバーが読む場所。src/video_cutout/config.rs の PREVIEW_MODEL_DIR）
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "worker"))  # scripts/ から実行しても cutou
 
 from cutout.models import MODEL_REVISION, fetch_models  # noqa: E402
 
-DEFAULT_DIR = ROOT / "models" / "sam2.1-tiny-video"
+DEFAULT_DIR = ROOT / "models" / "sam2.1-small-video"
 PREVIEW_GRAPHS = ["vision_encoder", "mask_decoder"]
 PREVIEW_FILES = ["constants.json"] + [f"onnx/{g}.onnx" for g in PREVIEW_GRAPHS]
 

@@ -95,4 +95,4 @@ def test_script_default_dir_is_repo_models_dir():
     script = _load_script()
     repo_root = Path(__file__).resolve().parents[2]
 
-    assert script.DEFAULT_DIR == repo_root / "models" / "sam2.1-tiny-video"
+    assert script.DEFAULT_DIR == repo_root / "models" / "sam2.1-small-video"

@@ -7,7 +7,7 @@
 //! 動画のポート（R2・Modal・回数の DB）はネットワーク待ちだけの非同期 trait なので、
 //! 画像と違って `spawn_blocking` は使わない（CLAUDE.md の例外）。
 //!
-//! 例外はプレビュー（SAM2.1 tiny の推論）。CPU を使うのでユースケースの中で `spawn_blocking` する。
+//! 例外はプレビュー（SAM2.1 small の推論）。CPU を使うのでユースケースの中で `spawn_blocking` する。
 //!
 //! 設定（`VideoCutoutConfig`）が無い、またはプレビューのモデルを読めなければ何も持たず、
 //! 全メソッドが `VIDEO_CUTOUT_DISABLED`（503）を返す。
@@ -36,7 +36,7 @@ use crate::{
         job::{locks::VideoJobLocks, repository_impl::VideoJobRepositoryInMemory},
         preview::{
             feature_store::PreviewFeatureStore, segmenter::PreviewSegmenter,
-            segmenter_tiny::Sam2TinyPreviewSegmenter,
+            segmenter_sam2::Sam2PreviewSegmenter,
         },
         preview_mask::{
             input::PreviewMaskInput, output::PreviewMaskOutput, usecase::PreviewMaskUseCase,
@@ -95,8 +95,16 @@ impl VideoCutoutApp {
             return Self { inner: None };
         };
         let preview: Arc<dyn PreviewSegmenter> =
-            match Sam2TinyPreviewSegmenter::new(&config.preview_model_dir) {
-                Ok(segmenter) => Arc::new(segmenter),
+            match Sam2PreviewSegmenter::new(&config.preview_model_dir) {
+                Ok(segmenter) => {
+                    // デプロイ後に、ワーカーと同じモデル（small = 1024）が入ったかをログで確かめられるように出す
+                    println!(
+                        "動画切り抜き: プレビューのモデル {}（入力 {}px）",
+                        config.preview_model_dir.display(),
+                        segmenter.image_size()
+                    );
+                    Arc::new(segmenter)
+                }
                 Err(e) => {
                     eprintln!("動画切り抜き: プレビューのモデルを読めない: {:?}", e);
                     return Self { inner: None };

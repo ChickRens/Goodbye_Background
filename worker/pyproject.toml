@@ -8,11 +8,11 @@ dependencies = [
     "opencv-python-headless",
     "onnxruntime",
     "httpx",
+    "onnx>=1.23.2",
 ]
 
 [dependency-groups]
 dev = [
-    "onnx>=1.23.2",
     "pillow>=13.0.0",
     "pytest",
 ]

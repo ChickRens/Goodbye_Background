@@ -1,4 +1,4 @@
-"""SAM2.1-tiny 動画 ONNX モデルの取得と ONNX Runtime セッションの生成。"""
+"""SAM2.1 動画 ONNX モデル（本番は small）の取得と ONNX Runtime セッションの生成。"""
 
 from __future__ import annotations
 
@@ -11,14 +11,18 @@ import httpx
 import numpy as np
 import onnxruntime as ort
 
-# Hugging Face のコミットハッシュに固定する（main は動くため再現性が無い）。Modal での計測に使ったもの。
-MODEL_REVISION = "66673b5db39371b7dd7847f4d3bc0d4f4179b79e"
-REPO_URL = "https://huggingface.co/diffusionstudio/sam2.1-tiny-video-onnx-fp16/resolve/{revision}/"
+# Hugging Face のコミットハッシュに固定する（main は動くため再現性が無い）。
+TINY_REVISION = "66673b5db39371b7dd7847f4d3bc0d4f4179b79e"  # 2026-11-08 まで本番だったもの
+SMALL_REVISION = "927ecec6e6ae2727d0af7720eefdb07f2efe4689"
+# 本番のモデル（GPU ワーカーと Rust のプレビューの両方）。2026-11-08 に tiny → small（オーナー判断。
+# docs/video-cutout-measurements.md の案 C。速く動く腕が消えにくくなる。GPU の処理時間は約 2.8 倍）
+MODEL_REVISION = SMALL_REVISION
+REPO_URL = "https://huggingface.co/diffusionstudio/sam2.1-small-video-onnx-fp16/resolve/{revision}/"
 # 同じ形式（5 グラフ・同じ constants.json の項目）で書き出された大きいモデル。違いは入力の解像度と画像エンコーダの大きさ。
 # 案 C（大きいモデル）の比較用。名前 → (Hugging Face のリポジトリ, コミットハッシュ)。2026-11-07 に API で確認
 VIDEO_MODELS = {
-    "tiny": ("diffusionstudio/sam2.1-tiny-video-onnx-fp16", MODEL_REVISION),  # 512。vision_encoder 58MB
-    "small": ("diffusionstudio/sam2.1-small-video-onnx-fp16", "927ecec6e6ae2727d0af7720eefdb07f2efe4689"),  # 1024。84MB
+    "tiny": ("diffusionstudio/sam2.1-tiny-video-onnx-fp16", TINY_REVISION),  # 512。vision_encoder 58MB
+    "small": ("diffusionstudio/sam2.1-small-video-onnx-fp16", SMALL_REVISION),  # 1024。84MB（本番）
     "base-plus": ("diffusionstudio/sam2.1-base-plus-video-onnx-fp16", "386b83e09a774fe2782d86fd1b8cb5aaf718aa9d"),  # 1024。156MB
     "large": ("diffusionstudio/sam2.1-large-video-onnx-fp16", "98dbd222d9b3f75d15fe63a5c2a22b0b0029eea1"),  # 1024。447MB
 }
@@ -40,7 +44,7 @@ def fetch_models(
 
     graphs を渡すとそのグラフだけ取得する（Rust のプレビューは vision_encoder と mask_decoder だけ使う）。
     省略時は GRAPH_NAMES の全部（ワーカー用）。
-    repo を省略すると tiny（REPO_URL）。大きいモデルは VIDEO_MODELS のリポジトリを渡す。
+    repo を省略すると本番のモデル（REPO_URL。small）。ほかのモデルは VIDEO_MODELS のリポジトリを渡す。
     """
     if repo is None:
         base = REPO_URL.format(revision=revision)
@@ -107,8 +111,8 @@ class OnnxGraph:
 def with_extra_outputs(path: Path, names: list[str]) -> bytes:
     """グラフの途中のテンソルを出力に足した ONNX（バイト列）を返す。名前が無ければ例外。
 
-    案 C の比較用（tracker_variants.py）。マスクデコーダが内部で計算している候補のマスク 4 つと
-    その IoU の予測を取り出すのに使う。onnx パッケージは開発用・計測用の依存（本番のワーカーは使わない）。
+    tracker_variants.py（本番の DAM4SAM）が、マスクデコーダが内部で計算している候補のマスク 4 つと
+    その IoU の予測を取り出すのに使う。
     """
     import onnx
 
@@ -136,7 +140,7 @@ def load_sessions(
 ) -> Sam2Sessions:
     """5 グラフを読み込む。device="cuda" で CUDA EP が使えなければ例外。
 
-    decoder_extra_outputs: マスクデコーダに足す出力（tracker_variants.CANDIDATE_OUTPUTS）。本番は使わない。
+    decoder_extra_outputs: マスクデコーダに足す出力（tracker_variants.CANDIDATE_OUTPUTS。本番の DAM4SAM が使う）。
     """
     if device == "cuda" and hasattr(ort, "preload_dlls"):
         ort.preload_dlls()

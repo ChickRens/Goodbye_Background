@@ -31,7 +31,8 @@ GPU_FALLBACK = ["L4", "A10G", "T4"]
 # onnxruntime-gpu は 1.27 から CUDA 13 向けになったので、CUDA 12 + cuDNN 9 向けの最後の版に固定する
 ORT_GPU_VERSION = "1.26.0"
 # worker/uv.lock と同じ版
-_PY_DEPS = ["numpy==2.5.4", "opencv-python-headless==5.0.0.93", "httpx==0.28.1"]
+# onnx は DAM4SAM（cutout.tracker_variants）が、マスクデコーダの候補マスクを出力に足すのに使う
+_PY_DEPS = ["numpy==2.5.4", "opencv-python-headless==5.0.0.93", "httpx==0.28.1", "onnx==1.23.2"]
 _IGNORE = ["__pycache__", "**/__pycache__"]
 
 
@@ -84,11 +85,13 @@ class Worker:
         from cutout.compositor import LogoBadge
         from cutout.logging_setup import configure_logging
         from cutout.models import load_constants, load_sessions
+        from cutout.tracker_variants import CANDIDATE_OUTPUTS
         from cutout.transfer import HttpTransfer
 
         configure_logging()  # httpx が署名付き URL を INFO で出さないようにする
         # device="cuda" は CUDA EP が先頭でなければ例外になる（= CPU に落ちて遅くなるのを防ぐ）
-        self.sessions = load_sessions(MODEL_DIR, "cuda")
+        # DAM4SAM は選ばれなかった候補マスクも使うので、マスクデコーダに出力を足して読む
+        self.sessions = load_sessions(MODEL_DIR, "cuda", decoder_extra_outputs=CANDIDATE_OUTPUTS)
         self.constants = load_constants(MODEL_DIR)
         self.logo = LogoBadge.load(LOGO_PATH)
         self.transfer = HttpTransfer()
@@ -104,7 +107,7 @@ class Worker:
         from cutout.contract import WorkerJobRequest
         from cutout.notifier import Notifier, httpx_post
         from cutout.pipeline import run_job
-        from cutout.tracker import Sam2VideoTracker
+        from cutout.tracker_variants import PRODUCTION_POLICY, VariantTracker
 
         req = WorkerJobRequest.from_json(body)
         # 時計は UNIX 秒（署名のタイムスタンプに使う。time.monotonic ではない）
@@ -113,7 +116,7 @@ class Worker:
             req,
             self.transfer,
             notifier,
-            lambda total: Sam2VideoTracker(self.sessions, self.constants, total),
+            lambda total: VariantTracker(self.sessions, self.constants, total, PRODUCTION_POLICY),
             self.logo,
             job_workdir(req.job_id),
         )

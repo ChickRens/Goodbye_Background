@@ -8,8 +8,8 @@ use std::{collections::HashMap, sync::Arc, sync::Mutex};
 
 use crate::video_cutout::{job::id::VideoJobId, preview::segmenter::PreviewFeatures};
 
-/// 同時に置いておく特徴量の上限（1 件約 2MB → 最大約 128MB）。
-pub const MAX_PREVIEW_FEATURES: usize = 64;
+/// 同時に置いておく特徴量の上限（small は 1 件約 8MB → 最大約 128MB。tiny（1 件約 2MB）の 64 件と同じメモリに収める）。
+pub const MAX_PREVIEW_FEATURES: usize = 16;
 
 pub struct PreviewFeatureStore {
     inner: Mutex<Inner>,

@@ -31,7 +31,7 @@ use crate::video_cutout::{
     preview::{
         error::PreviewError,
         feature_store::PreviewFeatureStore,
-        segmenter::{PREVIEW_INPUT_SIZE, PreviewDecoded, PreviewFeatures, PreviewSegmenter},
+        segmenter::{DEFAULT_PREVIEW_INPUT_SIZE, PreviewDecoded, PreviewFeatures, PreviewSegmenter},
     },
     preview_mask::{input::PreviewMaskInput, usecase::PreviewMaskUseCase},
     quota::{
@@ -200,7 +200,7 @@ impl PreviewSegmenter for FakePreviewSegmenter {
 
     fn decode(&self, _features: &PreviewFeatures, points: &Points) -> Result<PreviewDecoded, PreviewError> {
         self.decoded.lock().unwrap().push(points.clone());
-        let s = PREVIEW_INPUT_SIZE;
+        let s = DEFAULT_PREVIEW_INPUT_SIZE;
         Ok(PreviewDecoded {
             logits: Array2::from_shape_fn((s, s), |(_, x)| if x < s / 2 { 10.0 } else { -10.0 }),
             object_score: *self.object_score.lock().unwrap(),

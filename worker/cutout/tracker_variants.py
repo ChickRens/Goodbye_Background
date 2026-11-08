@@ -1,6 +1,8 @@
-"""案 C の比較用: SAM2 の「どのフレームを記憶に使うか」を変えた追跡（2026-11-08）。
+"""SAM2 の「どのフレームを記憶に使うか」を変えた追跡（2026-11-08）。**本番のワーカーは PRODUCTION_POLICY（dam4sam）を使う**。
 
-本番の追跡は tracker.py（Sam2VideoTracker）。こちらは計測と診断でだけ使う。モデル（ONNX の 5 グラフ）は同じで、
+tracker.py（Sam2VideoTracker）は SAM2 そのままの選び方（policy="sam2" と同じ結果。テストで確認）。
+本番を DAM4SAM にしたのはオーナー判断（docs/video-cutout-measurements.md の案 C。small と画質はほぼ同じで、
+体から離れた小さな塊が少し減る。処理時間は約 5% 増）。モデル（ONNX の 5 グラフ）は同じで、
 記憶の組み立てと候補マスクの選び方だけを、次の論文の実装（どちらも Apache-2.0）に合わせて変える:
 
 - sam2: 本番と同じ（memory.memory_blocks / pointer_list）。この実装の正しさの確認用
@@ -36,6 +38,7 @@ from cutout.tracker import DEFAULT_IMAGE_SIZE, FrameResult, Sam2Sessions, chw_to
 
 Policy = Literal["sam2", "dam4sam", "samurai"]
 POLICIES: tuple[Policy, ...] = ("sam2", "dam4sam", "samurai")
+PRODUCTION_POLICY: Policy = "dam4sam"  # 本番のワーカー（modal_app.py）が使う
 
 # マスクデコーダの途中のテンソル: 候補マスク [1,4,h,w]（fp16）と IoU の予測 [1,4]（fp16）。
 # diffusionstudio の tiny / small / base-plus / large で同じ名前（2026-11-08 に確認）

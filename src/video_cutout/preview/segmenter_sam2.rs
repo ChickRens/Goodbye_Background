@@ -1,11 +1,14 @@
-//! SAM2.1 tiny（`diffusionstudio/sam2.1-tiny-video-onnx-fp16`、本番のワーカーと同じリビジョン）でプレビューを出す実装。
+//! SAM2.1 の動画用 ONNX（`diffusionstudio/sam2.1-small-video-onnx-fp16`、本番のワーカーと同じリビジョン）でプレビューを出す実装。
+//! 2026-11-08 に tiny から small に切り替えた（`docs/video-cutout-measurements.md` の案 C）。同じ形式なので tiny でも動く。
 //!
-//! モデルの置き場所（`models/sam2.1-tiny-video/`。git 管理外）:
-//! - `constants.json`（`image_mean` / `image_std`）
-//! - `onnx/vision_encoder.onnx`: `pixel_values` [1,3,512,512] → `feats0` [1,32,128,128], `feats1` [1,64,64,64],
-//!   `feats2_no_mem` [1,256,32,32] ほか
+//! モデルの置き場所（`models/sam2.1-small-video/`。git 管理外。S = `constants.json` の `image_size`。small は 1024）:
+//! - `constants.json`（`image_mean` / `image_std` / `image_size`）
+//! - `onnx/vision_encoder.onnx`: `pixel_values` [1,3,S,S] → `feats0` [1,32,S/4,S/4], `feats1` [1,64,S/8,S/8],
+//!   `feats2_no_mem` [1,256,S/16,S/16] ほか
 //! - `onnx/mask_decoder.onnx`: `feats0`, `feats1`, `feats2_cond`, `input_points` [1,1,N,2], `input_labels` [1,1,N]
-//!   → `high_res_mask` [1,1,512,512] ほか
+//!   → `high_res_mask` [1,1,S,S] ほか
+//!
+//! ワーカーは記憶の選び方に DAM4SAM を使うが、それは 2 枚目以降の話で、プレビュー（1 枚目）は変わらない。
 //!
 //! 計算は `worker/cutout/tracker.py` の 1 枚目と同じ（`to_pixel_values`・点の変換）。
 //! 入力の型はモデルの宣言に合わせ（fp16 なら変換）、fp16 の出力は f32 にする（`worker/cutout/models.py` の `OnnxGraph` と同じ）。
@@ -27,7 +30,7 @@ use crate::video_cutout::{
     preview::{
         error::PreviewError,
         image_math::resize_bilinear_rgb8,
-        segmenter::{PREVIEW_INPUT_SIZE, PreviewDecoded, PreviewFeatures, PreviewSegmenter},
+        segmenter::{DEFAULT_PREVIEW_INPUT_SIZE, PreviewDecoded, PreviewFeatures, PreviewSegmenter},
     },
 };
 
@@ -38,10 +41,9 @@ pub const PREVIEW_MODEL_FILES: [&str; 3] = [
     "onnx/mask_decoder.onnx",
 ];
 
-/// フレームを 512x512 にバイリニアで引き伸ばし（余白なし）、0〜1 → mean/std で正規化した CHW `[1,3,512,512]`。
+/// フレームを s x s にバイリニアで引き伸ばし（余白なし）、0〜1 → mean/std で正規化した CHW `[1,3,s,s]`。
 /// `tracker.py` の `to_pixel_values` と同じ。
-pub fn to_pixel_values(frame: &RgbImage, mean: [f32; 3], std: [f32; 3]) -> Array4<f32> {
-    let s = PREVIEW_INPUT_SIZE;
+pub fn to_pixel_values(frame: &RgbImage, mean: [f32; 3], std: [f32; 3], s: usize) -> Array4<f32> {
     let resized = resize_bilinear_rgb8(frame, s as u32, s as u32);
     let raw = resized.as_raw();
     let mut out = Array4::<f32>::zeros((1, 3, s, s));
@@ -56,9 +58,9 @@ pub fn to_pixel_values(frame: &RgbImage, mean: [f32; 3], std: [f32; 3]) -> Array
     out
 }
 
-/// 点をデコーダの入力にする。座標は 0〜1 → ×512（`[1,1,N,2]`）、ラベルは include=1 / exclude=0（`[1,1,N]`）。詰め点なし。
-pub fn point_inputs(points: &Points) -> (Array4<f32>, Array3<i32>) {
-    let s = PREVIEW_INPUT_SIZE as f32;
+/// 点をデコーダの入力にする。座標は 0〜1 → ×size（`[1,1,N,2]`）、ラベルは include=1 / exclude=0（`[1,1,N]`）。詰め点なし。
+pub fn point_inputs(points: &Points, size: usize) -> (Array4<f32>, Array3<i32>) {
+    let s = size as f32;
     let pts = points.as_slice();
     let mut coords = Array4::<f32>::zeros((1, 1, pts.len(), 2));
     let mut labels = Array3::<i32>::zeros((1, 1, pts.len()));
@@ -73,20 +75,28 @@ pub fn point_inputs(points: &Points) -> (Array4<f32>, Array3<i32>) {
     (coords, labels)
 }
 
-pub struct Sam2TinyPreviewSegmenter {
+pub struct Sam2PreviewSegmenter {
     vision_encoder: OnnxGraph,
     mask_decoder: OnnxGraph,
     image_mean: [f32; 3],
     image_std: [f32; 3],
+    /// モデルの入力の一辺（`constants.json` の `image_size`。small は 1024）
+    image_size: usize,
 }
 
 #[derive(serde::Deserialize)]
 struct Constants {
     image_mean: [f32; 3],
     image_std: [f32; 3],
+    #[serde(default = "default_image_size")]
+    image_size: usize,
 }
 
-impl Sam2TinyPreviewSegmenter {
+fn default_image_size() -> usize {
+    DEFAULT_PREVIEW_INPUT_SIZE
+}
+
+impl Sam2PreviewSegmenter {
     pub fn new(model_dir: &Path) -> Result<Self, PreviewError> {
         let constants_path = model_dir.join("constants.json");
         let text = fs::read_to_string(&constants_path)
@@ -98,13 +108,18 @@ impl Sam2TinyPreviewSegmenter {
             mask_decoder: OnnxGraph::load(&model_dir.join("onnx/mask_decoder.onnx"))?,
             image_mean: constants.image_mean,
             image_std: constants.image_std,
+            image_size: constants.image_size,
         })
+    }
+
+    pub fn image_size(&self) -> usize {
+        self.image_size
     }
 }
 
-impl PreviewSegmenter for Sam2TinyPreviewSegmenter {
+impl PreviewSegmenter for Sam2PreviewSegmenter {
     fn encode(&self, frame: &RgbImage) -> Result<PreviewFeatures, PreviewError> {
-        let pixel_values = to_pixel_values(frame, self.image_mean, self.image_std);
+        let pixel_values = to_pixel_values(frame, self.image_mean, self.image_std, self.image_size);
         let mut out = self.vision_encoder.run(
             vec![("pixel_values", Feed::F32(pixel_values.into_dyn()))],
             &["feats0", "feats1", "feats2_no_mem"],
@@ -131,7 +146,7 @@ impl PreviewSegmenter for Sam2TinyPreviewSegmenter {
         features: &PreviewFeatures,
         points: &Points,
     ) -> Result<PreviewDecoded, PreviewError> {
-        let (coords, labels) = point_inputs(points);
+        let (coords, labels) = point_inputs(points, self.image_size);
         let mut out = self.mask_decoder.run(
             vec![
                 ("feats0", Feed::F16(features.feats0.clone().into_dyn())),
@@ -149,7 +164,7 @@ impl PreviewSegmenter for Sam2TinyPreviewSegmenter {
             .remove("high_res_mask")
             .expect("run が名前を全部返す")
             .into_f32();
-        let s = PREVIEW_INPUT_SIZE;
+        let s = self.image_size;
         if mask.len() != s * s {
             return Err(PreviewError::Inference(format!(
                 "high_res_mask の形が想定外: {:?}",
@@ -315,7 +330,7 @@ impl OnnxGraph {
 }
 
 #[cfg(test)]
-mod segmenter_tiny_test {
+mod segmenter_sam2_test {
     use super::*;
     use crate::video_cutout::job::point::NormalizedPoint;
 
@@ -325,7 +340,7 @@ mod segmenter_tiny_test {
         let frame = RgbImage::from_pixel(3, 2, image::Rgb([255, 0, 51]));
         let mean = [0.485, 0.456, 0.406];
         let std = [0.229, 0.224, 0.225];
-        let x = to_pixel_values(&frame, mean, std);
+        let x = to_pixel_values(&frame, mean, std, 512);
         assert_eq!(x.shape(), &[1, 3, 512, 512]);
         let expect = [
             (1.0 - 0.485) / 0.229,
@@ -343,7 +358,7 @@ mod segmenter_tiny_test {
     fn pixel_values_follow_resized_pixels() {
         // 左が黒・右が白の 2x1 → 512 に引き伸ばすと左端は黒、右端は白、真ん中はその間
         let frame = RgbImage::from_raw(2, 1, vec![0, 0, 0, 255, 255, 255]).unwrap();
-        let x = to_pixel_values(&frame, [0.0; 3], [1.0; 3]);
+        let x = to_pixel_values(&frame, [0.0; 3], [1.0; 3], 512);
         assert_eq!(x[[0, 0, 7, 0]], 0.0);
         assert_eq!(x[[0, 1, 7, 511]], 1.0);
         let mid = x[[0, 2, 7, 256]];
@@ -351,17 +366,23 @@ mod segmenter_tiny_test {
     }
 
     #[test]
-    fn point_inputs_scale_to_512_and_label_include_as_one() {
+    fn point_inputs_scale_to_model_size_and_label_include_as_one() {
         let points = Points::new(vec![
             NormalizedPoint::new(0.5, 0.25, PointLabel::Include).unwrap(),
             NormalizedPoint::new(1.0, 0.0, PointLabel::Exclude).unwrap(),
         ])
         .unwrap();
-        let (coords, labels) = point_inputs(&points);
+        let (coords, labels) = point_inputs(&points, 512);
         assert_eq!(coords.shape(), &[1, 1, 2, 2]);
         assert_eq!(
             coords.iter().copied().collect::<Vec<_>>(),
             vec![256.0, 128.0, 512.0, 0.0]
+        );
+        // small（1024）では 2 倍
+        let (coords, _) = point_inputs(&points, 1024);
+        assert_eq!(
+            coords.iter().copied().collect::<Vec<_>>(),
+            vec![512.0, 256.0, 1024.0, 0.0]
         );
         assert_eq!(labels.shape(), &[1, 1, 2]);
         assert_eq!(labels.iter().copied().collect::<Vec<_>>(), vec![1, 0]);
@@ -383,22 +404,23 @@ mod segmenter_tiny_test {
         assert_eq!(Output::F16(h.clone()).into_f16(), h);
     }
 
-    /// 実モデルで動かす（`SAM2_TINY_MODEL_DIR` に `models/sam2.1-tiny-video` と同じ構成のディレクトリを指定）。
-    /// 例: `SAM2_TINY_MODEL_DIR=models/sam2.1-tiny-video cargo test -- --ignored tiny_model`
+    /// 実モデルで動かす（`SAM2_PREVIEW_MODEL_DIR` に `models/sam2.1-small-video` と同じ構成のディレクトリを指定）。
+    /// 例: `SAM2_PREVIEW_MODEL_DIR=models/sam2.1-small-video cargo test -- --ignored preview_model`
     #[test]
     #[ignore]
-    fn tiny_model_encodes_and_decodes() {
-        let dir = std::env::var("SAM2_TINY_MODEL_DIR").expect(
-            "SAM2_TINY_MODEL_DIR にモデルのディレクトリ（models/sam2.1-tiny-video と同じ構成）を指定して実行すること",
+    fn preview_model_encodes_and_decodes() {
+        let dir = std::env::var("SAM2_PREVIEW_MODEL_DIR").expect(
+            "SAM2_PREVIEW_MODEL_DIR にモデルのディレクトリ（models/sam2.1-small-video と同じ構成）を指定して実行すること",
         );
-        let segmenter = Sam2TinyPreviewSegmenter::new(Path::new(&dir)).unwrap();
+        let segmenter = Sam2PreviewSegmenter::new(Path::new(&dir)).unwrap();
+        let s = segmenter.image_size();
         let frame = RgbImage::from_fn(320, 240, |x, y| {
             image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
         });
         let features = segmenter.encode(&frame).unwrap();
-        assert_eq!(features.feats0.shape(), &[1, 32, 128, 128]);
-        assert_eq!(features.feats1.shape(), &[1, 64, 64, 64]);
-        assert_eq!(features.feats2_no_mem.shape(), &[1, 256, 32, 32]);
+        assert_eq!(features.feats0.shape(), &[1, 32, s / 4, s / 4]);
+        assert_eq!(features.feats1.shape(), &[1, 64, s / 8, s / 8]);
+        assert_eq!(features.feats2_no_mem.shape(), &[1, 256, s / 16, s / 16]);
         assert_eq!((features.frame_width, features.frame_height), (320, 240));
         let points = Points::new(vec![
             NormalizedPoint::new(0.5, 0.5, PointLabel::Include).unwrap(),
@@ -406,7 +428,7 @@ mod segmenter_tiny_test {
         ])
         .unwrap();
         let decoded = segmenter.decode(&features, &points).unwrap();
-        assert_eq!(decoded.logits.dim(), (512, 512));
+        assert_eq!(decoded.logits.dim(), (s, s));
         assert!(decoded.logits.iter().all(|v| v.is_finite()));
         assert!(decoded.object_score.is_finite());
     }

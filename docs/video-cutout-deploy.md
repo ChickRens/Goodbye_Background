@@ -315,13 +315,13 @@ Get-ChildItem models
 
 `sam2.1_hiera_small_image_encoder.onnx`・`sam2.1_hiera_small_prompt_encoder.onnx`・`sam2.1_hiera_small_mask_decoder.onnx`・`image_pe.bin` の 4 つがあれば OK です。
 
-**動画のプレビュー用のモデル（SAM2.1 tiny）を取得する**（初回だけ。手順 9-1 と同じ）。無いと動画機能ごと無効になります:
+**動画のプレビュー用のモデル（SAM2.1 small）を取得する**（初回だけ。手順 11-1 と同じ）。無いと動画機能ごと無効になります:
 
 ```powershell
 cd worker
 uv run python scripts/fetch_preview_models.py
 cd ..
-Get-ChildItem -Recurse models\sam2.1-tiny-video
+Get-ChildItem -Recurse models\sam2.1-small-video
 ```
 
 `constants.json`・`onnx\vision_encoder.onnx`・`onnx\mask_decoder.onnx` の 3 つがあれば OK です。
@@ -557,7 +557,7 @@ SELECT day, key_kind, count FROM video_quota_usage ORDER BY day DESC, key_kind;
 
 ---
 
-## 9. プレビューを本番と同じモデルにする（2026-11-07 の更新。デプロイ済みならここだけ）
+## 9. プレビューを本番と同じモデルにする（2026-11-07 の更新。**済み。今は手順 11 で small に置き換わった**）
 
 動画ページのプレビュー（手順 4 の「残す所をタップ」）を、画像機能のモデル（SAM2.1 small）から、
 本番の GPU ワーカーと同じ **SAM2.1 tiny** に変えました。プレビューで残った範囲が、そのまま出力の 1 フレーム目になります
@@ -670,3 +670,79 @@ cd ..
 
 **チャットに貼るもの**: `diagnose.mp4` と `diagnose.csv` の両方。
 見るのは、手が消えるフレームで、**黄色い線（または右のパネル）が消えた腕を囲んでいるか**。囲んでいれば A、囲んでいなければ B。
+
+---
+
+## 11. 動画のモデルを small ＋ DAM4SAM に切り替える（2026-11-08 の更新）
+
+速く動く腕が消える問題のため、**GPU ワーカーとプレビューの両方**を SAM2.1 tiny から **small**（入力 1024）に切り替え、
+ワーカーの記憶の選び方を **DAM4SAM** にしました（オーナー判断。根拠は `docs/video-cutout-measurements.md` の案 C）。
+GPU の処理時間は 10 秒の動画で約 14 秒 → 約 40 秒、費用は 1 本 約 0.5 円 → 約 1.5 円（L4 の単価での概算）になります。
+
+**順番が大事です**: プレビューとワーカーのモデルが違うと、プレビューで見えた範囲と出力の 1 フレーム目が食い違います。
+11-2（Cloud Run）と 11-3（Modal）は続けて行い、間に動画を送らないでください。
+
+### 11-1. プレビュー用のモデルを取得する
+
+```powershell
+cd <Goodbye_Background のフォルダ>
+git switch claude/zealous-cerf-yoxav8
+git pull
+
+cd worker
+uv sync
+uv run python scripts/fetch_preview_models.py
+cd ..
+Get-ChildItem -Recurse models\sam2.1-small-video
+```
+
+**確認**: `models\sam2.1-small-video\` に `constants.json`・`onnx\vision_encoder.onnx`（約 84MB）・`onnx\mask_decoder.onnx` がある。
+
+古い tiny のフォルダは要らなくなりました。`models\` は丸ごと Docker イメージに入るので、消しておくとイメージが約 70MB 軽くなります:
+
+```powershell
+Remove-Item -Recurse models\sam2.1-tiny-video
+```
+
+（任意・Rust が入っている場合だけ）実モデルのテスト:
+
+```powershell
+$env:SAM2_PREVIEW_MODEL_DIR = "models/sam2.1-small-video"
+cargo test -- --ignored preview_model
+Remove-Item Env:SAM2_PREVIEW_MODEL_DIR
+```
+
+### 11-2. Cloud Run（Rust）をビルド・デプロイ
+
+手順 4-1 の「マイグレーションのファイルの確認」（`Get-FileHash` の 3 行）をしてから、手順 5 の後の **「以後のデプロイ」のコマンド**でビルド・デプロイします。
+
+**確認**: 新しいリビジョンの起動ログに次の 2 行がある（行の `revision_name` が新しいリビジョンであることも見る）:
+
+```
+動画切り抜き: プレビューのモデル models/sam2.1-small-video（入力 1024px）
+動画切り抜き: 有効
+```
+
+`プレビューのモデルを読めない` と出たら、11-1 のファイルが無い状態でビルドしています。
+
+### 11-3. Modal（GPU ワーカー）をデプロイ
+
+```powershell
+modal deploy worker/modal_app.py
+```
+
+初回はイメージを作り直すので数分かかります（small のモデルと onnx が入る）。
+
+**確認**: 出力の最後に `✓ App deployed` が出る。`modal app logs goodbye-background-video` などでエラーが無い。
+
+### 11-4. iPhone での確認
+
+https://chickren.goodbye-background.com/video.html で、**以前腕が消えた動画（D_man.mp4 の 10.7〜20.7 秒など）**を送り:
+
+- [ ] プレビュー（フレームの登録）が出るまでの時間: ___ 秒（tiny より遅くなる。CPU で small を 1 回エンコードするため）
+- [ ] 点を打つたびのプレビューの更新: ___ 秒
+- [ ] プレビューで残った範囲と、出来上がった動画の 1 フレーム目が同じ
+- [ ] 速く振った腕が、tiny の頃より消えにくくなっている
+- [ ] 送信してから出来上がるまで: ___ 秒（10 秒の動画で 1 分弱の見込み）
+
+結果はチャットに貼ってください。プレビューが遅すぎる場合は、Cloud Run の CPU の数を見直します。
