@@ -108,6 +108,13 @@
     color: var(--text-muted);
 }
 
+/* 本文中のリンク（プライバシーポリシーなど）。既定の青は暗い背景で読めないので、ヘッダーのリンクに揃える */
+.video-note a {
+    color: var(--text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
 .video-alert {
     margin: 0;
     padding: var(--space-3);
