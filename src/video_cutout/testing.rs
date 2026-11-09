@@ -297,6 +297,8 @@ impl DailyQuota for InMemoryQuota {
 
 /// ハーネスの時計の初期値（UNIX ミリ秒）。
 pub const NOW_MS: u64 = 1_700_000_000_000;
+/// `create_input` の範囲の開始（1 枚目のプレビューのフレームの時刻）。
+pub const START_MS: u32 = 1_000;
 pub const PUBLIC_BASE_URL: &str = "https://example.test";
 
 pub fn client_id() -> Uuid {
@@ -317,7 +319,7 @@ pub fn create_input() -> CreateVideoJobInput {
         ip: client_ip(),
         size_bytes: 10_000_000,
         content_type: "video/mp4".to_string(),
-        start_ms: 1_000,
+        start_ms: START_MS,
         end_ms: 9_000,
     }
 }

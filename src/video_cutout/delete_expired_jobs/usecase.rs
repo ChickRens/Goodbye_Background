@@ -136,14 +136,14 @@ mod delete_expired_video_jobs_usecase_test {
         h.set_frame.execute(frame_input(id, png_bytes(4, 4))).await.unwrap();
         // ジョブが無いのに残った特徴量も消える
         let orphan = crate::video_cutout::job::id::VideoJobId::new_random();
-        h.features.save(orphan, h.features.get(&id).unwrap());
+        h.features.save(orphan, START_MS, h.features.get(&id, START_MS).unwrap()).unwrap();
         h.clock.advance(30 * 60_000);
         assert_eq!(h.cleanup.execute(h.clock_now()).await, 0);
-        assert!(h.features.get(&id).is_some());
-        assert!(h.features.get(&orphan).is_none());
+        assert!(h.features.get(&id, START_MS).is_some());
+        assert!(h.features.get(&orphan, START_MS).is_none());
         h.clock.advance(1);
         assert_eq!(h.cleanup.execute(h.clock_now()).await, 1);
-        assert!(h.features.get(&id).is_none());
+        assert!(h.features.get(&id, START_MS).is_none());
         assert_eq!(h.features.len(), 0);
     }
 

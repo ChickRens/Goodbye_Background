@@ -55,7 +55,7 @@ impl PreviewMaskUseCase {
         }
         let features = self
             .features
-            .get(&job.id)
+            .get(&job.id, job.range.start_ms())
             .ok_or(PreviewInputError::FrameNotFound)?;
 
         let segmenter = self.segmenter.clone();

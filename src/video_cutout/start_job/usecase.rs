@@ -358,9 +358,9 @@ mod start_video_job_usecase_test {
             .execute(frame_input(id, png_bytes(4, 4)))
             .await
             .unwrap();
-        assert!(h.features.get(&id).is_some());
+        assert!(h.features.get(&id, START_MS).is_some());
         h.start.execute(start_input(id)).await.unwrap();
-        assert!(h.features.get(&id).is_none());
+        assert!(h.features.get(&id, START_MS).is_none());
 
         // 大きすぎて Failed(TooLarge) になったときも消す
         let h = harness_with_head(Some(209_715_201));
@@ -370,7 +370,7 @@ mod start_video_job_usecase_test {
             .await
             .unwrap();
         h.start.execute(start_input(id)).await.unwrap();
-        assert!(h.features.get(&id).is_none());
+        assert!(h.features.get(&id, START_MS).is_none());
     }
 
     #[tokio::test]

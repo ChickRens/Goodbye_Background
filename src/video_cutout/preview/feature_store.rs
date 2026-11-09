@@ -1,12 +1,15 @@
-//! ジョブごとのプレビューの特徴量の置き場所。
+//! ジョブと時刻（点を打つフレーム）ごとのプレビューの特徴量の置き場所。1 ジョブ最大 `MAX_PROMPTS` 枚。
 //!
 //! 寿命はジョブと同じ（開始・削除・期限切れで消す）だが、作成は回数を消費しないので無制限に増えうる。
-//! メモリを守るため `MAX_PREVIEW_FEATURES` 件を上限にし、溢れたら最も長く使われていないものを捨てる（LRU）。
+//! メモリを守るため全体で `MAX_PREVIEW_FEATURES` 枚を上限にし、溢れたら最も長く使われていない 1 枚を捨てる（LRU）。
 //! 捨てられたジョブの `/preview` は 409 `PREVIEW_FRAME_NOT_FOUND` になり、フロントがフレームを登録し直す。
 
 use std::{collections::HashMap, sync::Arc, sync::Mutex};
 
-use crate::video_cutout::{job::id::VideoJobId, preview::segmenter::PreviewFeatures};
+use crate::video_cutout::{
+    job::{id::VideoJobId, prompt::MAX_PROMPTS},
+    preview::segmenter::PreviewFeatures,
+};
 
 /// 同時に置いておく特徴量の上限（small は 1 件約 8MB → 最大約 128MB。tiny（1 件約 2MB）の 64 件と同じメモリに収める）。
 pub const MAX_PREVIEW_FEATURES: usize = 16;
@@ -15,9 +18,16 @@ pub struct PreviewFeatureStore {
     inner: Mutex<Inner>,
 }
 
+/// 1 ジョブで登録できる枚数（`MAX_PROMPTS`）を超えた。
+#[derive(Debug, PartialEq, Eq)]
+pub struct TooManyFrames;
+
+/// 特徴量のキー: ジョブと、そのフレームの時刻（元の動画のミリ秒）。
+type Key = (VideoJobId, u32);
+
 struct Inner {
     /// 値と、最後に使った順番（大きいほど新しい）。
-    entries: HashMap<VideoJobId, (Arc<PreviewFeatures>, u64)>,
+    entries: HashMap<Key, (Arc<PreviewFeatures>, u64)>,
     tick: u64,
 }
 
@@ -39,39 +49,55 @@ impl PreviewFeatureStore {
     }
 
     /// 同じジョブで登録し直したら丸ごと置き換える。上限を超えるなら最も長く使われていないものを捨てる。
-    pub fn save(&self, job_id: VideoJobId, features: Arc<PreviewFeatures>) {
+    /// その時刻のフレームの特徴量を置く（同じ時刻は置き換え）。そのジョブにその時刻が無く、すでに `MAX_PROMPTS` 枚なら
+    /// `TooManyFrames`。全体で `MAX_PREVIEW_FEATURES` 枚を超えるときは、最も長く使われていない 1 枚を捨てる。
+    pub fn save(
+        &self,
+        job_id: VideoJobId,
+        time_ms: u32,
+        features: Arc<PreviewFeatures>,
+    ) -> Result<(), TooManyFrames> {
+        let key = (job_id, time_ms);
         let mut inner = self.lock();
-        if !inner.entries.contains_key(&job_id) && inner.entries.len() >= MAX_PREVIEW_FEATURES {
-            let oldest = inner
-                .entries
-                .iter()
-                .min_by_key(|(_, (_, used))| *used)
-                .map(|(id, _)| *id);
-            if let Some(oldest) = oldest {
-                inner.entries.remove(&oldest);
+        if !inner.entries.contains_key(&key) {
+            let frames_of_job = inner.entries.keys().filter(|(id, _)| *id == job_id).count();
+            if frames_of_job >= MAX_PROMPTS {
+                return Err(TooManyFrames);
+            }
+            if inner.entries.len() >= MAX_PREVIEW_FEATURES {
+                let oldest = inner
+                    .entries
+                    .iter()
+                    .min_by_key(|(_, (_, used))| *used)
+                    .map(|(k, _)| *k);
+                if let Some(oldest) = oldest {
+                    inner.entries.remove(&oldest);
+                }
             }
         }
         let tick = inner.next_tick();
-        inner.entries.insert(job_id, (features, tick));
+        inner.entries.insert(key, (features, tick));
+        Ok(())
     }
 
     /// 取得したものは「最近使った」扱いになる。
-    pub fn get(&self, job_id: &VideoJobId) -> Option<Arc<PreviewFeatures>> {
+    pub fn get(&self, job_id: &VideoJobId, time_ms: u32) -> Option<Arc<PreviewFeatures>> {
         let mut inner = self.lock();
         let tick = inner.next_tick();
-        inner.entries.get_mut(job_id).map(|(features, used)| {
+        inner.entries.get_mut(&(*job_id, time_ms)).map(|(features, used)| {
             *used = tick;
             Arc::clone(features)
         })
     }
 
+    /// そのジョブの全部の時刻の特徴量を消す。
     pub fn remove(&self, job_id: &VideoJobId) {
-        self.lock().entries.remove(job_id);
+        self.lock().entries.retain(|(id, _), _| id != job_id);
     }
 
     /// `keep` が `false` を返した ID の特徴量を消す（ジョブが既に無いのに残ったものを掃除するため）。
     pub fn retain_ids(&self, keep: impl Fn(&VideoJobId) -> bool) {
-        self.lock().entries.retain(|id, _| keep(id));
+        self.lock().entries.retain(|(id, _), _| keep(id));
     }
 
     #[cfg(test)]
@@ -106,36 +132,59 @@ mod preview_feature_store_test {
     fn save_get_remove_and_retain() {
         let store = PreviewFeatureStore::new();
         let (a, b) = (VideoJobId::new_random(), VideoJobId::new_random());
-        store.save(a, features());
-        store.save(b, features());
-        assert_eq!(store.get(&a).unwrap().frame_width, 4);
+        store.save(a, 0, features()).unwrap();
+        store.save(b, 0, features()).unwrap();
+        assert_eq!(store.get(&a, 0).unwrap().frame_width, 4);
         store.remove(&a);
-        assert!(store.get(&a).is_none());
+        assert!(store.get(&a, 0).is_none());
         store.retain_ids(|id| *id != b);
         assert_eq!(store.len(), 0);
     }
 
     #[test]
-    fn evicts_least_recently_used_beyond_the_cap() {
+    fn keeps_each_time_of_a_job_separately() {
+        let store = PreviewFeatureStore::new();
+        let a = VideoJobId::new_random();
+        store.save(a, 1200, features()).unwrap();
+        store.save(a, 4300, features()).unwrap();
+        assert!(store.get(&a, 1200).is_some() && store.get(&a, 4300).is_some());
+        assert!(store.get(&a, 5000).is_none());
+        // 同じ時刻は置き換え（枚数は増えない）
+        store.save(a, 4300, features()).unwrap();
+        assert_eq!(store.len(), 2);
+        // remove はそのジョブの全部の時刻を消す
+        store.remove(&a);
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn rejects_more_frames_than_prompts_per_job() {
+        let store = PreviewFeatureStore::new();
+        let a = VideoJobId::new_random();
+        for t in 0..MAX_PROMPTS as u32 {
+            store.save(a, t * 1000, features()).unwrap();
+        }
+        assert_eq!(store.save(a, 9000, features()), Err(TooManyFrames));
+        // すでにある時刻の登録し直しはできる
+        assert_eq!(store.save(a, 0, features()), Ok(()));
+    }
+
+    #[test]
+    fn evicts_least_recently_used_frame_beyond_the_cap() {
         let store = PreviewFeatureStore::new();
         let ids: Vec<VideoJobId> = (0..MAX_PREVIEW_FEATURES)
             .map(|_| VideoJobId::new_random())
             .collect();
         for id in &ids {
-            store.save(*id, features());
+            store.save(*id, 0, features()).unwrap();
         }
         assert_eq!(store.len(), MAX_PREVIEW_FEATURES);
-        // 一番古い ids[0] を使うと、次に古い ids[1] が捨てられる
-        assert!(store.get(&ids[0]).is_some());
-        let newcomer = VideoJobId::new_random();
-        store.save(newcomer, features());
+        // 一番古い ids[0] を使うと、次に古い ids[1] が捨てられる（枚単位）
+        assert!(store.get(&ids[0], 0).is_some());
+        store.save(ids[2], 500, features()).unwrap();
         assert_eq!(store.len(), MAX_PREVIEW_FEATURES);
-        assert!(store.get(&ids[1]).is_none());
-        assert!(store.get(&ids[0]).is_some());
-        assert!(store.get(&newcomer).is_some());
-        // 既にあるジョブの登録し直しでは何も捨てない
-        store.save(ids[2], features());
-        assert_eq!(store.len(), MAX_PREVIEW_FEATURES);
-        assert!(store.get(&ids[3]).is_some());
+        assert!(store.get(&ids[1], 0).is_none());
+        assert!(store.get(&ids[0], 0).is_some());
+        assert!(store.get(&ids[2], 0).is_some() && store.get(&ids[2], 500).is_some());
     }
 }

@@ -80,7 +80,10 @@ impl SetPreviewFrameUseCase {
         .await
         .map_err(|e| PreviewError::Inference(format!("エンコードのタスクが失敗: {e}")))??;
 
-        self.features.save(job.id, Arc::new(features));
+        // 時刻を受け取るまで（計画 Task 6）は開始位置のフレームとして置く
+        self.features
+            .save(job.id, job.range.start_ms(), Arc::new(features))
+            .expect("1 ジョブ 1 枚のうちは上限に届かない");
         Ok(SetPreviewFrameOutput)
     }
 }
@@ -120,7 +123,7 @@ mod set_preview_frame_usecase_test {
             .execute(frame_input(id, png_bytes(40, 30)))
             .await
             .unwrap();
-        let features = h.features.get(&id).unwrap();
+        let features = h.features.get(&id, START_MS).unwrap();
         assert_eq!((features.frame_width, features.frame_height), (40, 30));
         assert_eq!(h.preview.encoded(), 1);
         // 回数は消費しない
@@ -135,7 +138,7 @@ mod set_preview_frame_usecase_test {
             .execute(frame_input(id, jpeg_bytes(2000, 10)))
             .await
             .unwrap();
-        assert_eq!(h.features.get(&id).unwrap().frame_width, 2000);
+        assert_eq!(h.features.get(&id, START_MS).unwrap().frame_width, 2000);
     }
 
     #[tokio::test]
@@ -161,7 +164,7 @@ mod set_preview_frame_usecase_test {
                 .unwrap_err();
             assert_eq!(err, PreviewInputError::InvalidImage.into());
         }
-        assert!(h.features.get(&id).is_none());
+        assert!(h.features.get(&id, START_MS).is_none());
         assert_eq!(h.preview.encoded(), 0);
     }
 
