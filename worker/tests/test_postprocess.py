@@ -69,3 +69,11 @@ def test_single_blob_and_empty_mask_pass_through():
     empty = np.full((S, S), -1024.0, np.float32)  # 被写体なし
     out, removed = f.apply(empty)
     assert removed == 0 and out is empty
+
+
+def test_reset_replaces_previous_mask():
+    f = DetachedBlobFilter()
+    f.apply(logits(BODY))
+    f.reset(logits(BODY, (10, 20, 10, 20)))  # 利用者が点を打ったフレーム: 離れた塊も本物
+    out, removed = f.apply(logits(BODY, (12, 22, 12, 22)))
+    assert removed == 0 and (out[12:22, 12:22] == 5.0).all()

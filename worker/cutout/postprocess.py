@@ -31,6 +31,10 @@ class DetachedBlobFilter:
         self._near_ratio = near_ratio
         self._prev: np.ndarray | None = None  # 前のフレームで残した範囲（bool, S×S）
 
+    def reset(self, logits: np.ndarray) -> None:
+        """利用者が点を打ったフレーム: 消さずに、その範囲を「前のフレームで残した範囲」にする（プレビューと一致させる）。"""
+        self._prev = logits > 0
+
     def apply(self, logits: np.ndarray) -> tuple[np.ndarray, int]:
         """(後処理したロジット, 消した画素数) を返す。logits は [S,S] のロジット（書き換えない）。"""
         fg = logits > 0

@@ -12,9 +12,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
+import numpy as np
+
 from cutout.compositor import LogoBadge, alpha_from_logits, composite
 from cutout.contract import (
     FailureCode,
+    NormalizedPoint,
+    Prompt,
     WorkerJobRequest,
     event_done,
     event_downloading,
@@ -29,7 +33,7 @@ from cutout.postprocess import DetachedBlobFilter
 # 体から離れた塊を消す後処理（cutout/postprocess.py）を本番でかけるか。D_man での評価が済むまで False
 # （本人の手を消さないことを確かめてから True にする。2026-11-09）
 REMOVE_DETACHED_BLOBS = False
-from cutout.tracker import Sam2VideoTracker
+from cutout.tracker import FrameResult
 from cutout.video_io import (
     MAX_FRAMES,
     FfmpegError,
@@ -63,11 +67,36 @@ class _Failure(Exception):
         self.code = code
 
 
+class Tracker(Protocol):
+    """1 フレームずつ処理するトラッカー（本番は tracker_variants.VariantTracker）。points は点を打ったフレームだけ渡す。"""
+
+    def process(self, frame_rgb: np.ndarray, points: list[NormalizedPoint] | None) -> FrameResult: ...
+
+
+def prompt_frames(
+    prompts: list[Prompt], start_ms: int, fps: float, total: int
+) -> dict[int, list[NormalizedPoint]]:
+    """prompts をフレーム番号（round((time_ms - start_ms) * fps / 1000)）に割り当てる。
+
+    同じ番号になったら後の prompt を使う（ログに残す）。total 以上の番号は捨てる（範囲の終わり近くの指定）。
+    """
+    out: dict[int, list[NormalizedPoint]] = {}
+    for p in prompts:
+        k = round((p.time_ms - start_ms) * fps / 1000)
+        if not (0 <= k < total):
+            logger.info("点の指定がフレームの範囲外なので使わない (time_ms=%s, frame=%s, total=%s)", p.time_ms, k, total)
+            continue
+        if k in out:
+            logger.info("点の指定が同じフレーム %s になったので後のものを使う (time_ms=%s)", k, p.time_ms)
+        out[k] = p.points
+    return out
+
+
 def run_job(
     req: WorkerJobRequest,
     transfer: Transfer,
     notifier: Notifier,
-    make_tracker: Callable[[int], Sam2VideoTracker],
+    make_tracker: Callable[[int], Tracker],
     logo: LogoBadge,
     workdir: Path,
 ) -> None:
@@ -114,6 +143,7 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
     width, height, fps = output_geometry(info)
     total = max(1, min(MAX_FRAMES, round((end_ms - start_ms) / 1000 * fps)))
     tracker = make_tracker(total)
+    prompts = prompt_frames(req.prompts, start_ms, fps, total)
 
     frames = lost = 0
     blob_filter = DetachedBlobFilter()
@@ -129,12 +159,16 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
                 if frames == 0:
                     raise _Failure("unsupported_video")  # 入力が読めない
                 raise
-            result = tracker.process(frame, req.prompts[0].points if frames == 0 else None)
+            points = prompts.get(frames)
+            result = tracker.process(frame, points)
             if result.object_present:
-                # 体から離れた塊（同じ服の隣の人の切れ端など）を消す。1 枚目は触らない（プレビューと一致させる）
+                # 体から離れた塊（同じ服の隣の人の切れ端など）を消す。点を打ったフレームは触らない（プレビューと一致させる）
                 logits = result.high_res_logits
                 if REMOVE_DETACHED_BLOBS:
-                    logits, _ = blob_filter.apply(logits)
+                    if points is not None and frames > 0:
+                        blob_filter.reset(logits)
+                    else:
+                        logits, _ = blob_filter.apply(logits)
                 alpha = alpha_from_logits(logits, width, height)
                 composed = composite(frame, alpha, req.background_rgb)
             else:

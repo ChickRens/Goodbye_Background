@@ -73,10 +73,13 @@ class FakeTracker:
         return FrameResult(np.full((512, 512), 10.0, np.float32), present)
 
 
-def request(range_ms, watermark=False, max_bytes=200 * 1024 * 1024) -> WorkerJobRequest:
+def request(range_ms, watermark=False, max_bytes=200 * 1024 * 1024, later_ms=()) -> WorkerJobRequest:
+    """later_ms: 開始位置のほかに点を打つ時刻（元の動画の時刻）。"""
+    pts = [NormalizedPoint(0.5, 0.5, "include")]
+    prompts = [Prompt(range_ms[0], pts)] + [Prompt(t, pts) for t in later_ms]
     return WorkerJobRequest(
         job_id=JOB, input_url="http://in", output_url="http://out", range_ms=RangeMs(*range_ms),
-        prompts=[Prompt(range_ms[0], [NormalizedPoint(0.5, 0.5, "include")])], background_rgb=(0, 255, 0),
+        prompts=prompts, background_rgb=(0, 255, 0),
         watermark=watermark, max_input_bytes=max_bytes, callback_url="http://cb",
     )
 
@@ -228,3 +231,66 @@ def test_detached_blob_is_removed_after_first_frame(tmp_path, monkeypatch):
         return g > 200 and r < 60 and b < 60
     assert green(frames[5, 15:55, 15:55])  # 離れた塊は消えて背景（緑）
     assert not green(frames[5, 150:350, 220:280])  # 体は残る
+
+
+
+# ---- 複数フレームの点（仕様 2026-11-09 §4）----
+
+from cutout.pipeline import prompt_frames  # noqa: E402
+
+
+def test_prompt_frames_rounding_and_collision():
+    a, b, c = ([NormalizedPoint(v, 0.5, "include")] for v in (0.1, 0.2, 0.3))
+    prompts = [Prompt(1000, a), Prompt(4300, b), Prompt(4310, c), Prompt(11000, a)]
+    # 4300 と 4310 は同じ 99 番（後のものを使う）。11000 は 300 番で total 以上なので捨てる
+    assert prompt_frames(prompts, 1000, 30.0, 300) == {0: a, 99: c}
+
+
+class RecordingTracker:
+    """受け取った points を記録し、absent_at の番号だけ被写体なしを返す。"""
+
+    def __init__(self, absent_at=()):
+        self.received, self._absent, self._i = [], set(absent_at), 0
+
+    def process(self, frame_rgb, points):
+        self.received.append(points)
+        present = self._i not in self._absent
+        self._i += 1
+        return FrameResult(np.full((512, 512), 10.0, np.float32), present)
+
+
+def run_with(tmp_path, tracker, later_ms):
+    video = make_video(tmp_path, fps=30, seconds=1, size=(320, 240), audio=False)
+    notifier = FakeNotifier()
+    run_job(request((0, 1000), later_ms=later_ms), FakeTransfer(video, 1000, tmp_path), notifier,
+            lambda total: tracker, LogoBadge.load(LOGO), tmp_path / "w")
+    return notifier.finals[0]
+
+
+def test_tracker_receives_points_on_prompted_frames(tmp_path):
+    tr = RecordingTracker()
+    run_with(tmp_path, tr, later_ms=(500,))
+    given = [i for i, p in enumerate(tr.received) if p is not None]
+    assert given == [0, 15]
+
+
+def test_lost_on_later_prompted_frame_is_not_failure(tmp_path):
+    final = run_with(tmp_path, RecordingTracker(absent_at={15}), later_ms=(500,))
+    assert final["phase"] == "done" and final["lost_frames"] == 1
+
+
+def test_blob_filter_skips_prompted_frames(tmp_path, monkeypatch):
+    import cutout.pipeline as pipeline
+
+    monkeypatch.setattr(pipeline, "REMOVE_DETACHED_BLOBS", True)
+    video = make_video(tmp_path, fps=30, seconds=1, size=(512, 512), audio=False)
+    transfer = FakeTransfer(video, 1000, tmp_path)
+    run_job(request((0, 1000), later_ms=(500,)), transfer, FakeNotifier(), lambda total: BlobTracker(),
+            LogoBadge.load(LOGO), tmp_path / "w")
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(transfer.uploaded), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    frames = np.frombuffer(raw, np.uint8).reshape(-1, 512, 512, 3).astype(int)
+    r, g, b = frames[15, 15:55, 15:55].reshape(-1, 3).mean(axis=0)
+    assert not (g > 200 and r < 60 and b < 60)  # 点を打ったフレームの離れた塊は消さない（プレビューと一致）
