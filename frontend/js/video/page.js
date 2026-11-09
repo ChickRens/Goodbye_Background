@@ -370,7 +370,7 @@ async function sendJob() {
   updateSendButton();
   try {
     const started = await startVideoJob(state.job.jobId, {
-      points: preview.videoPoints(),
+      prompts: [{ time_ms: Math.round(state.startMs), points: preview.videoPoints() }],
       background: selectedBackground(),
     });
     if (gen !== generation) return;

@@ -99,6 +99,8 @@ impl StartVideoJobUseCase {
         if job.phase != JobPhase::Created {
             return Err(VideoJobError::InvalidState.into());
         }
+        // 回数を消費する前に検査する（違反は 400 INVALID_PROMPTS で、回数は減らない）
+        let prompts = Prompts::new(input.prompts, &job.range)?;
 
         let size = self
             .storage
@@ -127,11 +129,7 @@ impl StartVideoJobUseCase {
 
         let remaining_today = self.quota.try_consume(&keys, day).await?;
         job.phase = JobPhase::Queued;
-        // 送信の入力を prompts にするまで（計画 Task 7）は、開始位置の 1 つの prompt として持つ
-        job.prompts = Some(
-            Prompts::new(vec![Prompt::new(job.range.start_ms(), input.points)], &job.range)
-                .expect("開始位置の 1 つの prompt は規則を満たす"),
-        );
+        job.prompts = Some(prompts);
         job.background = Some(input.background);
         job.quota_consumed = true;
         job.quota_day = Some(day);
@@ -241,7 +239,7 @@ mod start_video_job_usecase_test {
         let job = h.repository.get(&id).unwrap();
         assert_eq!(job.phase, JobPhase::Queued);
         assert!(job.quota_consumed && !job.quota_refunded);
-        assert_eq!(job.prompts.as_ref().unwrap().first().points(), &start_input(id).points);
+        assert_eq!(job.prompts.as_ref().unwrap().as_slice(), start_input(id).prompts.as_slice());
         assert_eq!(job.background, Some(start_input(id).background));
 
         let sent = h.worker.dispatched.lock().unwrap();
@@ -395,5 +393,45 @@ mod start_video_job_usecase_test {
         h.clock.advance(5_000);
         h.start.execute(start_input(id)).await.unwrap();
         assert_eq!(h.repository.get(&id).unwrap().last_event_at_ms, NOW_MS + 5_000);
+    }
+
+    fn prompt_at(time_ms: u32, x: f32) -> Prompt {
+        use crate::video_cutout::job::point::{NormalizedPoint, PointLabel, Points};
+        Prompt::new(
+            time_ms,
+            Points::new(vec![NormalizedPoint::new(x, 0.4, PointLabel::Include).unwrap()]).unwrap(),
+        )
+    }
+
+    #[tokio::test]
+    async fn start_with_two_prompts_saves_and_dispatches_them() {
+        let h = harness();
+        let id = h.created_job().await;
+        let mut input = start_input(id);
+        input.prompts = vec![prompt_at(START_MS, 0.5), prompt_at(4_300, 0.3)];
+        h.start.execute(input).await.unwrap();
+
+        let job = h.repository.get(&id).unwrap();
+        let times: Vec<u32> = job.prompts.as_ref().unwrap().as_slice().iter().map(|p| p.time_ms()).collect();
+        assert_eq!(times, vec![START_MS, 4_300]);
+        let sent = h.worker.dispatched.lock().unwrap();
+        let req = &sent[0];
+        assert_eq!(req.prompts.iter().map(|p| p.time_ms).collect::<Vec<_>>(), vec![START_MS, 4_300]);
+        assert_eq!(req.prompts[1].points[0].x, 0.3);
+        // 古いワーカー向けの points は 1 つ目の prompt の点
+        assert_eq!(req.points, req.prompts[0].points);
+    }
+
+    #[tokio::test]
+    async fn invalid_prompts_are_rejected_without_consuming_quota() {
+        let h = harness();
+        let id = h.created_job().await;
+        let mut input = start_input(id);
+        input.prompts = vec![prompt_at(1_500, 0.5)]; // 1 つ目が開始位置（1_000）でない
+        let err = h.start.execute(input).await.err().expect("規則違反は失敗する");
+        assert_eq!(err, VideoJobError::InvalidPrompts.into());
+        assert_eq!(h.remaining().await, 3);
+        assert_eq!(h.repository.get(&id).unwrap().phase, JobPhase::Created);
+        assert!(h.worker.dispatched.lock().unwrap().is_empty());
     }
 }

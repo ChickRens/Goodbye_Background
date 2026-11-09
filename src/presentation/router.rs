@@ -192,7 +192,7 @@ mod router_test {
     }
 
     fn start_body() -> Value {
-        json!({"points": [{"x": 0.5, "y": 0.4, "label": "include"}], "background": "green"})
+        json!({"prompts": [{"time_ms": 1000, "points": [{"x": 0.5, "y": 0.4, "label": "include"}]}], "background": "green"})
     }
 
     const BOUNDARY: &str = "preview-frame-boundary";
@@ -270,6 +270,16 @@ mod router_test {
     }
 
     #[tokio::test]
+    async fn start_with_old_points_body_is_400() {
+        let router = enabled_router();
+        let id = created_job(&router).await;
+        let old = json!({"points": [{"x": 0.5, "y": 0.4, "label": "include"}], "background": "green"});
+        let (status, body) = send(&router, post_json(&format!("/video-jobs/{id}/start"), old)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body, json!({"code": "INVALID_REQUEST_BODY"}));
+    }
+
+    #[tokio::test]
     async fn missing_or_invalid_client_id_is_400() {
         let router = enabled_router();
         let request = Request::post("/video-jobs")
@@ -322,15 +332,21 @@ mod router_test {
         let id = created["job_id"].as_str().unwrap();
         let uri = format!("/video-jobs/{id}/start");
 
-        let body = json!({"points": [{"x": 0.5, "y": 0.4, "label": "maybe"}], "background": "green"});
+        let body = json!({"prompts": [{"time_ms": 1000, "points": [{"x": 0.5, "y": 0.4, "label": "maybe"}]}], "background": "green"});
         let (status, got) = send(&router, post_json(&uri, body)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(got, json!({"code": "INVALID_POINTS"}));
 
-        let body = json!({"points": [{"x": 0.5, "y": 0.4, "label": "include"}], "background": "red"});
+        let body = json!({"prompts": [{"time_ms": 1000, "points": [{"x": 0.5, "y": 0.4, "label": "include"}]}], "background": "red"});
         let (status, got) = send(&router, post_json(&uri, body)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(got, json!({"code": "INVALID_BACKGROUND"}));
+
+        // 1 つ目のフレームが範囲の開始（1000）でない
+        let body = json!({"prompts": [{"time_ms": 2000, "points": [{"x": 0.5, "y": 0.4, "label": "include"}]}], "background": "green"});
+        let (status, got) = send(&router, post_json(&uri, body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(got, json!({"code": "INVALID_PROMPTS"}));
     }
 
     #[tokio::test]

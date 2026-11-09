@@ -35,7 +35,7 @@ pub async fn start_video_job(
     let job_id = VideoJobId::from_str(&id).map_err(VideoHandlerError::from)?;
     let Json(request) =
         request.map_err(|_| VideoHandlerError::from(VideoRequestError::InvalidBody))?;
-    let points = request.points().map_err(VideoHandlerError::from)?;
+    let prompts = request.prompts().map_err(VideoHandlerError::from)?;
     let background = request.background().map_err(VideoHandlerError::from)?;
 
     let output = video
@@ -43,7 +43,7 @@ pub async fn start_video_job(
             client_id: requester.client_id,
             ip: requester.ip,
             job_id,
-            points,
+            prompts,
             background,
         })
         .await?;

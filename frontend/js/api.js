@@ -269,12 +269,13 @@ export async function createVideoJob({ sizeBytes, contentType, startMs, endMs })
 
 /**
  * POST /video-jobs/{id}/start
- * request : { points: [{ x, y, label: "include" | "exclude" }], background: "green" | "blue" | "magenta" }
+ * request : { prompts: [{ time_ms, points: [{ x, y, label: "include" | "exclude" }] }], background: "green" | "blue" | "magenta" }
+ *   - prompts: 点を打ったフレーム（1〜5 個、1 つ目は範囲の開始、時刻の昇順で重複なし、範囲の中。違反は 400 INVALID_PROMPTS）
  *   - x, y は動画フレームに対する 0〜1 の正規化座標（プレビュー画像の幅・高さで割ったもの）
  * response: 202 { phase: "queued" | "failed", failure_code, remaining_today }
  */
-export async function startVideoJob(jobId, { points, background }) {
-  const res = await postJson(`/video-jobs/${encodeURIComponent(jobId)}/start`, { points, background });
+export async function startVideoJob(jobId, { prompts, background }) {
+  const res = await postJson(`/video-jobs/${encodeURIComponent(jobId)}/start`, { prompts, background });
   const data = await parseJsonOrThrow(res);
   return { phase: data.phase, failureCode: data.failure_code, remainingToday: data.remaining_today };
 }

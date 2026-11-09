@@ -25,6 +25,7 @@ use crate::video_cutout::{
         locks::VideoJobLocks,
         phase::JobPhase,
         point::{NormalizedPoint, PointLabel, Points},
+        prompt::Prompt,
         repository::VideoJobRepository,
         repository_impl::VideoJobRepositoryInMemory,
     },
@@ -330,8 +331,10 @@ pub fn start_input(job_id: VideoJobId) -> StartVideoJobInput {
         client_id: client_id(),
         ip: client_ip(),
         job_id,
-        points: Points::new(vec![NormalizedPoint::new(0.5, 0.4, PointLabel::Include).unwrap()])
-            .unwrap(),
+        prompts: vec![Prompt::new(
+            START_MS,
+            Points::new(vec![NormalizedPoint::new(0.5, 0.4, PointLabel::Include).unwrap()]).unwrap(),
+        )],
         background: Background::Green,
     }
 }
