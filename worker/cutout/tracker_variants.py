@@ -188,6 +188,9 @@ class VariantTracker:
         self._t = 0
         self._hist: dict[int, _Frame] = {}
         self._drm: list[int] = []  # DAM4SAM: DRM に足したフレーム（フレーム 0 は常に条件メモリなので含めない）
+        # 利用者が 2 枚目以降で点を打ったフレーム（複数フレームの点の指定。仕様 2026-11-09 §4）。
+        # DAM4SAM では DRM と同じく条件メモリの候補になる。sam2 / samurai では記憶の選び方は変えない（計測用）
+        self._prompted_later: list[int] = []
         self._dam_last_added = -1
         self._dam_sizes: list[int] = []
         self._kf = BoxKalman()
@@ -212,8 +215,13 @@ class VariantTracker:
                 blocks.append((f, k - 1))
         return self._pad(blocks)
 
+    @property
+    def prompted(self) -> list[int]:
+        """点で条件メモリにしたフレーム（0 を含む）。"""
+        return [0] + self._prompted_later
+
     def _blocks_dam4sam(self, t: int) -> tuple[list[tuple[int, int]], list[int], set[int]]:
-        cond = [0] + self._drm
+        cond = sorted({0, *self._prompted_later, *self._drm})
         selected = select_closest_cond(t, cond, DAM_MAX_COND)
         cond_set = set(cond)
 
@@ -372,12 +380,12 @@ class VariantTracker:
         first = t == 0
         if first and not points:
             raise ValueError("1 枚目にはクリック点が必要")
-        if not first and points is not None:
-            raise ValueError("2 枚目以降は points を渡さない")
+        # 点のあるフレームは、1 枚目と同じく記憶を使わず点だけで切り抜く（= プレビューと同じ計算）
+        init = first or points is not None
         S = self._size
         enc = self._s.vision_encoder.run(pixel_values=to_pixel_values(frame_rgb, self._mean, self._std, S))
         dam = None
-        if first:
+        if init:
             feats_cond = enc["feats2_no_mem"]
             coords = np.array([[[[p.x * S, p.y * S] for p in points]]], np.float32)
             labels = np.array([[[1 if p.label == "include" else 0 for p in points]]], np.int32)
@@ -412,7 +420,7 @@ class VariantTracker:
         cand_all = np.asarray(dec[CANDIDATE_OUTPUTS[0]], np.float32).reshape(4, *dec[CANDIDATE_OUTPUTS[0]].shape[-2:])
         ious_all = np.asarray(dec[CANDIDATE_OUTPUTS[1]], np.float32).reshape(4)
         cand, ious = cand_all[1:], ious_all[1:]  # 追跡中と 1 点の 1 枚目は複数出力（1〜3 番）から選ぶ
-        if first and self._is_single_output(dec, cand_all):
+        if init and self._is_single_output(dec, cand_all):
             # 除外以外の点が 2 つ以上だと、デコーダは単一出力（0 番）を使う。規則を推測せず、実際の出力と照らして決める
             cand, ious = cand_all[:1], ious_all[:1]
         idx, kf_score = self._choose(cand, ious)
@@ -424,7 +432,7 @@ class VariantTracker:
             high = np.full((S, S), NO_OBJ_LOGIT, np.float32)
         me = self._s.memory_encoder.run(
             feats2=enc["feats2"], high_res_mask=high[None, None],
-            object_score_logits=[[score]], binarize=1 if first else 0,
+            object_score_logits=[[score]], binarize=1 if init else 0,
         )
         n_pixels = int((high > 0).sum())
         self._hist[t] = _Frame(
@@ -432,10 +440,12 @@ class VariantTracker:
             ptr=np.asarray(dec["object_pointer"]).reshape(-1)[:256],
             n_pixels=n_pixels, best_iou=float(ious[idx]), obj_score=score, kf_score=kf_score,
         )
-        if self._policy == "dam4sam" and not first:
+        if init and not first:
+            self._prompted_later.append(t)
+        if self._policy == "dam4sam" and not init:
             self._dam_update(t, cand, ious, idx, n_pixels)
         old = t - HISTORY_FRAMES
-        if old > 0 and old not in self._drm:
+        if old > 0 and old not in self._drm and old not in self._prompted_later:
             self._hist.pop(old, None)
         self._t += 1
         return FrameResult(high_res_logits=high, object_present=present)

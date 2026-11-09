@@ -157,3 +157,78 @@ def test_sam2_policy_matches_production_tracker_on_real_model():
         ra, rb = a.process(f, pts if i == 0 else None), b.process(f, pts if i == 0 else None)
         assert ra.object_present == rb.object_present
         assert np.abs(ra.high_res_logits - rb.high_res_logits).max() < 1e-4
+
+
+# ---- 途中のフレームへの点（複数フレームの点の指定。仕様 2026-11-09 §4）----
+
+from cutout.contract import NormalizedPoint  # noqa: E402
+from cutout import tracker_variants  # noqa: E402
+from cutout.tracker_variants import CANDIDATE_OUTPUTS  # noqa: E402
+from tests.test_tracker import RecordingSessions, _Graph  # noqa: E402
+
+
+class CandidateSessions(RecordingSessions):
+    """RecordingSessions に候補マスクの出力を足し、特徴量を見分けられる値にしたもの。"""
+
+    def __init__(self):
+        super().__init__(object_score=1.0)
+        z, f = np.full, 32
+        c = self.calls
+        self.vision_encoder = _Graph("vision_encoder", c, lambda _: {
+            "feats0": z((1, 32, 128, 128), 0.0, np.float32),
+            "feats1": z((1, 64, 64, 64), 0.0, np.float32),
+            "feats2": z((1, 256, f, f), 3.0, np.float32),
+            "feats2_no_mem": z((1, 256, f, f), 7.0, np.float32),
+            "vision_pos_embed": z((1, 256, f, f), 0.0, np.float32),
+        })
+        self.memory_attention = _Graph("memory_attention", c, lambda _: {
+            "conditioned_feats": z((1, 256, f, f), 5.0, np.float32),
+        })
+        self.mask_decoder = _Graph("mask_decoder", c, lambda _: {
+            "object_score_logits": np.array([[1.0]], np.float32),
+            "high_res_mask": z((1, 1, 512, 512), 2.0, np.float32),
+            "low_res_mask": z((1, 1, 256, 256), 2.0, np.float32),
+            "object_pointer": z((1, 256), 0.0, np.float32),
+            CANDIDATE_OUTPUTS[0]: z((1, 4, 128, 128), 2.0, np.float32),
+            CANDIDATE_OUTPUTS[1]: np.array([[0.9, 0.9, 0.9, 0.9]], np.float32),
+        })
+
+
+PTS = [NormalizedPoint(0.5, 0.25, "include")]
+
+
+def rgb_frame():
+    return np.zeros((360, 640, 3), np.uint8)
+
+
+def run_frames(tr, prompts: dict[int, list], n: int):
+    for i in range(n):
+        tr.process(rgb_frame(), prompts.get(i))
+
+
+def test_points_on_later_frame_decode_without_memory():
+    s = CandidateSessions()
+    tr = VariantTracker(s, CONSTANTS, 5, "dam4sam")
+    run_frames(tr, {0: PTS, 2: PTS}, 3)
+    assert len(s.calls["memory_attention"]) == 1  # 記憶を使ったのは 2 枚目（番号 1）だけ
+    dec = s.calls["mask_decoder"][2]
+    assert (dec["feats2_cond"] == 7.0).all()  # feats2_no_mem（記憶なし = 1 枚目・プレビューと同じ）
+    assert dec["input_points"].tolist() == [[[[256.0, 128.0]]]]
+    assert s.calls["memory_encoder"][2]["binarize"] == 1
+    assert s.calls["memory_encoder"][1]["binarize"] == 0
+
+
+def test_prompted_frame_becomes_conditioning_memory():
+    tr = VariantTracker(CandidateSessions(), CONSTANTS, 10, "dam4sam")
+    run_frames(tr, {0: PTS, 2: PTS}, 4)
+    assert tr.prompted == [0, 2]
+    blocks, selected, _ = tr._blocks_dam4sam(4)
+    assert 2 in selected and dict(blocks)[2] == COND_ROW
+
+
+def test_prompted_frame_is_not_a_drm_addition_and_survives_history_cleanup(monkeypatch):
+    monkeypatch.setattr(tracker_variants, "HISTORY_FRAMES", 3)
+    tr = VariantTracker(CandidateSessions(), CONSTANTS, 10, "dam4sam")
+    run_frames(tr, {0: PTS, 1: PTS}, 8)
+    assert 1 not in tr.stats["drm_added"]
+    assert 1 in tr._hist and 2 not in tr._hist  # 指定フレームは古くても消さない
