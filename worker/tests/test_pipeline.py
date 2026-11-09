@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from cutout.compositor import LogoBadge, alpha_from_logits
-from cutout.contract import NormalizedPoint, RangeMs, WorkerJobRequest
+from cutout.contract import NormalizedPoint, Prompt, RangeMs, WorkerJobRequest
 from cutout.errors import InputTooLarge
 from cutout.pipeline import run_job
 from cutout.tracker import FrameResult
@@ -76,7 +76,7 @@ class FakeTracker:
 def request(range_ms, watermark=False, max_bytes=200 * 1024 * 1024) -> WorkerJobRequest:
     return WorkerJobRequest(
         job_id=JOB, input_url="http://in", output_url="http://out", range_ms=RangeMs(*range_ms),
-        points=[NormalizedPoint(0.5, 0.5, "include")], background_rgb=(0, 255, 0),
+        prompts=[Prompt(range_ms[0], [NormalizedPoint(0.5, 0.5, "include")])], background_rgb=(0, 255, 0),
         watermark=watermark, max_input_bytes=max_bytes, callback_url="http://cb",
     )
 

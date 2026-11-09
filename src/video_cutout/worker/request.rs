@@ -12,7 +12,11 @@ pub struct WorkerJobRequest {
     /// 出力動画の署名付き PUT URL。
     pub output_url: String,
     pub range_ms: WorkerRange,
+    /// 1 つ目の prompt の点（古いワーカー向け。古いワーカーは `prompts` を知らずに無視し、これだけ使う）。
+    /// 新しいワーカーは `prompts` を使う。両方のデプロイが済んだら送るのをやめる（仕様 §3.2）
     pub points: Vec<WorkerPoint>,
+    /// 点を打ったフレーム（1 つ目は開始位置）。
+    pub prompts: Vec<WorkerPrompt>,
     pub background_rgb: [u8; 3],
     pub watermark: bool,
     pub max_input_bytes: u64,
@@ -23,6 +27,13 @@ pub struct WorkerJobRequest {
 pub struct WorkerRange {
     pub start: u32,
     pub end: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WorkerPrompt {
+    /// 元の動画の時刻（`range_ms` と同じ基準）。
+    pub time_ms: u32,
+    pub points: Vec<WorkerPoint>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -57,6 +68,10 @@ pub fn sample_request() -> WorkerJobRequest {
         output_url: "https://example.com/out".to_string(),
         range_ms: WorkerRange { start: 1200, end: 9200 },
         points: vec![WorkerPoint { x: 0.51, y: 0.44, label: WorkerPointLabel::Include }],
+        prompts: vec![WorkerPrompt {
+            time_ms: 1200,
+            points: vec![WorkerPoint { x: 0.51, y: 0.44, label: WorkerPointLabel::Include }],
+        }],
         background_rgb: [0, 255, 0],
         watermark: true,
         max_input_bytes: 209_715_200,

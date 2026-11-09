@@ -129,7 +129,7 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
                 if frames == 0:
                     raise _Failure("unsupported_video")  # 入力が読めない
                 raise
-            result = tracker.process(frame, req.points if frames == 0 else None)
+            result = tracker.process(frame, req.prompts[0].points if frames == 0 else None)
             if result.object_present:
                 # 体から離れた塊（同じ服の隣の人の切れ端など）を消す。1 枚目は触らない（プレビューと一致させる）
                 logits = result.high_res_logits

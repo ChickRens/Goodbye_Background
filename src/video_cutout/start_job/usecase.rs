@@ -34,7 +34,7 @@ use crate::video_cutout::{
     storage::video_object_storage::VideoObjectStorage,
     worker::{
         cutout_worker::CutoutWorker,
-        request::{WorkerJobRequest, WorkerPoint, WorkerRange},
+        request::{WorkerJobRequest, WorkerPoint, WorkerPrompt, WorkerRange},
     },
 };
 
@@ -178,6 +178,11 @@ impl StartVideoJobUseCase {
 
     fn worker_request(&self, job: &VideoJob) -> WorkerJobRequest {
         let id = job.id.value().to_string();
+        let points: Vec<WorkerPoint> = job
+            .points
+            .as_ref()
+            .map(|p| p.as_slice().iter().map(WorkerPoint::from).collect())
+            .unwrap_or_default();
         WorkerJobRequest {
             input_url: self
                 .storage
@@ -189,11 +194,12 @@ impl StartVideoJobUseCase {
                 start: job.range.start_ms(),
                 end: job.range.end_ms(),
             },
-            points: job
-                .points
-                .as_ref()
-                .map(|p| p.as_slice().iter().map(WorkerPoint::from).collect())
-                .unwrap_or_default(),
+            points: points.clone(),
+            // Task 7 で複数の prompt にする。今は開始位置の 1 つだけ
+            prompts: vec![WorkerPrompt {
+                time_ms: job.range.start_ms(),
+                points,
+            }],
             background_rgb: job.background.map(|b| b.rgb()).unwrap_or([0, 255, 0]),
             watermark: WATERMARK,
             max_input_bytes: MAX_INPUT_BYTES,

@@ -4,6 +4,10 @@
   "output_url": "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/goodbye-background/video-jobs/6f1c2b9e-0d4a-4c1e-9a57-3f2e8b1d7c60/output.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=1800&X-Amz-Signature=0000",
   "range_ms": { "start": 1200, "end": 9200 },
   "points": [ { "x": 0.51, "y": 0.44, "label": "include" } ],
+  "prompts": [
+    { "time_ms": 1200, "points": [ { "x": 0.51, "y": 0.44, "label": "include" } ] },
+    { "time_ms": 4300, "points": [ { "x": 0.48, "y": 0.4, "label": "include" }, { "x": 0.15, "y": 0.45, "label": "exclude" } ] }
+  ],
   "background_rgb": [0, 255, 0],
   "watermark": true,
   "max_input_bytes": 209715200,

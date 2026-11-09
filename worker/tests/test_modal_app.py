@@ -26,7 +26,7 @@ def test_accept_passes_body_unchanged_to_spawn():
 
 def test_accept_invalid_request_returns_400_without_spawn():
     spawned = []
-    status, _ = accept({**example_request(), "points": []}, spawned.append)
+    status, _ = accept({**example_request(), "prompts": []}, spawned.append)
     assert status == 400 and spawned == []
 
 
