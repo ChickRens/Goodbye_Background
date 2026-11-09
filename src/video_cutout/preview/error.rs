@@ -6,8 +6,6 @@ leaf_error!(
     pub enum PreviewInputError {
         InvalidImage => ("INVALID_PREVIEW_IMAGE", ErrorType::InvalidInput),
         FrameNotFound => ("PREVIEW_FRAME_NOT_FOUND", ErrorType::Conflict),
-        // 1 ジョブで点を打てるフレーム（MAX_PROMPTS = 5 枚）を超えた
-        TooManyFrames => ("TOO_MANY_PREVIEW_FRAMES", ErrorType::Conflict),
         // フレームの時刻が無い・整数でない・範囲の外
         InvalidTime => ("INVALID_PREVIEW_TIME", ErrorType::InvalidInput),
     }

@@ -306,7 +306,8 @@ export async function getVideoJob(jobId) {
 /**
  * POST /video-jobs/{id}/preview-frame?time_ms=4300
  * request : multipart/form-data, field "file"（点を打つフレーム。PNG / JPEG、10MB 以下、長辺 2000px 以下）
- *   time_ms: そのフレームの時刻（元の動画のミリ秒、整数。範囲の中）。1 ジョブ最大 5 つの時刻（6 つ目は 409 TOO_MANY_PREVIEW_FRAMES）
+ *   time_ms: そのフレームの時刻（元の動画のミリ秒、整数。範囲の中）。サーバーは 1 ジョブ 5 枚まで持ち、超えるとそのジョブの
+ *   最も長く使われていない 1 枚を捨てる（そのフレームの /preview は 409 PREVIEW_FRAME_NOT_FOUND → 登録し直す）
  * response: 204（本文なし）。サーバーがフレームを 1 回だけエンコードしてジョブごとに持つ
  *   - 回数は消費しない。ジョブの持ち主だけ、送信（start）前だけ使える
  *   - 503 PREVIEW_BUSY: 同時に登録できる数（サーバー全体で 2）を超えた。少し待ってやり直す

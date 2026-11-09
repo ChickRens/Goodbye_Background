@@ -15,7 +15,7 @@ use crate::video_cutout::{
     },
     preview::{
         error::{PreviewError, PreviewInputError},
-        feature_store::{PreviewFeatureStore, TooManyFrames},
+        feature_store::PreviewFeatureStore,
         segmenter::PreviewSegmenter,
     },
     set_preview_frame::{
@@ -84,9 +84,7 @@ impl SetPreviewFrameUseCase {
         .await
         .map_err(|e| PreviewError::Inference(format!("エンコードのタスクが失敗: {e}")))??;
 
-        self.features
-            .save(job.id, time_ms, Arc::new(features))
-            .map_err(|TooManyFrames| PreviewInputError::TooManyFrames)?;
+        self.features.save(job.id, time_ms, Arc::new(features));
         Ok(SetPreviewFrameOutput)
     }
 }
@@ -230,15 +228,14 @@ mod set_preview_frame_usecase_test {
     }
 
     #[tokio::test]
-    async fn sixth_frame_is_too_many() {
+    async fn sixth_frame_replaces_the_least_recently_used_frame() {
         let h = harness();
         let id = h.created_job().await;
         for t in [1_000, 2_000, 3_000, 4_000, 5_000] {
             h.set_frame.execute(frame_at(id, t, 4)).await.unwrap();
         }
-        let err = h.set_frame.execute(frame_at(id, 6_000, 4)).await.unwrap_err();
-        assert_eq!(err, PreviewInputError::TooManyFrames.into());
-        // 登録済みの時刻の登録し直しはできる
-        h.set_frame.execute(frame_at(id, 3_000, 4)).await.unwrap();
+        h.set_frame.execute(frame_at(id, 6_000, 4)).await.unwrap();
+        assert!(h.features.get(&id, 1_000).is_none()); // 一番長く使われていない 1 枚
+        assert!(h.features.get(&id, 6_000).is_some());
     }
 }

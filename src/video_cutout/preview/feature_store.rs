@@ -18,10 +18,6 @@ pub struct PreviewFeatureStore {
     inner: Mutex<Inner>,
 }
 
-/// 1 ジョブで登録できる枚数（`MAX_PROMPTS`）を超えた。
-#[derive(Debug, PartialEq, Eq)]
-pub struct TooManyFrames;
-
 /// 特徴量のキー: ジョブと、そのフレームの時刻（元の動画のミリ秒）。
 type Key = (VideoJobId, u32);
 
@@ -36,6 +32,19 @@ impl Inner {
         self.tick += 1;
         self.tick
     }
+
+    /// `which` に当てはまるもののうち、最も長く使われていない 1 枚を捨てる。
+    fn evict_oldest(&mut self, which: impl Fn(&Key) -> bool) {
+        let oldest = self
+            .entries
+            .iter()
+            .filter(|(k, _)| which(k))
+            .min_by_key(|(_, (_, used))| *used)
+            .map(|(k, _)| *k);
+        if let Some(oldest) = oldest {
+            self.entries.remove(&oldest);
+        }
+    }
 }
 
 impl PreviewFeatureStore {
@@ -49,35 +58,24 @@ impl PreviewFeatureStore {
     }
 
     /// 同じジョブで登録し直したら丸ごと置き換える。上限を超えるなら最も長く使われていないものを捨てる。
-    /// その時刻のフレームの特徴量を置く（同じ時刻は置き換え）。そのジョブにその時刻が無く、すでに `MAX_PROMPTS` 枚なら
-    /// `TooManyFrames`。全体で `MAX_PREVIEW_FEATURES` 枚を超えるときは、最も長く使われていない 1 枚を捨てる。
-    pub fn save(
-        &self,
-        job_id: VideoJobId,
-        time_ms: u32,
-        features: Arc<PreviewFeatures>,
-    ) -> Result<(), TooManyFrames> {
+    /// その時刻のフレームの特徴量を置く（同じ時刻は置き換え）。新しい時刻で、
+    /// - そのジョブがすでに `MAX_PROMPTS` 枚持っていたら、そのジョブの最も長く使われていない 1 枚を捨てる
+    ///   （画面でフレームを消しても特徴量は残るので、拒否すると「消して別の時刻を足す」ができなくなる）
+    /// - 全体で `MAX_PREVIEW_FEATURES` 枚を超えるなら、全体で最も長く使われていない 1 枚を捨てる
+    /// 捨てたフレームの `/preview` は 409 `PREVIEW_FRAME_NOT_FOUND` になり、画面がそのフレームを登録し直す。
+    pub fn save(&self, job_id: VideoJobId, time_ms: u32, features: Arc<PreviewFeatures>) {
         let key = (job_id, time_ms);
         let mut inner = self.lock();
         if !inner.entries.contains_key(&key) {
             let frames_of_job = inner.entries.keys().filter(|(id, _)| *id == job_id).count();
             if frames_of_job >= MAX_PROMPTS {
-                return Err(TooManyFrames);
-            }
-            if inner.entries.len() >= MAX_PREVIEW_FEATURES {
-                let oldest = inner
-                    .entries
-                    .iter()
-                    .min_by_key(|(_, (_, used))| *used)
-                    .map(|(k, _)| *k);
-                if let Some(oldest) = oldest {
-                    inner.entries.remove(&oldest);
-                }
+                inner.evict_oldest(|(id, _)| *id == job_id);
+            } else if inner.entries.len() >= MAX_PREVIEW_FEATURES {
+                inner.evict_oldest(|_| true);
             }
         }
         let tick = inner.next_tick();
         inner.entries.insert(key, (features, tick));
-        Ok(())
     }
 
     /// 取得したものは「最近使った」扱いになる。
@@ -132,8 +130,8 @@ mod preview_feature_store_test {
     fn save_get_remove_and_retain() {
         let store = PreviewFeatureStore::new();
         let (a, b) = (VideoJobId::new_random(), VideoJobId::new_random());
-        store.save(a, 0, features()).unwrap();
-        store.save(b, 0, features()).unwrap();
+        store.save(a, 0, features());
+        store.save(b, 0, features());
         assert_eq!(store.get(&a, 0).unwrap().frame_width, 4);
         store.remove(&a);
         assert!(store.get(&a, 0).is_none());
@@ -145,12 +143,12 @@ mod preview_feature_store_test {
     fn keeps_each_time_of_a_job_separately() {
         let store = PreviewFeatureStore::new();
         let a = VideoJobId::new_random();
-        store.save(a, 1200, features()).unwrap();
-        store.save(a, 4300, features()).unwrap();
+        store.save(a, 1200, features());
+        store.save(a, 4300, features());
         assert!(store.get(&a, 1200).is_some() && store.get(&a, 4300).is_some());
         assert!(store.get(&a, 5000).is_none());
         // 同じ時刻は置き換え（枚数は増えない）
-        store.save(a, 4300, features()).unwrap();
+        store.save(a, 4300, features());
         assert_eq!(store.len(), 2);
         // remove はそのジョブの全部の時刻を消す
         store.remove(&a);
@@ -158,15 +156,20 @@ mod preview_feature_store_test {
     }
 
     #[test]
-    fn rejects_more_frames_than_prompts_per_job() {
+    fn sixth_frame_of_a_job_evicts_its_least_recently_used_frame() {
+        // 画面でフレームを消しても特徴量は残るので、拒否すると「消して別の時刻を足す」ができなくなる
         let store = PreviewFeatureStore::new();
-        let a = VideoJobId::new_random();
+        let (a, other) = (VideoJobId::new_random(), VideoJobId::new_random());
+        store.save(other, 0, features());
         for t in 0..MAX_PROMPTS as u32 {
-            store.save(a, t * 1000, features()).unwrap();
+            store.save(a, t * 1000, features());
         }
-        assert_eq!(store.save(a, 9000, features()), Err(TooManyFrames));
-        // すでにある時刻の登録し直しはできる
-        assert_eq!(store.save(a, 0, features()), Ok(()));
+        assert!(store.get(&a, 0).is_some()); // 0 を使う → 1000 が一番古い
+        store.save(a, 9000, features());
+        assert!(store.get(&a, 1000).is_none());
+        assert!(store.get(&a, 0).is_some() && store.get(&a, 9000).is_some());
+        assert!(store.get(&other, 0).is_some()); // 他のジョブは捨てない
+        assert_eq!(store.len(), MAX_PROMPTS + 1);
     }
 
     #[test]
@@ -176,12 +179,12 @@ mod preview_feature_store_test {
             .map(|_| VideoJobId::new_random())
             .collect();
         for id in &ids {
-            store.save(*id, 0, features()).unwrap();
+            store.save(*id, 0, features());
         }
         assert_eq!(store.len(), MAX_PREVIEW_FEATURES);
         // 一番古い ids[0] を使うと、次に古い ids[1] が捨てられる（枚単位）
         assert!(store.get(&ids[0], 0).is_some());
-        store.save(ids[2], 500, features()).unwrap();
+        store.save(ids[2], 500, features());
         assert_eq!(store.len(), MAX_PREVIEW_FEATURES);
         assert!(store.get(&ids[1], 0).is_none());
         assert!(store.get(&ids[0], 0).is_some());

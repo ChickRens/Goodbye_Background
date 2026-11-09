@@ -126,6 +126,9 @@ function frameForUpload(frameBlob, frameImg) {
  * @param {HTMLElement} opts.warningEl 対象が見つからないときに出す欄
  * @param {() => void} opts.onChange 点の数・計算中・結果が変わったら呼ぶ（送信ボタンの更新用）
  * @param {(err: Error, what: string) => void} opts.onError
+ *
+ * 複数フレームの点の指定（frame_set.js）では、フレームごとに 1 つ作り、モード切り替え・Undo・Redo のボタンは共有する。
+ * 共有のボタンに反応し、その表示を更新するのは setActive(true) のもの（表示中のフレーム）だけ。
  */
 export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, statusEl, warningEl, onChange, onError }) {
   const controller = createCanvasController(canvasEl, { onPointAdd: handlePointAdd });
@@ -145,18 +148,21 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
   let shown = { version: 0, objectPresent: null }; // 画面に出ているマスクがどの一覧のものか
   let computing = false; // /preview の応答待ち（登録し直しを含む）
   let locked = false; // 送信後は点を変えさせない
+  let active = true; // 共有のボタン（モード・Undo・Redo）を受け持つか
+  let mode = 'positive'; // このフレームの「含める／除外する」
 
   modeToggleBtn.addEventListener('click', () => {
-    applyMode(modeToggleBtn.dataset.mode === 'positive' ? 'negative' : 'positive');
+    if (!active) return;
+    applyMode(mode === 'positive' ? 'negative' : 'positive');
   });
   undoBtn.addEventListener('click', () => {
-    if (locked || points.length === 0) return;
+    if (!active || locked || points.length === 0) return;
     redoStack = [...redoStack, points[points.length - 1]];
     points = points.slice(0, -1);
     pointsChanged();
   });
   redoBtn.addEventListener('click', () => {
-    if (locked || redoStack.length === 0) return;
+    if (!active || locked || redoStack.length === 0) return;
     points = [...points, redoStack[redoStack.length - 1]];
     redoStack = redoStack.slice(0, -1);
     pointsChanged();
@@ -164,10 +170,19 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
   applyMode('positive');
   sync();
 
-  function applyMode(mode) {
+  function applyMode(newMode) {
+    mode = newMode;
+    controller.setPointMode(mode);
+    if (!active) return;
     modeToggleBtn.dataset.mode = mode;
     modeToggleBtn.textContent = mode === 'positive' ? '➕ 含める' : '➖ 除外する';
-    controller.setPointMode(mode);
+  }
+
+  /** 表示中のフレームにする（true）／外す（false）。表示中のものだけが共有のボタンを受け持つ */
+  function setActive(value) {
+    active = value;
+    if (active) applyMode(mode);
+    sync();
   }
 
   function isCurrent() {
@@ -175,10 +190,12 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
   }
 
   function sync() {
-    const disabled = locked || !registered;
-    undoBtn.disabled = disabled || points.length === 0;
-    redoBtn.disabled = disabled || redoStack.length === 0;
-    modeToggleBtn.disabled = disabled;
+    if (active) {
+      const disabled = locked || !registered;
+      undoBtn.disabled = disabled || points.length === 0;
+      redoBtn.disabled = disabled || redoStack.length === 0;
+      modeToggleBtn.disabled = disabled;
+    }
     warningEl.hidden = !(isCurrent() && shown.objectPresent === false);
     onChange();
   }
@@ -387,6 +404,8 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
 
   return {
     load,
+    setActive,
+    timeMs: () => timeMs,
     lock,
     unlock,
     reset,

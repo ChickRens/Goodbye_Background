@@ -2,7 +2,8 @@
  * video.html のエントリーポイント。画面の流れ（仕様 §7）:
  *   1. 動画を選ぶ → 2. 範囲を選ぶ（10 秒まで）→「この範囲で決める」で POST /video-jobs
  *   3. 署名付き URL へ PUT（進捗バー）と、4. 開始位置のフレームのプレビューを並行して進める
- *      （POST /video-jobs/{id}/preview-frame で登録 → タップのたびに POST /video-jobs/{id}/preview。本番と同じ SAM2.1 tiny）
+ *      （POST /video-jobs/{id}/preview-frame?time_ms= で登録 → タップのたびに POST /video-jobs/{id}/preview。本番と同じ SAM2.1 small）
+ *      2 枚目以降のフレーム（最大 5 枚）も同じように点を打てる（frame_set.js）
  *   5. 背景色を選んで送信（POST /video-jobs/{id}/start）→ 6. 1 秒ごとに GET して結果を出す
  *
  * 送信ボタンが押せるのは「アップロード完了」「点が 1 つ以上」「今の点のプレビューが出ていて対象が見つかっている
@@ -14,7 +15,8 @@
 import { createVideoJob, startVideoJob } from '../api.js';
 import { showToast } from '../toast.js';
 import { clampRange, captureFrame, formatMs, MAX_CLIP_MS } from './range.js';
-import { createFramePreview } from './preview.js';
+import { createFrameSet } from './frame_set.js';
+import { formatFrameTime } from './frames.js';
 import { putWithProgress } from './upload.js';
 import { pollJob } from './job.js';
 import {
@@ -60,6 +62,13 @@ const el = {
   uploadRetryBtn: $('upload-retry-btn'),
   stepPreview: $('step-preview'),
   previewRetryBtn: $('preview-retry-btn'),
+  addFrameBtn: $('add-frame-btn'),
+  picker: $('frame-picker'),
+  pickerVideo: $('picker-video'),
+  pickerTime: $('picker-time'),
+  pickerLabel: $('picker-label'),
+  pickerDecide: $('picker-decide'),
+  pickerCancel: $('picker-cancel'),
   stepSend: $('step-send'),
   backgroundField: $('background-field'),
   sendBtn: $('send-btn'),
@@ -99,15 +108,15 @@ let state = initialState();
 let remainingToday = null; // まだ分からない間は null
 let generation = 0; // やり直したら進める。前の動画の非同期処理の結果を捨てるため
 
-// createFramePreview は作る途中で onChange（updateSendButton）を呼ぶので、先に null で宣言しておく
+// 点を打つフレームの組（1 枚目 = 開始位置、最大 5 枚）。作る途中で onChange（updateSendButton）を呼ぶので、先に null で宣言しておく
 let preview = null;
-preview = createFramePreview({
-  canvasEl: $('frame-canvas'),
+preview = createFrameSet({
+  tabsEl: $('frame-tabs'),
+  panelsEl: $('frame-panels'),
+  panelTemplate: $('frame-panel-template'),
   modeToggleBtn: $('mode-toggle'),
   undoBtn: $('undo-btn'),
   redoBtn: $('redo-btn'),
-  statusEl: $('preview-status'),
-  warningEl: $('preview-warning'),
   onChange: updateSendButton,
   onError: (err, what) => {
     showToast({ type: 'danger', message: `${what}に失敗しました: ${apiErrorMessage(err)}`, code: err.code });
@@ -322,7 +331,10 @@ async function startPreview() {
       state.frameBlob = await captureFrame(el.video, state.startMs);
       if (gen !== generation) return;
     }
-    const ok = await preview.load(state.job.jobId, state.frameBlob, state.startMs);
+    // 1 枚目がもうあれば、表示中のフレームの登録をやり直す（「プレビューをやり直す」）
+    const ok = preview.hasFrames()
+      ? await preview.retryActive()
+      : await preview.start(state.job.jobId, state.startMs, state.endMs, state.frameBlob);
     if (gen !== generation) return;
     if (!ok) el.previewRetryBtn.hidden = false;
   } catch (err) {
@@ -334,6 +346,59 @@ async function startPreview() {
 
 el.previewRetryBtn.addEventListener('click', () => startPreview());
 
+// ---------- 4'. 2 枚目以降のフレームを足す ----------
+
+function pickerOpen() {
+  return !el.picker.hidden;
+}
+
+function setPickerTime(ms) {
+  el.pickerTime.value = String(ms);
+  el.pickerLabel.textContent = `${formatFrameTime(ms, state.startMs)} のフレーム`;
+  el.pickerVideo.currentTime = ms / 1000;
+}
+
+el.addFrameBtn.addEventListener('click', () => {
+  if (!state.job || pickerOpen()) return;
+  if (!el.pickerVideo.getAttribute('src')) el.pickerVideo.src = state.videoUrl;
+  el.pickerTime.min = String(state.startMs);
+  el.pickerTime.max = String(state.endMs - 1);
+  el.picker.hidden = false;
+  setPickerTime(state.startMs);
+  updateSendButton();
+});
+
+el.pickerTime.addEventListener('input', () => setPickerTime(Number(el.pickerTime.value)));
+
+el.pickerCancel.addEventListener('click', () => {
+  el.picker.hidden = true;
+  updateSendButton();
+});
+
+el.pickerDecide.addEventListener('click', async () => {
+  const gen = generation;
+  const timeMs = Math.round(Number(el.pickerTime.value));
+  if (!preview.canAdd(timeMs)) {
+    showToast({ type: 'warning', message: 'その位置のフレームはもうあります。少しずらしてください' });
+    return;
+  }
+  el.pickerDecide.disabled = true;
+  try {
+    const blob = await captureFrame(el.pickerVideo, timeMs);
+    if (gen !== generation) return;
+    el.picker.hidden = true;
+    const ok = await preview.add(timeMs, blob);
+    if (gen !== generation) return;
+    if (ok === false) el.previewRetryBtn.hidden = false;
+  } catch (err) {
+    if (gen !== generation) return;
+    showToast({ type: 'danger', message: `フレームを取り出せませんでした: ${err.message}` });
+  } finally {
+    el.pickerDecide.disabled = false;
+    updateSendButton();
+  }
+});
+
 // ---------- 5. 背景色を選んで送信 ----------
 
 function selectedBackground() {
@@ -344,16 +409,20 @@ function selectedBackground() {
 function updateSendButton() {
   if (!preview) return;
   // 後のプレビューが成功したら（対象の有無は問わない）、前の失敗で出した「プレビューをやり直す」は引っ込める
-  if (preview.canSend() || preview.objectMissing()) el.previewRetryBtn.hidden = true;
+  if (preview.activeCanSendOrMissing()) el.previewRetryBtn.hidden = true;
   const ready = state.job !== null && state.uploadDone && preview.canSend();
   el.sendBtn.disabled = !ready || state.sending || state.sent;
   el.backgroundField.disabled = state.sending || state.sent;
+  el.addFrameBtn.disabled =
+    !state.job || !preview.hasFrames() || preview.isFull() || pickerOpen() || state.sending || state.sent;
+  el.addFrameBtn.textContent = preview.isFull() ? '＋ このフレームにも点を打つ（5 枚まで）' : '＋ このフレームにも点を打つ';
 
+  const problem = preview.firstProblem();
   let hint = '';
   if (state.sent || state.sending) hint = '';
   else if (!state.uploadDone) hint = 'アップロードが終わると送信できます';
-  else if (preview.pointCount() === 0) hint = '残したい所を 1 か所以上タップすると送信できます';
-  else if (preview.objectMissing()) hint = '対象が見つからないため送信できません。点を打ち直してください';
+  else if (problem?.kind === 'noPoints') hint = `${problem.label} のフレームに、残したい所を 1 か所以上タップすると送信できます`;
+  else if (problem?.kind === 'missing') hint = `${problem.label} のフレームで対象が見つからないため送信できません。点を打ち直してください`;
   else if (!preview.canSend()) hint = 'プレビューが出ると送信できます';
   else hint = '送信すると今日の回数を 1 回使います';
   el.sendHint.textContent = hint;
@@ -370,7 +439,7 @@ async function sendJob() {
   updateSendButton();
   try {
     const started = await startVideoJob(state.job.jobId, {
-      prompts: [{ time_ms: Math.round(state.startMs), points: preview.videoPoints() }],
+      prompts: preview.prompts(),
       background: selectedBackground(),
     });
     if (gen !== generation) return;
@@ -495,6 +564,9 @@ function resetAll() {
   el.resultVideo.load();
   el.downloadLink.href = '#';
   preview.reset();
+  el.picker.hidden = true;
+  el.pickerVideo.removeAttribute('src');
+  el.pickerVideo.load();
 
   for (const step of [el.stepRange, el.stepUpload, el.stepPreview, el.stepSend, el.stepResult]) {
     step.hidden = true;

@@ -251,3 +251,58 @@
     flex-direction: column;
     gap: var(--space-3);
 }
+
+/* 点を打つフレームのタブ（複数フレームの点の指定） */
+.frame-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 4px 0 8px;
+}
+
+.frame-tab {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.frame-tab-select,
+.frame-tab-delete {
+    background: transparent;
+    color: var(--text-muted);
+    border: 0;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 6px 12px;
+    min-height: 36px;
+    cursor: pointer;
+}
+
+.frame-tab-select[aria-selected="true"] {
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 600;
+}
+
+.frame-tab-delete {
+    padding: 6px 10px;
+    border-left: 1px solid var(--border);
+}
+
+.frame-picker {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.frame-picker input[type="range"] {
+    width: 100%;
+}
+
+.frame-picker-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}

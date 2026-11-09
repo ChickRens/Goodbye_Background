@@ -70,18 +70,37 @@
     <!-- 4. 残す所をタップ（アップロードと並行して、開始位置のフレームを登録し、本番と同じモデルでプレビューする） -->
     <section id="step-preview" class="video-step" hidden>
       <h3 class="video-step-title"><span class="video-step-no">4</span>残す所をタップ</h3>
-      <p class="video-note">開始位置のフレームです。ここで残った所が、仕上がりの最初のフレームになります（動きが速い所は途中で欠けることがあります）。</p>
-      <div class="video-canvas-wrap">
-        <canvas id="frame-canvas" role="img" aria-label="開始位置のフレーム。タップした位置を残す／除外する対象として指定できます"></canvas>
-      </div>
-      <p id="preview-status" class="edit-status" role="status" aria-live="polite"></p>
-      <p id="preview-warning" class="video-alert" role="alert" hidden>この点では切り抜く対象が見つかりませんでした。このまま送ると失敗するので、残したい物の真ん中をタップし直してください。</p>
+      <p class="video-note">開始位置のフレームから始めます。点を打ったフレームで残った所が、仕上がりのそのフレームになります。</p>
+      <div id="frame-tabs" class="frame-tabs" role="tablist" aria-label="点を打つフレーム"></div>
+      <div id="frame-panels"></div>
+      <template id="frame-panel-template">
+        <div class="frame-panel">
+          <div class="video-canvas-wrap">
+            <canvas role="img" aria-label="点を打つフレーム。タップした位置を残す／除外する対象として指定できます"></canvas>
+          </div>
+          <p class="edit-status" role="status" aria-live="polite"></p>
+          <p class="video-alert" role="alert" hidden>この点では切り抜く対象が見つかりませんでした。このまま送ると失敗するので、残したい物の真ん中をタップし直してください。</p>
+        </div>
+      </template>
       <div class="edit-toolbar">
         <button id="mode-toggle" type="button" class="icon-btn" data-mode="positive">➕ 含める</button>
         <button id="undo-btn" type="button" class="icon-btn" disabled>↺ Undo</button>
         <button id="redo-btn" type="button" class="icon-btn" disabled>↻ Redo</button>
       </div>
       <button id="preview-retry-btn" type="button" class="ghost-btn" hidden>プレビューをやり直す</button>
+
+      <!-- 2 枚目以降のフレーム（最大 5 枚） -->
+      <button id="add-frame-btn" type="button" class="ghost-btn" disabled>＋ このフレームにも点を打つ</button>
+      <div id="frame-picker" class="frame-picker" hidden>
+        <video id="picker-video" class="video-player" playsinline muted preload="auto"></video>
+        <input id="picker-time" type="range" step="1" aria-label="点を打つフレームの位置" />
+        <p id="picker-label" class="video-note"></p>
+        <div class="frame-picker-actions">
+          <button id="picker-decide" type="button" class="primary-btn">このフレームに決める</button>
+          <button id="picker-cancel" type="button" class="ghost-btn">やめる</button>
+        </div>
+      </div>
+      <p class="video-note">カットのある動画は、カットの少し後のフレームにも点を打ってください。腕が欠ける所は、そのフレームに点を打つと直ることがあります（最大 5 枚）。</p>
     </section>
 
     <!-- 5. 背景色を選んで送信 -->
