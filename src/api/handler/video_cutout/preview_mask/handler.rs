@@ -41,6 +41,7 @@ pub async fn preview_video_mask(
         .preview_mask(PreviewMaskInput {
             client_id: requester.client_id,
             job_id,
+            time_ms: request.time_ms,
             points,
         })
         .await?;

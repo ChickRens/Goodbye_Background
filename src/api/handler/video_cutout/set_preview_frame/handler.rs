@@ -1,4 +1,5 @@
-//! `POST /video-jobs/{id}/preview-frame` ハンドラ。プレビュー用のフレーム（1 枚目の静止画）を登録する。
+//! `POST /video-jobs/{id}/preview-frame?time_ms=4300` ハンドラ。点を打つフレームの静止画を、その時刻のフレームとして登録する。
+//! `time_ms` が無い・整数でない・範囲の外なら 400 `INVALID_PREVIEW_TIME`。
 //!
 //! ジョブの持ち主（`client-id`）だけ、`created` のときだけ使える。回数は消費せず、利用ログにも記録しない。
 //! エンコード（重い）はユースケースの中で `spawn_blocking` する。成功は 204。
@@ -7,13 +8,18 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
-    extract::{ConnectInfo, Multipart, Path, State, multipart::MultipartRejection},
+    extract::{
+        ConnectInfo, Multipart, Path, Query, State, multipart::MultipartRejection,
+        rejection::QueryRejection,
+    },
     http::{HeaderMap, StatusCode},
 };
 
 use crate::{
     api::handler::video_cutout::{
-        error::VideoHandlerError, requester::Requester, set_preview_frame::request::read_file_field,
+        error::VideoHandlerError,
+        requester::Requester,
+        set_preview_frame::request::{PreviewFrameQuery, read_file_field},
     },
     composition::video_wiring::VideoCutoutApp,
     presentation::errors::app_error::AppError,
@@ -28,12 +34,15 @@ pub async fn set_preview_frame(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path(id): Path<String>,
     headers: HeaderMap,
+    query: Result<Query<PreviewFrameQuery>, QueryRejection>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Result<StatusCode, AppError> {
     video.ensure_enabled()?;
     let requester =
         Requester::from_request(&headers, peer, &video).map_err(VideoHandlerError::from)?;
     let job_id = VideoJobId::from_str(&id).map_err(VideoHandlerError::from)?;
+    let Query(PreviewFrameQuery { time_ms }) =
+        query.map_err(|_| VideoHandlerError::from(PreviewInputError::InvalidTime))?;
     // 登録が終わるまで持つ（本文の読み込み・デコード・エンコードの全部を数える）
     let _permit = video.try_acquire_preview_encode()?;
     let mut multipart =
@@ -46,6 +55,7 @@ pub async fn set_preview_frame(
         .set_preview_frame(SetPreviewFrameInput {
             client_id: requester.client_id,
             job_id,
+            time_ms,
             image,
         })
         .await?;

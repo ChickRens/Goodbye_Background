@@ -55,7 +55,7 @@ impl PreviewMaskUseCase {
         }
         let features = self
             .features
-            .get(&job.id, job.range.start_ms())
+            .get(&job.id, input.time_ms)
             .ok_or(PreviewInputError::FrameNotFound)?;
 
         let segmenter = self.segmenter.clone();
@@ -160,5 +160,32 @@ mod preview_mask_usecase_test {
             .await
             .unwrap_err();
         assert_eq!(err, VideoJobError::NotFound.into());
+    }
+
+    #[tokio::test]
+    async fn decodes_features_of_the_requested_time() {
+        let h = harness();
+        let id = h.created_job().await;
+        h.set_frame.execute(frame_input(id, png_bytes(40, 30))).await.unwrap();
+        let mut later = frame_input(id, png_bytes(20, 10));
+        later.time_ms = 4_300;
+        h.set_frame.execute(later).await.unwrap();
+
+        let mut input = mask_input(id);
+        input.time_ms = 4_300;
+        let out = h.preview_mask.execute(input).await.unwrap();
+        let img = image::load_from_memory_with_format(&out.png, ImageFormat::Png).unwrap();
+        assert_eq!((img.width(), img.height()), (20, 10)); // 4_300 のフレームの大きさ
+    }
+
+    #[tokio::test]
+    async fn unregistered_time_is_frame_not_found() {
+        let h = harness();
+        let id = h.created_job().await;
+        h.set_frame.execute(frame_input(id, png_bytes(4, 4))).await.unwrap();
+        let mut input = mask_input(id);
+        input.time_ms = 4_300;
+        let err = h.preview_mask.execute(input).await.unwrap_err();
+        assert_eq!(err, PreviewInputError::FrameNotFound.into());
     }
 }

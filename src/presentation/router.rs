@@ -204,7 +204,7 @@ mod router_test {
         .into_bytes();
         body.extend_from_slice(image);
         body.extend_from_slice(format!("\r\n--{BOUNDARY}--\r\n").as_bytes());
-        Request::post(format!("/video-jobs/{id}/preview-frame"))
+        Request::post(format!("/video-jobs/{id}/preview-frame?time_ms=1000"))
             .header("client-id", client_id)
             .header("content-type", format!("multipart/form-data; boundary={BOUNDARY}"))
             .body(Body::from(body))
@@ -216,7 +216,7 @@ mod router_test {
     }
 
     fn preview_body() -> Value {
-        json!({"points": [{"x": 0.25, "y": 0.5, "label": "include"}, {"x": 0.75, "y": 0.5, "label": "exclude"}]})
+        json!({"time_ms": 1000, "points": [{"x": 0.25, "y": 0.5, "label": "include"}, {"x": 0.75, "y": 0.5, "label": "exclude"}]})
     }
 
     async fn created_job(router: &Router) -> String {
@@ -254,6 +254,19 @@ mod router_test {
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         let (status, _) = send(&router, post_json(&format!("/video-jobs/{id}/preview"), preview_body())).await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn preview_frame_without_valid_time_ms_is_400() {
+        let router = enabled_router();
+        let id = created_job(&router).await;
+        for query in ["", "?time_ms=abc", "?time_ms=-5"] {
+            let mut request = preview_frame(&id, &png_bytes(4, 4));
+            *request.uri_mut() = format!("/video-jobs/{id}/preview-frame{query}").parse().unwrap();
+            let (status, body) = send(&router, request).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{query}");
+            assert_eq!(body, json!({"code": "INVALID_PREVIEW_TIME"}), "{query}");
+        }
     }
 
     #[tokio::test]
@@ -455,7 +468,7 @@ mod router_test {
         assert_eq!(status, StatusCode::NO_CONTENT);
         let uri = format!("/video-jobs/{id}/preview");
         let nine: Vec<Value> = (0..9).map(|_| json!({"x": 0.5, "y": 0.5, "label": "include"})).collect();
-        for body in [json!({"points": []}), json!({"points": nine})] {
+        for body in [json!({"time_ms": 1000, "points": []}), json!({"time_ms": 1000, "points": nine})] {
             let (status, got) = send(&router, post_json(&uri, body)).await;
             assert_eq!(status, StatusCode::BAD_REQUEST);
             assert_eq!(got, json!({"code": "INVALID_POINTS"}));

@@ -15,7 +15,7 @@ use crate::video_cutout::{
     },
     preview::{
         error::{PreviewError, PreviewInputError},
-        feature_store::PreviewFeatureStore,
+        feature_store::{PreviewFeatureStore, TooManyFrames},
         segmenter::PreviewSegmenter,
     },
     set_preview_frame::{
@@ -70,6 +70,10 @@ impl SetPreviewFrameUseCase {
         if job.phase != JobPhase::Created {
             return Err(VideoJobError::InvalidState.into());
         }
+        let time_ms = input.time_ms;
+        if !(job.range.start_ms() <= time_ms && time_ms < job.range.end_ms()) {
+            return Err(PreviewInputError::InvalidTime.into());
+        }
 
         let segmenter = self.segmenter.clone();
         let image = input.image;
@@ -80,10 +84,9 @@ impl SetPreviewFrameUseCase {
         .await
         .map_err(|e| PreviewError::Inference(format!("エンコードのタスクが失敗: {e}")))??;
 
-        // 時刻を受け取るまで（計画 Task 6）は開始位置のフレームとして置く
         self.features
-            .save(job.id, job.range.start_ms(), Arc::new(features))
-            .expect("1 ジョブ 1 枚のうちは上限に届かない");
+            .save(job.id, time_ms, Arc::new(features))
+            .map_err(|TooManyFrames| PreviewInputError::TooManyFrames)?;
         Ok(SetPreviewFrameOutput)
     }
 }
@@ -196,5 +199,46 @@ mod set_preview_frame_usecase_test {
             .await
             .unwrap_err();
         assert_eq!(err, VideoJobError::InvalidState.into());
+    }
+
+    fn frame_at(id: crate::video_cutout::job::id::VideoJobId, time_ms: u32, w: u32) -> SetPreviewFrameInput {
+        let mut input = frame_input(id, png_bytes(w, 4));
+        input.time_ms = time_ms;
+        input
+    }
+
+    #[tokio::test]
+    async fn registers_each_time_separately() {
+        let h = harness();
+        let id = h.created_job().await;
+        h.set_frame.execute(frame_at(id, START_MS, 10)).await.unwrap();
+        h.set_frame.execute(frame_at(id, 4_300, 20)).await.unwrap();
+        assert_eq!(h.features.get(&id, START_MS).unwrap().frame_width, 10);
+        assert_eq!(h.features.get(&id, 4_300).unwrap().frame_width, 20);
+    }
+
+    #[tokio::test]
+    async fn rejects_time_outside_range() {
+        let h = harness();
+        let id = h.created_job().await;
+        // 範囲は 1_000..9_000（create_input）
+        for t in [999, 9_000, 20_000] {
+            let err = h.set_frame.execute(frame_at(id, t, 4)).await.unwrap_err();
+            assert_eq!(err, PreviewInputError::InvalidTime.into(), "{t}");
+        }
+        assert_eq!(h.preview.encoded(), 0);
+    }
+
+    #[tokio::test]
+    async fn sixth_frame_is_too_many() {
+        let h = harness();
+        let id = h.created_job().await;
+        for t in [1_000, 2_000, 3_000, 4_000, 5_000] {
+            h.set_frame.execute(frame_at(id, t, 4)).await.unwrap();
+        }
+        let err = h.set_frame.execute(frame_at(id, 6_000, 4)).await.unwrap_err();
+        assert_eq!(err, PreviewInputError::TooManyFrames.into());
+        // 登録済みの時刻の登録し直しはできる
+        h.set_frame.execute(frame_at(id, 3_000, 4)).await.unwrap();
     }
 }

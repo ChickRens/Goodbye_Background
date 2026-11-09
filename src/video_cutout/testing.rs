@@ -225,13 +225,14 @@ fn encoded_frame(width: u32, height: u32, format: ImageFormat) -> Vec<u8> {
 }
 
 pub fn frame_input(job_id: VideoJobId, image: Vec<u8>) -> SetPreviewFrameInput {
-    SetPreviewFrameInput { client_id: client_id(), job_id, image }
+    SetPreviewFrameInput { client_id: client_id(), job_id, time_ms: START_MS, image }
 }
 
 pub fn mask_input(job_id: VideoJobId) -> PreviewMaskInput {
     PreviewMaskInput {
         client_id: client_id(),
         job_id,
+        time_ms: START_MS,
         points: Points::new(vec![
             NormalizedPoint::new(0.25, 0.5, PointLabel::Include).unwrap(),
             NormalizedPoint::new(0.75, 0.5, PointLabel::Exclude).unwrap(),

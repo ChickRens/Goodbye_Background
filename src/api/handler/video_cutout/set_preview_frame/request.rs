@@ -5,6 +5,12 @@
 
 use axum::extract::Multipart;
 
+/// クエリ `?time_ms=4300`（元の動画のミリ秒）。
+#[derive(serde::Deserialize)]
+pub struct PreviewFrameQuery {
+    pub time_ms: u32,
+}
+
 use crate::video_cutout::preview::error::PreviewInputError;
 
 /// 最初の `file` フィールドのバイト列を返す。それ以外の名前のフィールドは読み飛ばす。

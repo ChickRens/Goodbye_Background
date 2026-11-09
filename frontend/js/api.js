@@ -303,18 +303,19 @@ export async function getVideoJob(jobId) {
 }
 
 /**
- * POST /video-jobs/{id}/preview-frame
- * request : multipart/form-data, field "file"（開始位置のフレーム。PNG / JPEG、10MB 以下、長辺 2000px 以下）
+ * POST /video-jobs/{id}/preview-frame?time_ms=4300
+ * request : multipart/form-data, field "file"（点を打つフレーム。PNG / JPEG、10MB 以下、長辺 2000px 以下）
+ *   time_ms: そのフレームの時刻（元の動画のミリ秒、整数。範囲の中）。1 ジョブ最大 5 つの時刻（6 つ目は 409 TOO_MANY_PREVIEW_FRAMES）
  * response: 204（本文なし）。サーバーがフレームを 1 回だけエンコードしてジョブごとに持つ
  *   - 回数は消費しない。ジョブの持ち主だけ、送信（start）前だけ使える
  *   - 503 PREVIEW_BUSY: 同時に登録できる数（サーバー全体で 2）を超えた。少し待ってやり直す
  */
-export async function setVideoPreviewFrame(jobId, frameBlob) {
+export async function setVideoPreviewFrame(jobId, frameBlob, timeMs) {
   const formData = new FormData();
   const name = frameBlob.type === 'image/jpeg' ? 'frame.jpg' : 'frame.png';
   formData.append('file', frameBlob, name);
   const res = await request(
-    `/video-jobs/${encodeURIComponent(jobId)}/preview-frame`,
+    `/video-jobs/${encodeURIComponent(jobId)}/preview-frame?time_ms=${Math.round(timeMs)}`,
     { method: 'POST', headers: buildHeaders(), body: formData },
     LONG_TIMEOUT_MS,
   );
@@ -323,14 +324,17 @@ export async function setVideoPreviewFrame(jobId, frameBlob) {
 
 /**
  * POST /video-jobs/{id}/preview
- * request : { points: [{ x, y, label: "include" | "exclude" }] }（/start と同じ形。1〜8 個、0〜1 の正規化座標）
+ * request : { time_ms, points: [{ x, y, label: "include" | "exclude" }] }（time_ms は preview-frame と同じ値。点は 1〜8 個、0〜1 の正規化座標）
  * response: 200 image/png（グレースケール 8bit の alpha マスク。255 = 残す。大きさは登録したフレームと同じ）
  *   - ヘッダー X-Object-Present: "false" なら対象が見つからない（このまま送ると subject_not_found で失敗する）
  *   - 409 PREVIEW_FRAME_NOT_FOUND: フレームが未登録か、サーバーが特徴量を捨てた。登録し直してやり直す
  * 戻り値: { maskBlob, objectPresent }
  */
-export async function previewVideoMask(jobId, points) {
-  const res = await postJson(`/video-jobs/${encodeURIComponent(jobId)}/preview`, { points });
+export async function previewVideoMask(jobId, timeMs, points) {
+  const res = await postJson(`/video-jobs/${encodeURIComponent(jobId)}/preview`, {
+    time_ms: Math.round(timeMs),
+    points,
+  });
   if (!res.ok) await throwApiError(res);
   const objectPresent = res.headers.get('x-object-present') === 'true';
   const maskBlob = await res.blob();

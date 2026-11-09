@@ -322,7 +322,7 @@ async function startPreview() {
       state.frameBlob = await captureFrame(el.video, state.startMs);
       if (gen !== generation) return;
     }
-    const ok = await preview.load(state.job.jobId, state.frameBlob);
+    const ok = await preview.load(state.job.jobId, state.frameBlob, state.startMs);
     if (gen !== generation) return;
     if (!ok) el.previewRetryBtn.hidden = false;
   } catch (err) {

@@ -132,6 +132,7 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
 
   let generation = 0; // reset のたびに進める。前の動画の応答を捨てるため
   let jobId = null;
+  let timeMs = 0; // このフレームの時刻（元の動画のミリ秒）
   let frameBlob = null;
   let frameUrl = null;
   let frameImg = null;
@@ -203,14 +204,14 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
   async function registerFrame(gen) {
     if (!uploadBlob) uploadBlob = await frameForUpload(frameBlob, frameImg);
     const blob = uploadBlob;
-    await withBusyRetry(() => setVideoPreviewFrame(jobId, blob), gen);
+    await withBusyRetry(() => setVideoPreviewFrame(jobId, blob, timeMs), gen);
   }
 
   /**
    * ジョブにフレームを登録し、タップできる状態にする。点があれば（やり直しのとき）計算し直す。
    * 失敗したら false（同じ引数でもう一度呼べばやり直せる）。
    */
-  async function load(newJobId, newFrameBlob) {
+  async function load(newJobId, newFrameBlob, newTimeMs) {
     const gen = generation;
     registered = false;
     sync();
@@ -229,6 +230,7 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
         controller.loadOriginalImage(frameUrl, () => gen !== generation);
       }
       jobId = newJobId;
+      timeMs = newTimeMs;
       await registerFrame(gen);
       if (gen !== generation) return false;
       registered = true;
@@ -314,7 +316,7 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
 
   /** /preview。フレームの特徴量が消えていたら登録し直して 1 回だけやり直す */
   async function fetchMask(sentPoints, gen) {
-    const call = () => withBusyRetry(() => previewVideoMask(jobId, sentPoints), gen);
+    const call = () => withBusyRetry(() => previewVideoMask(jobId, timeMs, sentPoints), gen);
     try {
       return await call();
     } catch (err) {
