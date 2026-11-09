@@ -105,3 +105,12 @@ def test_main_stops_before_fetching_models_when_preflight_fails(tmp_path, monkey
     m = _load_script()
     monkeypatch.setattr(m, "fetch_models", lambda *a, **k: pytest.fail("モデルを取得してはいけない"))
     assert m.main([str(tmp_path / "none.mp4"), "--point", "0.5,0.5"]) == 1
+
+
+def test_parse_prompt_with_time_and_exclude():
+    m = _load_script()
+    t, pts = m.parse_prompt("4300:0.5,0.4;0.2,0.5,exclude")
+    assert t == 4300
+    assert [(p.x, p.y, p.label) for p in pts] == [(0.5, 0.4, "include"), (0.2, 0.5, "exclude")]
+    with pytest.raises(Exception):
+        m.parse_prompt("0.5,0.4")  # 時刻が無い

@@ -138,8 +138,13 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
     入力の大きさは両方とも `constants.json` の `image_size` から決める（512 の決め打ちはしない）。
     ワーカーの記憶の選び方は **DAM4SAM**（`worker/cutout/tracker_variants.py` の `PRODUCTION_POLICY`）。
     2 枚目以降の話なので、プレビュー（1 枚目）は SAM2 そのままの計算でワーカーと一致する（マスクの IoU 0.9999 を確認）。
-    特徴量はジョブごとに約 8MB（f16）をメモリに置き、開始・削除・期限切れで消す。最大 16 件（LRU。約 128MB）、
-    フレームの登録は同時 2 件まで（超えたら 503 `PREVIEW_BUSY`）
+    特徴量は 1 枚約 8MB（f16）を (ジョブ, 時刻) ごとにメモリに置き、開始・削除・期限切れで消す。全体で最大 16 枚（LRU。約 128MB）、
+    1 ジョブ最大 5 枚（6 枚目はそのジョブの最も古い 1 枚を捨てる）、フレームの登録は同時 2 件まで（超えたら 503 `PREVIEW_BUSY`）
+17. **点は複数のフレームに打てる（`prompts = [{time_ms, points}]`、最大 5 枚。1 つ目は範囲の開始）**（仕様
+    `docs/superpowers/specs/2026-11-09-video-multi-frame-prompts-design.md`）。ワーカーは指定フレームを 1 枚目と同じく
+    記憶なし・点だけで切り抜き（= その時刻のプレビューと一致）、以後の条件メモリに入れる（方式 A。前のフレームには効かせない）。
+    時刻 → フレーム番号は `round((time_ms − start) × fps ÷ 1000)`（`worker/cutout/pipeline.py` の `prompt_frames`）。
+    Rust はワーカーに `prompts` と、古いワーカー向けに 1 つ目の点を `points` として送る（両方のデプロイが済んだら `points` はやめてよい）
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）
 

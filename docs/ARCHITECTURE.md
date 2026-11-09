@@ -282,8 +282,8 @@ Modal 上の Python ワーカーで行い、Rust 側はジョブの管理・回�
 ブラウザ ──POST /video-jobs──────────► CreateVideoJob（回数 > 0 を確認、Created で保存）→ 201 {job_id, upload_url}
    │──PUT upload_url（動画本体）──────► Cloudflare R2（サーバーを経由しない）
    │──POST /video-jobs/{id}/start ────► StartVideoJob（R2 に HEAD → 回数を消費 → Queued → Modal に投入）→ 202
-   │──POST /video-jobs/{id}/preview-frame（1 枚目の静止画）► SetPreviewFrame（small でエンコードして特徴量を保存）→ 204
-   │──POST /video-jobs/{id}/preview（点）► PreviewMask（small のデコーダ → alpha の PNG）→ 200 image/png
+   │──POST /video-jobs/{id}/preview-frame?time_ms=（点を打つフレームの静止画。最大 5 枚）► SetPreviewFrame（small でエンコードして (ジョブ, 時刻) ごとに保存）→ 204
+   │──POST /video-jobs/{id}/preview（time_ms と点）► PreviewMask（その時刻の特徴量で small のデコーダ → alpha の PNG）→ 200 image/png
    │──GET /video-jobs/{id}（1 秒ごと）► GetVideoJob（期限切れなら Failed(timeout)、Done なら download_url）→ 200
 Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）──► ReportVideoJobEvent → 204
 ```
@@ -354,7 +354,8 @@ Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）�
 - `/preview` はヘッダー `X-Object-Present: true|false` も返す（デコーダの `object_score_logits > 0`。ワーカーは 1 枚目でこれが偽だと
   `subject_not_found` で失敗する）
 - 作成は回数を消費しないので、メモリと CPU に上限を付けている:
-  - 特徴量は最大 `MAX_PREVIEW_FEATURES`（16 件 ≒ 128MB。tiny の頃は 64 件 × 2MB）件。溢れたら最も長く使われていないもの（LRU）を捨てる。捨てられたジョブの `/preview` は
+  - 特徴量は (ジョブ, 時刻) ごとに持つ（複数フレームの点の指定。1 ジョブ最大 5 枚で、6 枚目はそのジョブの最も古い 1 枚を捨てる）。
+    全体で最大 `MAX_PREVIEW_FEATURES`（16 枚 ≒ 128MB。tiny の頃は 64 件 × 2MB）枚。溢れたら最も長く使われていないもの（LRU）を捨てる。捨てられたジョブの `/preview` は
     409 `PREVIEW_FRAME_NOT_FOUND` になり、フロントがフレームを登録し直す
   - `preview-frame` は同時に `MAX_CONCURRENT_PREVIEW_ENCODES`（2）件まで（本文を読む前に `Semaphore` の `try_acquire`）。
     空きが無ければ待たずに 503 `PREVIEW_BUSY`

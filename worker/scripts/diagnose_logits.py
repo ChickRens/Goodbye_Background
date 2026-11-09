@@ -10,6 +10,7 @@
 
 使い方（worker フォルダで。モデルは全グラフが要る。初回は約 150MB を取得する）:
   uv run python scripts/diagnose_logits.py <元の動画> --point 0.50,0.42 [--point x,y,exclude] [--start-ms 0]
+    [--prompt TIME_MS:x,y;x,y,exclude ...]   # 2 枚目以降のフレームの点（時刻は元の動画のミリ秒。--policy は sam2 以外）
   点は 0..1 の正規化座標（左上が 0,0）。プレビューでタップしたのと同じ所を指定する。
 """
 
@@ -29,7 +30,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "worker"))  # scripts/ から実行しても cutout を import できるように
 
 from cutout.compositor import EDGE_SHARPNESS, alpha_from_logits, composite  # noqa: E402
-from cutout.contract import NormalizedPoint  # noqa: E402
+from cutout.contract import NormalizedPoint, Prompt  # noqa: E402
+from cutout.pipeline import prompt_frames  # noqa: E402
 from cutout.postprocess import DetachedBlobFilter  # noqa: E402
 from cutout.models import VIDEO_MODELS, fetch_models, load_constants, load_sessions  # noqa: E402
 from cutout.tracker import Sam2VideoTracker  # noqa: E402
@@ -95,10 +97,19 @@ def preflight(video: Path) -> str | None:
     return None
 
 
+def parse_prompt(s: str) -> tuple[int, list[NormalizedPoint]]:
+    """'4300:0.5,0.4;0.2,0.5,exclude' → (4300, [点...])。2 枚目以降のフレームの点。"""
+    if ":" not in s:
+        raise argparse.ArgumentTypeError("フレームの点は TIME_MS:x,y;x,y,exclude で指定する")
+    t, rest = s.split(":", 1)
+    return int(t), [parse_point(part) for part in rest.split(";") if part.strip()]
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("video", type=Path)
     ap.add_argument("--point", type=parse_point, action="append", required=True)
+    ap.add_argument("--prompt", type=parse_prompt, action="append", default=[], help="2 枚目以降のフレームの点")
     ap.add_argument("--start-ms", type=int, default=0)
     ap.add_argument("--model", choices=list(VIDEO_MODELS), default="tiny", help="比べるモデル（既定は本番と同じ tiny）")
     ap.add_argument("--model-dir", type=Path, default=None, help="省略時は worker/models/sam2.1-<model>-video-full")
@@ -123,6 +134,12 @@ def main(argv: list[str]) -> int:
     total = max(1, min(MAX_FRAMES, round((end_ms - args.start_ms) / 1000 * fps)))
     if args.frames is not None:
         total = max(1, min(total, args.frames))
+    prompts = prompt_frames(
+        [Prompt(args.start_ms, args.point)] + [Prompt(t, pts) for t, pts in sorted(args.prompt)], args.start_ms, fps, total
+    )
+    if args.policy == "sam2" and len(prompts) > 1:
+        print("2 枚目以降のフレームの点（--prompt）は --policy dam4sam か samurai で使う", file=sys.stderr)
+        return 1
     if args.policy == "sam2":
         tracker = Sam2VideoTracker(sessions, constants, total)
     else:
@@ -134,7 +151,7 @@ def main(argv: list[str]) -> int:
     csv_path = args.out_dir / f"diagnose-{label}.csv"
     print(
         f"{args.model}（{constants.get('image_size')}）記憶 {args.policy} {width}x{height} {fps}fps {total} フレーム"
-        f" EDGE_SHARPNESS={EDGE_SHARPNESS} 点={args.point}"
+        f" EDGE_SHARPNESS={EDGE_SHARPNESS} 点を打つフレーム={sorted(prompts)}"
     )
     started = time.monotonic()
     with FrameReader(args.video, args.start_ms, end_ms, width, height, fps, info.is_hdr) as reader, Mp4Writer(
@@ -146,12 +163,17 @@ def main(argv: list[str]) -> int:
         for i, frame in enumerate(reader):
             if i >= total:
                 break
-            r = tracker.process(frame, args.point if i == 0 else None)
+            points = prompts.get(i)
+            r = tracker.process(frame, points)
             logits = r.high_res_logits
             removed = 0
             if r.object_present:
                 now = composite(frame, alpha_from_logits(logits, width, height), GREEN)
-                filtered, removed = blob_filter.apply(logits)
+                if points is not None and i > 0:
+                    blob_filter.reset(logits)  # 本番（pipeline.py）と同じく点を打ったフレームは消さない
+                    filtered = logits
+                else:
+                    filtered, removed = blob_filter.apply(logits)
                 post = composite(frame, alpha_from_logits(filtered, width, height), GREEN)
                 if removed:
                     # 消した所（元は前景・後処理で背景）を赤く塗って、何を消したか見えるようにする
