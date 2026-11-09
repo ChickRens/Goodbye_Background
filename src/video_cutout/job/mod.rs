@@ -7,6 +7,7 @@ pub mod id;
 pub mod locks;
 pub mod phase;
 pub mod point;
+pub mod prompt;
 pub mod repository;
 pub mod repository_impl;
 pub mod video_job;

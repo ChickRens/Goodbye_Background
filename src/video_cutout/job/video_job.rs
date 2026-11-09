@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::video_cutout::job::{
     background::Background, clip_range::ClipRange, id::VideoJobId, phase::JobPhase,
-    point::Points,
+    prompt::Prompts,
 };
 
 const MINUTE_MS: u64 = 60_000;
@@ -30,7 +30,8 @@ pub struct VideoJob {
     pub content_type: String,
     pub range: ClipRange,
     pub background: Option<Background>,
-    pub points: Option<Points>,
+    /// 点を打ったフレーム（送信で決まる）。
+    pub prompts: Option<Prompts>,
     pub phase: JobPhase,
     pub created_at_ms: u64,
     pub last_event_at_ms: u64,
@@ -76,7 +77,7 @@ pub fn job_created_at(ms: u64) -> VideoJob {
         content_type: "video/mp4".to_string(),
         range: ClipRange::new(0, 1_000).unwrap(),
         background: None,
-        points: None,
+        prompts: None,
         phase: JobPhase::Created,
         created_at_ms: ms,
         last_event_at_ms: ms,

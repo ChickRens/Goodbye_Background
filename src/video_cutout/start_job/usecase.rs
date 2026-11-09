@@ -18,6 +18,7 @@ use crate::video_cutout::{
         error::VideoJobError,
         locks::VideoJobLocks,
         phase::{FailureCode, JobPhase},
+        prompt::{Prompt, Prompts},
         repository::VideoJobRepository,
         video_job::{MAX_INPUT_BYTES, VideoJob},
     },
@@ -126,7 +127,11 @@ impl StartVideoJobUseCase {
 
         let remaining_today = self.quota.try_consume(&keys, day).await?;
         job.phase = JobPhase::Queued;
-        job.points = Some(input.points);
+        // 送信の入力を prompts にするまで（計画 Task 7）は、開始位置の 1 つの prompt として持つ
+        job.prompts = Some(
+            Prompts::new(vec![Prompt::new(job.range.start_ms(), input.points)], &job.range)
+                .expect("開始位置の 1 つの prompt は規則を満たす"),
+        );
         job.background = Some(input.background);
         job.quota_consumed = true;
         job.quota_day = Some(day);
@@ -178,10 +183,14 @@ impl StartVideoJobUseCase {
 
     fn worker_request(&self, job: &VideoJob) -> WorkerJobRequest {
         let id = job.id.value().to_string();
-        let points: Vec<WorkerPoint> = job
-            .points
+        let to_worker = |p: &Prompt| WorkerPrompt {
+            time_ms: p.time_ms(),
+            points: p.points().as_slice().iter().map(WorkerPoint::from).collect(),
+        };
+        let prompts: Vec<WorkerPrompt> = job
+            .prompts
             .as_ref()
-            .map(|p| p.as_slice().iter().map(WorkerPoint::from).collect())
+            .map(|ps| ps.as_slice().iter().map(to_worker).collect())
             .unwrap_or_default();
         WorkerJobRequest {
             input_url: self
@@ -194,12 +203,13 @@ impl StartVideoJobUseCase {
                 start: job.range.start_ms(),
                 end: job.range.end_ms(),
             },
-            points: points.clone(),
-            // Task 7 で複数の prompt にする。今は開始位置の 1 つだけ
-            prompts: vec![WorkerPrompt {
-                time_ms: job.range.start_ms(),
-                points,
-            }],
+            // 古いワーカー向けに 1 つ目の点も送る（仕様 §3.2）
+            points: job
+                .prompts
+                .as_ref()
+                .map(|ps| to_worker(ps.first()).points)
+                .unwrap_or_default(),
+            prompts,
             background_rgb: job.background.map(|b| b.rgb()).unwrap_or([0, 255, 0]),
             watermark: WATERMARK,
             max_input_bytes: MAX_INPUT_BYTES,
@@ -231,7 +241,7 @@ mod start_video_job_usecase_test {
         let job = h.repository.get(&id).unwrap();
         assert_eq!(job.phase, JobPhase::Queued);
         assert!(job.quota_consumed && !job.quota_refunded);
-        assert_eq!(job.points, Some(start_input(id).points));
+        assert_eq!(job.prompts.as_ref().unwrap().first().points(), &start_input(id).points);
         assert_eq!(job.background, Some(start_input(id).background));
 
         let sent = h.worker.dispatched.lock().unwrap();

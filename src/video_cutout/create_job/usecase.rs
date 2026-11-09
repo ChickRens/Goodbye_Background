@@ -84,7 +84,7 @@ impl CreateVideoJobUseCase {
             content_type: input.content_type,
             range,
             background: None,
-            points: None,
+            prompts: None,
             phase: JobPhase::Created,
             created_at_ms: now_ms,
             last_event_at_ms: now_ms,
