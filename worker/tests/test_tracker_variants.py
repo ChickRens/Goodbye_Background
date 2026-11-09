@@ -232,3 +232,16 @@ def test_prompted_frame_is_not_a_drm_addition_and_survives_history_cleanup(monke
     run_frames(tr, {0: PTS, 1: PTS}, 8)
     assert 1 not in tr.stats["drm_added"]
     assert 1 in tr._hist and 2 not in tr._hist  # 指定フレームは古くても消さない
+
+
+def test_prompted_frame_without_subject_is_not_conditioning_memory():
+    """点を打ったが被写体が見つからない（スコア ≤ 0）フレームを条件メモリにすると、後のフレームまで見失いに引きずられる。"""
+    s = CandidateSessions()
+    scores = iter([1.0, 1.0, -1.0, 1.0])  # 3 枚目（点を打ったフレーム）だけ被写体なし
+    orig = s.mask_decoder._fn
+    s.mask_decoder._fn = lambda f: {**orig(f), "object_score_logits": np.array([[next(scores)]], np.float32)}
+    tr = VariantTracker(s, CONSTANTS, 10, "dam4sam")
+    run_frames(tr, {0: PTS, 2: PTS}, 4)
+    assert tr.prompted == [0]
+    _, selected, _ = tr._blocks_dam4sam(4)
+    assert 2 not in selected

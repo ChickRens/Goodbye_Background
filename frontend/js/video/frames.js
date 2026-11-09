@@ -7,6 +7,12 @@
 export const MAX_FRAMES = 5;
 
 /**
+ * 追加済みのフレームとこれより近い時刻は追加しない（ミリ秒）。ワーカーは時刻を出力のフレーム（最大 30fps = 1 枚 33ms 以上）に
+ * 切り捨てて割り当て、同じフレームになると後の点で先の点を上書きする。24fps（1 枚 41.7ms）の動画でも別のフレームになる値
+ */
+export const MIN_FRAME_GAP_MS = 50;
+
+/**
  * そのフレームを追加してよいか。
  * @param {number[]} times 追加済みのフレームの時刻（元の動画のミリ秒）
  * @param {number} timeMs 追加したい時刻
@@ -15,7 +21,7 @@ export const MAX_FRAMES = 5;
  */
 export function canAddFrame(times, timeMs, startMs, endMs) {
   const t = Math.round(timeMs);
-  return times.length < MAX_FRAMES && startMs <= t && t < endMs && !times.some((x) => Math.round(x) === t);
+  return times.length < MAX_FRAMES && startMs <= t && t < endMs && times.every((x) => Math.abs(Math.round(x) - t) >= MIN_FRAME_GAP_MS);
 }
 
 /**

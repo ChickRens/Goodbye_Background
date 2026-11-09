@@ -47,6 +47,10 @@
     ['canAddFrame(新しい時刻)', () => canAddFrame([1000], 4300, 1000, 9000), true],
     ['canAddFrame(同じ時刻は追加しない)', () => canAddFrame([1000, 4300], 4300, 1000, 9000), false],
     ['canAddFrame(範囲の外)', () => [canAddFrame([1000], 999, 1000, 9000), canAddFrame([1000], 9000, 1000, 9000)], [false, false]],
+    // 同じフレームになるほど近い時刻は追加しない（後のものが先の点を黙って上書きするため）。50ms 以上離れていれば追加できる
+    ['canAddFrame(開始位置から 16ms は近すぎる)', () => canAddFrame([1000], 1016, 1000, 9000), false],
+    ['canAddFrame(4300 と 4310 は近すぎる)', () => canAddFrame([1000, 4300], 4310, 1000, 9000), false],
+    ['canAddFrame(50ms 離れていれば追加できる)', () => canAddFrame([1000], 1050, 1000, 9000), true],
     ['canAddFrame(5 枚で追加できない)', () => canAddFrame([1000, 2000, 3000, 4000, 5000], 6000, 1000, 9000), false],
     [
       'buildPrompts(時刻の昇順。1 つ目は開始位置)',

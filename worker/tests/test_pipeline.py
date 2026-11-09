@@ -294,3 +294,15 @@ def test_blob_filter_skips_prompted_frames(tmp_path, monkeypatch):
     frames = np.frombuffer(raw, np.uint8).reshape(-1, 512, 512, 3).astype(int)
     r, g, b = frames[15, 15:55, 15:55].reshape(-1, 3).mean(axis=0)
     assert not (g > 200 and r < 60 and b < 60)  # 点を打ったフレームの離れた塊は消さない（プレビューと一致）
+
+
+def test_prompt_frames_uses_the_frame_shown_at_that_time():
+    """ブラウザは時刻 t を含むフレームを表示する（切り捨て）。round だと半分の位置で次のフレームになり、プレビューとずれる。"""
+    pts = [NormalizedPoint(0.5, 0.5, "include")]
+    start = 1000
+    # 30fps: フレーム 1 は 1033.33〜1066.67ms。1050ms はフレーム 1（round だと 2）、1033ms はまだフレーム 0
+    got = prompt_frames([Prompt(start, pts), Prompt(1050, pts)], start, 30.0, 300)
+    assert sorted(got) == [0, 1]
+    assert sorted(prompt_frames([Prompt(start, pts), Prompt(1066, pts)], start, 30.0, 300)) == [0, 1]
+    # ちょうど境目（2000ms = フレーム 30）は浮動小数の誤差で 29 にしない
+    assert sorted(prompt_frames([Prompt(start, pts), Prompt(2000, pts)], start, 30.0, 300)) == [0, 30]

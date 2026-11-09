@@ -440,7 +440,9 @@ class VariantTracker:
             ptr=np.asarray(dec["object_pointer"]).reshape(-1)[:256],
             n_pixels=n_pixels, best_iou=float(ious[idx]), obj_score=score, kf_score=kf_score,
         )
-        if init and not first:
+        if init and not first and present:
+            # 被写体が見つからなかった指定フレームは条件メモリにしない（後のフレームまで「見失い」に引きずられるため）。
+            # 普通のフレームと同じく直近の記憶の候補にはなる
             self._prompted_later.append(t)
         if self._policy == "dam4sam" and not init:
             self._dam_update(t, cand, ious, idx, n_pixels)

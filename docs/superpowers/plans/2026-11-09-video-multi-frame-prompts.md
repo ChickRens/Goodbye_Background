@@ -179,3 +179,17 @@
 - [ ] **Step 3: 実装**し、カットのある元のダーツの動画（8.4 秒）を `--prompt 0:0.60,0.86 --prompt <カットの約 0.4 秒後>:<人物の胸>` で処理する（small ＋ dam4sam）
 - [ ] **Step 4: 確かめる** — CSV の `present == 0` が 15 フレーム → 2 フレーム以下。指定フレームの出力とプレビュー（Rust の 1 枚目と同じ計算）のマスクの IoU ≥ 0.999。結果を計測の記録に書き、文書を更新
 - [ ] **Step 5: コミット** `動画: 複数フレームの点を実モデルで確認し、文書を更新`
+
+## 実装時の判断（executing-plans の記録から。2026-11-09）
+
+- Task 1: Ruling: test_modal_app の不正な依頼を points=[] から prompts=[] に変更 — 仕様 §3.2 で prompts がある依頼は points を読まないため — 誤りなら古いワーカー向けの points の検査が抜ける（古い形は prompts が無い時だけ points を検査するので実害なし）
+- Task 4: Ruling: start_job は Task 7 まで入力の points を開始位置の 1 つの Prompt にして保存（expect 付き）— 計画の「仮の値で通す」の具体化 — 誤りなら Task 7 で置き換え漏れ（Task 7 のテストで検出）
+- Task 5: Ruling: set_preview_frame / preview_mask は Task 6 まで job.range.start_ms() の時刻で save/get（save は expect）。テスト用に testing::START_MS を足した — 計画の「開始位置の時刻で呼んで通す」の具体化 — 誤りなら Task 6 で置き換え漏れ（Task 6 のテストで検出）
+- Task 6: Ruling: api.js の関数名は計画の setPreviewFrame / previewMask ではなく既存の setVideoPreviewFrame(jobId, blob, timeMs) / previewVideoMask(jobId, timeMs, points) を使う — 既存の名前を変えると呼び出し側が無駄に増える — 誤りなら Task 8 で名前の食い違い（同じ私が書くので起きない）
+- Task 8: Ruling: 1 ジョブ 6 枚目の特徴量の登録は 409 TOO_MANY_PREVIEW_FRAMES で拒否せず、そのジョブで最も長く使われていない 1 枚を捨てる（エラーを削除）— 画面でフレームを消しても特徴量は残るため、拒否すると「消して別の時刻を足す」ができない（仕様 §5 と違う。仕様は削除を考えていなかった）— 誤りなら 1 ジョブの表示中のフレームが捨てられうるが、既存の 409 PREVIEW_FRAME_NOT_FOUND → 登録し直しで戻る（画面は最大 5 枚に制限）
+- Task 9: Ruling: 計画の基準「見失い 15 → 2 枚以下」に対して結果は 3 枚 — 残りはカット（9 フレーム目）と点を打った 12 フレーム目（0.4 秒。計画が指定した位置）の間で、方式 A の設計どおり（点の前には効かない）。基準の 2 枚は点の位置の見積もりの誤り — 誤りなら案内の「カットの少し後」をより直後に寄せる必要
+- Final: fixed 削除したフレームの preview が共有のモードボタンに反応し続ける — e2e「消した後のモードの切り替え」RED→GREEN, suite Rust 219/219・worker 180/180・selftest 23/23
+- Final: fixed 時刻→フレームの round がブラウザの表示（切り捨て）とずれる — test_prompt_frames_uses_the_frame_shown_at_that_time RED→GREEN
+- Final: fixed 同じフレームになる近い時刻の追加で先の点が黙って上書きされる — selftest canAddFrame の 3 件 RED→GREEN（MIN_FRAME_GAP_MS=50）
+- Final: fixed 被写体なしの指定フレームが条件メモリになる — test_prompted_frame_without_subject_is_not_conditioning_memory RED→GREEN
+- Final: fixed デプロイ順（Cloud Run 先だと点が効かないまま回数を使う）— 手順書 §12 を Modal 先に（文書の変更）

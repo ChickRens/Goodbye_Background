@@ -754,7 +754,8 @@ https://chickren.goodbye-background.com/video.html で、**以前腕が消えた
 カットのある動画や、腕が欠ける所のために、開始位置以外のフレームにも点を打てるようにしました（最大 5 枚。
 仕様 `docs/superpowers/specs/2026-11-09-video-multi-frame-prompts-design.md`）。
 Cloud Run（Rust）と Modal（ワーカー）の**どちらを先にデプロイしても壊れません**（Rust は古いワーカー向けに 1 枚目の点も送り、
-新しいワーカーは古い形の依頼も受け付けるため）。ただし両方が新しくなるまで、2 枚目以降の点は効きません。
+新しいワーカーは古い形の依頼も受け付けるため）。ただし **Modal を先に**デプロイしてください。Cloud Run が先だと、その間に
+2 枚目以降の点を打った利用者は、点が効かないまま 1 日の回数を使ってしまいます。
 
 ### 12-1. デプロイ
 
@@ -763,12 +764,14 @@ git switch claude/zealous-cerf-yoxav8
 git pull
 ```
 
-手順 4-1 の「マイグレーションのファイルの確認」（`Get-FileHash` の 3 行）をしてから、手順 5 の後の **「以後のデプロイ」のコマンド**で
-Cloud Run をビルド・デプロイし、続けて Modal をデプロイします:
+まず Modal（ワーカー）をデプロイします:
 
 ```powershell
 modal deploy worker/modal_app.py
 ```
+
+続けて、手順 4-1 の「マイグレーションのファイルの確認」（`Get-FileHash` の 3 行）をしてから、手順 5 の後の **「以後のデプロイ」のコマンド**で
+Cloud Run をビルド・デプロイします。
 
 ### 12-2. iPhone での確認
 

@@ -379,7 +379,7 @@ el.pickerDecide.addEventListener('click', async () => {
   const gen = generation;
   const timeMs = Math.round(Number(el.pickerTime.value));
   if (!preview.canAdd(timeMs)) {
-    showToast({ type: 'warning', message: 'その位置のフレームはもうあります。少しずらしてください' });
+    showToast({ type: 'warning', message: '点を打ったフレームに近すぎます（0.05 秒以上離してください）' });
     return;
   }
   el.pickerDecide.disabled = true;

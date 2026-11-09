@@ -101,6 +101,9 @@ export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeToggleBtn,
 
   function remove(frame) {
     if (locked || frame === frames[0]) return;
+    // 消したフレームの preview も共有のボタンにリスナーを持ったままなので、必ず受け持ちを外す
+    // （外さないと、モードのボタンの表示を自分のモードで上書きし、表示と実際のモードがずれる）
+    frame.preview.setActive(false);
     frame.preview.reset();
     frame.panel.remove();
     frames = frames.filter((f) => f !== frame);
@@ -166,6 +169,7 @@ export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeToggleBtn,
   /** 最初からやり直すとき: 全部のフレームを捨てる */
   function reset() {
     for (const f of frames) {
+      f.preview.setActive(false); // remove() と同じ理由
       f.preview.reset();
       f.panel.remove();
     }

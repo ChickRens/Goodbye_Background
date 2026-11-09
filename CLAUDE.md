@@ -143,7 +143,7 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
 17. **点は複数のフレームに打てる（`prompts = [{time_ms, points}]`、最大 5 枚。1 つ目は範囲の開始）**（仕様
     `docs/superpowers/specs/2026-11-09-video-multi-frame-prompts-design.md`）。ワーカーは指定フレームを 1 枚目と同じく
     記憶なし・点だけで切り抜き（= その時刻のプレビューと一致）、以後の条件メモリに入れる（方式 A。前のフレームには効かせない）。
-    時刻 → フレーム番号は `round((time_ms − start) × fps ÷ 1000)`（`worker/cutout/pipeline.py` の `prompt_frames`）。
+    時刻 → フレーム番号は `floor((time_ms − start) × fps ÷ 1000)`（ブラウザがその時刻に表示するフレーム。`worker/cutout/pipeline.py` の `prompt_frames`）。
     Rust はワーカーに `prompts` と、古いワーカー向けに 1 つ目の点を `points` として送る（両方のデプロイが済んだら `points` はやめてよい）
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -76,13 +77,17 @@ class Tracker(Protocol):
 def prompt_frames(
     prompts: list[Prompt], start_ms: int, fps: float, total: int
 ) -> dict[int, list[NormalizedPoint]]:
-    """prompts をフレーム番号（round((time_ms - start_ms) * fps / 1000)）に割り当てる。
+    """prompts をフレーム番号（floor((time_ms - start_ms) * fps / 1000)）に割り当てる。
+
+    ブラウザはその時刻を含むフレームを表示する（= 切り捨て）。round にすると半分の位置で次のフレームになり、
+    プレビュー（利用者が見て点を打った画像）と出力がずれる。境目ちょうどの時刻が浮動小数の誤差で前のフレームに
+    ならないよう、わずかに足してから切り捨てる。
 
     同じ番号になったら後の prompt を使う（ログに残す）。total 以上の番号は捨てる（範囲の終わり近くの指定）。
     """
     out: dict[int, list[NormalizedPoint]] = {}
     for p in prompts:
-        k = round((p.time_ms - start_ms) * fps / 1000)
+        k = math.floor((p.time_ms - start_ms) * fps / 1000 + 1e-6)
         if not (0 <= k < total):
             logger.info("点の指定がフレームの範囲外なので使わない (time_ms=%s, frame=%s, total=%s)", p.time_ms, k, total)
             continue

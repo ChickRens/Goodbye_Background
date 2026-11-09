@@ -63,7 +63,7 @@ small でもブレで腕が欠けることがある。
 
 ## 4. ワーカー
 
-- `time_ms` → フレーム番号: `round((time_ms − range_ms.start) × fps ÷ 1000)`（fps は出力の fps = min(元, 30)）。
+- `time_ms` → フレーム番号: `floor((time_ms − range_ms.start) × fps ÷ 1000)`（fps は出力の fps = min(元, 30)。ブラウザがその時刻に表示するフレームに合わせる。2026-11-09 のレビューで round から変更）。
   同じ番号になる prompt が 2 つあれば、後のものを使う（ログに残す）。範囲外の番号は捨てる
 - `VariantTracker.process(frame, points)`: 1 枚目だけでなく、**どのフレームでも points を受け付ける**。points があるフレームは
   - デコードは `feats2_no_mem`（記憶なし）と点で行う（1 枚目と同じ計算 = プレビューと一致）
