@@ -24,6 +24,11 @@ from cutout.contract import (
 )
 from cutout.errors import InputTooLarge
 from cutout.notifier import Notifier
+from cutout.postprocess import DetachedBlobFilter
+
+# 体から離れた塊を消す後処理（cutout/postprocess.py）を本番でかけるか。D_man での評価が済むまで False
+# （本人の手を消さないことを確かめてから True にする。2026-11-09）
+REMOVE_DETACHED_BLOBS = False
 from cutout.tracker import Sam2VideoTracker
 from cutout.video_io import (
     MAX_FRAMES,
@@ -111,6 +116,7 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
     tracker = make_tracker(total)
 
     frames = lost = 0
+    blob_filter = DetachedBlobFilter()
     with FrameReader(src, start_ms, end_ms, width, height, fps, info.is_hdr) as reader, Mp4Writer(
         out, width, height, fps, src if info.has_audio else None, start_ms, end_ms
     ) as writer:
@@ -125,7 +131,11 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
                 raise
             result = tracker.process(frame, req.points if frames == 0 else None)
             if result.object_present:
-                alpha = alpha_from_logits(result.high_res_logits, width, height)
+                # 体から離れた塊（同じ服の隣の人の切れ端など）を消す。1 枚目は触らない（プレビューと一致させる）
+                logits = result.high_res_logits
+                if REMOVE_DETACHED_BLOBS:
+                    logits, _ = blob_filter.apply(logits)
+                alpha = alpha_from_logits(logits, width, height)
                 composed = composite(frame, alpha, req.background_rgb)
             else:
                 if frames == 0:

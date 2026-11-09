@@ -1,6 +1,7 @@
 """run_job のテスト。ONNX は使わず FakeTracker で推論の契約だけを再現する。"""
 
 import shutil
+import subprocess
 import warnings
 from pathlib import Path
 
@@ -193,3 +194,37 @@ def test_very_negative_logits_give_zero_alpha_without_warning():
         warnings.simplefilter("error")
         alpha = alpha_from_logits(np.full((512, 512), -1024.0, np.float32), 64, 48)
     assert float(alpha.max()) < 1e-6
+
+
+class BlobTracker:
+    """体（中央）は毎フレーム、左上の離れた塊は 2 枚目以降だけ出すトラッカー。"""
+
+    def __init__(self):
+        self._i = 0
+
+    def process(self, frame_rgb, points):
+        a = np.full((512, 512), -10.0, np.float32)
+        a[100:400, 200:300] = 10.0  # 体
+        if self._i > 0:
+            a[10:60, 10:60] = 10.0  # 体から遠くに急に出た塊（隣の人の切れ端）
+        self._i += 1
+        return FrameResult(a, True)
+
+
+def test_detached_blob_is_removed_after_first_frame(tmp_path, monkeypatch):
+    import cutout.pipeline as pipeline
+
+    monkeypatch.setattr(pipeline, "REMOVE_DETACHED_BLOBS", True)
+    video = make_video(tmp_path, fps=30, seconds=1, size=(512, 512), audio=False)
+    transfer = FakeTransfer(video, 1000, tmp_path)
+    run_job(request((0, 1000)), transfer, FakeNotifier(), lambda total: BlobTracker(), LogoBadge.load(LOGO), tmp_path / "w")
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(transfer.uploaded), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    frames = np.frombuffer(raw, np.uint8).reshape(-1, 512, 512, 3).astype(int)
+    def green(region):
+        r, g, b = region.reshape(-1, 3).mean(axis=0)
+        return g > 200 and r < 60 and b < 60
+    assert green(frames[5, 15:55, 15:55])  # 離れた塊は消えて背景（緑）
+    assert not green(frames[5, 150:350, 220:280])  # 体は残る

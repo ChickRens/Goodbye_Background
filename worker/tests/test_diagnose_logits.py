@@ -77,9 +77,9 @@ def test_main_writes_three_panel_video_and_csv(tmp_path, monkeypatch):
     ).stdout.strip()
     assert size == "192,96"  # 3 枚横並び
     rows = list(csv.reader((out / "diagnose-tiny.csv").open()))
-    assert rows[0] == ["frame", "present", "area_gt_0", "area_gt_-1", "area_gt_-2", "area_gt_-4"]
+    assert rows[0] == ["frame", "present", "area_gt_0", "area_gt_-1", "area_gt_-2", "area_gt_-4", "removed_px"]
     assert len(rows) == 1 + 10
-    assert rows[1][2:] == ["10000", "10000", str(512 * 512), str(512 * 512)]
+    assert rows[1][2:] == ["10000", "10000", str(512 * 512), str(512 * 512), "0"]
 
 
 def test_preflight_names_missing_ffprobe(tmp_path, monkeypatch):
