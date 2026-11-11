@@ -1,10 +1,10 @@
-"""postprocess.DetachedBlobFilter（体から離れた塊を消す後処理）のテスト。"""
+"""postprocess.keep_largest_blob（いちばん大きい塊だけを残す後処理）のテスト。"""
 
 import numpy as np
 
-from cutout.postprocess import REMOVED_LOGIT, DetachedBlobFilter
+from cutout.postprocess import REMOVED_LOGIT, keep_largest_blob
 
-S = 200  # NEAR_RATIO 0.06 → 12 画素以内なら「近い」
+S = 200
 
 
 def logits(*boxes) -> np.ndarray:
@@ -18,62 +18,25 @@ def logits(*boxes) -> np.ndarray:
 BODY = (50, 150, 80, 120)
 
 
-def test_first_frame_is_untouched_even_with_far_blobs():
-    f = DetachedBlobFilter()
-    x = logits(BODY, (10, 20, 10, 20))
-    out, removed = f.apply(x)
-    assert removed == 0 and out is x  # プレビューと一致させるため 1 枚目は触らない
-
-
-def test_far_new_blob_is_removed_and_body_kept():
-    f = DetachedBlobFilter()
-    f.apply(logits(BODY))
-    x = logits(BODY, (10, 20, 10, 20))  # 体から遠くに急に出た塊（隣の人の切れ端）
-    out, removed = f.apply(x)
-    assert removed == 100
+def test_only_the_largest_blob_is_kept():
+    x = logits(BODY, (10, 20, 10, 20), (60, 70, 125, 135))  # 遠くの塊と、体のすぐ近く（5 画素）の塊
+    out, removed = keep_largest_blob(x)
+    assert removed == 200
     assert (out[10:20, 10:20] <= REMOVED_LOGIT).all()
+    assert (out[60:70, 125:135] <= REMOVED_LOGIT).all()  # 近くても、つながっていなければ消す
     assert (out[50:150, 80:120] == 5.0).all()
     assert (x[10:20, 10:20] == 5.0).all()  # 入力は書き換えない
 
 
-def test_blob_near_previous_mask_is_kept():
-    # 前のフレームで体の右にあった手が、今のフレームで体から少し離れて写る（速い手）→ 残す
-    f = DetachedBlobFilter()
-    f.apply(logits(BODY, (60, 70, 120, 135)))  # 体につながった手
-    out, removed = f.apply(logits(BODY, (60, 70, 128, 140)))  # 体から 8 画素離れたが、前の手の近く
-    assert removed == 0
-    assert (out[60:70, 128:140] == 5.0).all()
-
-
-def test_largest_blob_is_always_kept_even_if_it_moved_far():
-    f = DetachedBlobFilter()
-    f.apply(logits(BODY))
-    out, removed = f.apply(logits((50, 150, 10, 50), (160, 170, 160, 170)))  # 体が大きく動いた
-    assert (out[50:150, 10:50] == 5.0).all()
-    assert removed == 100  # 遠くの小さい塊だけ消える
-
-
-def test_removed_blob_does_not_anchor_the_next_frame():
-    f = DetachedBlobFilter()
-    f.apply(logits(BODY))
-    f.apply(logits(BODY, (10, 20, 10, 20)))  # 消される
-    _, removed = f.apply(logits(BODY, (12, 22, 12, 22)))  # 同じ所に出続けても、消したものは手がかりにしない
-    assert removed == 100
+def test_diagonal_touch_counts_as_connected():
+    x = logits(BODY, (150, 160, 120, 130))  # 体の右下の角と斜めに接する（8 近傍でつながる）
+    out, removed = keep_largest_blob(x)
+    assert removed == 0 and out is x
 
 
 def test_single_blob_and_empty_mask_pass_through():
-    f = DetachedBlobFilter()
-    f.apply(logits(BODY))
     x = logits(BODY)
-    assert f.apply(x) == (x, 0)
+    assert keep_largest_blob(x) == (x, 0)
     empty = np.full((S, S), -1024.0, np.float32)  # 被写体なし
-    out, removed = f.apply(empty)
+    out, removed = keep_largest_blob(empty)
     assert removed == 0 and out is empty
-
-
-def test_reset_replaces_previous_mask():
-    f = DetachedBlobFilter()
-    f.apply(logits(BODY))
-    f.reset(logits(BODY, (10, 20, 10, 20)))  # 利用者が点を打ったフレーム: 離れた塊も本物
-    out, removed = f.apply(logits(BODY, (12, 22, 12, 22)))
-    assert removed == 0 and (out[12:22, 12:22] == 5.0).all()

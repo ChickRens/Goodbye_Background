@@ -5,7 +5,7 @@
 前者なら合成をいじっても直らない（案 B / 案 C が必要）。後者なら合成の閾値で取り戻せる。
 
 出力（取得先のフォルダに作る）:
-  diagnose-<model>.mp4  左から [本番と同じ合成] [ロジットの色分け + 0 と -2 の等高線] [後処理（体から離れた塊を消す）の合成。消した所は赤]
+  diagnose-<model>.mp4  左から [本番と同じ合成] [ロジットの色分け + 0 と -2 の等高線] [後処理（いちばん大きい塊だけ残す）の合成。消した所は赤]
   diagnose-<model>.csv  フレームごとの object_score と、ロジットが 0 / -1 / -2 / -4 を超える面積（モデルの解像度での画素数）
 
 使い方（worker フォルダで。モデルは全グラフが要る。初回は約 150MB を取得する）:
@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT / "worker"))  # scripts/ から実行しても cutou
 from cutout.compositor import EDGE_SHARPNESS, alpha_from_logits, composite  # noqa: E402
 from cutout.contract import NormalizedPoint, Prompt  # noqa: E402
 from cutout.pipeline import prompt_frames  # noqa: E402
-from cutout.postprocess import DetachedBlobFilter  # noqa: E402
+from cutout.postprocess import keep_largest_blob  # noqa: E402
 from cutout.models import VIDEO_MODELS, fetch_models, load_constants, load_sessions  # noqa: E402
 from cutout.tracker import Sam2VideoTracker  # noqa: E402
 from cutout.tracker_variants import CANDIDATE_OUTPUTS, POLICIES, PRODUCTION_POLICY, VariantTracker  # noqa: E402
@@ -159,7 +159,6 @@ def main(argv: list[str]) -> int:
     ) as writer, csv_path.open("w", newline="") as f:
         out = csv.writer(f)
         out.writerow(["frame", "present"] + [f"area_gt_{t:g}" for t in THRESHOLDS] + ["removed_px"])
-        blob_filter = DetachedBlobFilter()
         for i, frame in enumerate(reader):
             if i >= total:
                 break
@@ -169,11 +168,10 @@ def main(argv: list[str]) -> int:
             removed = 0
             if r.object_present:
                 now = composite(frame, alpha_from_logits(logits, width, height), GREEN)
-                if points is not None and i > 0:
-                    blob_filter.reset(logits)  # 本番（pipeline.py）と同じく点を打ったフレームは消さない
-                    filtered = logits
+                if points is not None:
+                    filtered = logits  # 本番（pipeline.py）と同じく点を打ったフレーム（1 枚目を含む）は消さない
                 else:
-                    filtered, removed = blob_filter.apply(logits)
+                    filtered, removed = keep_largest_blob(logits)
                 post = composite(frame, alpha_from_logits(filtered, width, height), GREEN)
                 if removed:
                     # 消した所（元は前景・後処理で背景）を赤く塗って、何を消したか見えるようにする

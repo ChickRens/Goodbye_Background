@@ -29,11 +29,10 @@ from cutout.contract import (
 )
 from cutout.errors import InputTooLarge
 from cutout.notifier import Notifier
-from cutout.postprocess import DetachedBlobFilter
+from cutout.postprocess import keep_largest_blob
 
-# 体から離れた塊を消す後処理（cutout/postprocess.py）を本番でかけるか。D_man での評価が済むまで False
-# （本人の手を消さないことを確かめてから True にする。2026-11-09）
-REMOVE_DETACHED_BLOBS = False
+# いちばん大きい塊だけを残す後処理（cutout/postprocess.py）を本番でかけるか（2026-11-11 に有効化。オーナー判断）
+REMOVE_DETACHED_BLOBS = True
 from cutout.tracker import FrameResult
 from cutout.video_io import (
     MAX_FRAMES,
@@ -151,7 +150,6 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
     prompts = prompt_frames(req.prompts, start_ms, fps, total)
 
     frames = lost = 0
-    blob_filter = DetachedBlobFilter()
     with FrameReader(src, start_ms, end_ms, width, height, fps, info.is_hdr) as reader, Mp4Writer(
         out, width, height, fps, src if info.has_audio else None, start_ms, end_ms
     ) as writer:
@@ -167,13 +165,10 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
             points = prompts.get(frames)
             result = tracker.process(frame, points)
             if result.object_present:
-                # 体から離れた塊（同じ服の隣の人の切れ端など）を消す。点を打ったフレームは触らない（プレビューと一致させる）
+                # いちばん大きい塊（体）以外を消す。点を打ったフレーム（1 枚目を含む）は触らない（プレビューと一致させる）
                 logits = result.high_res_logits
-                if REMOVE_DETACHED_BLOBS:
-                    if points is not None and frames > 0:
-                        blob_filter.reset(logits)
-                    else:
-                        logits, _ = blob_filter.apply(logits)
+                if REMOVE_DETACHED_BLOBS and points is None:
+                    logits, _ = keep_largest_blob(logits)
                 alpha = alpha_from_logits(logits, width, height)
                 composed = composite(frame, alpha, req.background_rgb)
             else:

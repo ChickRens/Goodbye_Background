@@ -72,6 +72,8 @@ small でもブレで腕が欠けることがある。
 - 被写体が見つからない（スコア ≤ 0）とき: 1 枚目は今どおり `subject_not_found` で失敗。2 枚目以降の指定フレームは「見失い」として数え、失敗にしない
 - 体から離れた塊を消す後処理（`postprocess.py`、`REMOVE_DETACHED_BLOBS`）: 指定フレームには**かけず**、そのフレームの範囲で
   「前のフレームの範囲」を置き直す（`DetachedBlobFilter.reset(logits)` を足す）
+  - 2026-11-11 追記: 後処理は「いちばん大きい塊だけ残す」（`keep_largest_blob`。前のフレームを見ない）に変えて本番で有効にした。
+    指定フレームにかけないのは同じ（置き直しは不要になった）。`docs/video-cutout-measurements.md` の後処理の節
 - 本番の追跡は `VariantTracker`（DAM4SAM）だけ対応する。`tracker.py` の `Sam2VideoTracker` は計測の基準用なので 1 枚目だけのまま
 
 ## 5. Rust
