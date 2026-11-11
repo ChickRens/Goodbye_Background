@@ -35,7 +35,7 @@ from cutout.pipeline import prompt_frames  # noqa: E402
 from cutout.postprocess import DetachedBlobFilter  # noqa: E402
 from cutout.models import VIDEO_MODELS, fetch_models, load_constants, load_sessions  # noqa: E402
 from cutout.tracker import Sam2VideoTracker  # noqa: E402
-from cutout.tracker_variants import CANDIDATE_OUTPUTS, POLICIES, VariantTracker  # noqa: E402
+from cutout.tracker_variants import CANDIDATE_OUTPUTS, POLICIES, PRODUCTION_POLICY, VariantTracker  # noqa: E402
 from cutout.video_io import MAX_FRAMES, FrameReader, Mp4Writer, output_geometry, probe  # noqa: E402
 
 # worker/models/ は git 管理外かつ Docker イメージに入らない（ルートの models/ に置くとイメージが太る）
@@ -111,9 +111,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--point", type=parse_point, action="append", required=True)
     ap.add_argument("--prompt", type=parse_prompt, action="append", default=[], help="2 枚目以降のフレームの点")
     ap.add_argument("--start-ms", type=int, default=0)
-    ap.add_argument("--model", choices=list(VIDEO_MODELS), default="tiny", help="比べるモデル（既定は本番と同じ tiny）")
+    ap.add_argument("--model", choices=list(VIDEO_MODELS), default="small", help="比べるモデル（既定は本番と同じ small）")
     ap.add_argument("--model-dir", type=Path, default=None, help="省略時は worker/models/sam2.1-<model>-video-full")
-    ap.add_argument("--policy", choices=list(POLICIES), default="sam2", help="記憶の選び方（sam2 = 本番と同じ）")
+    ap.add_argument("--policy", choices=list(POLICIES), default=PRODUCTION_POLICY, help="記憶の選び方（既定は本番と同じ dam4sam）")
     ap.add_argument("--frames", type=int, default=None, help="先頭から何フレームだけ処理するか（速さを測るとき）")
     ap.add_argument("--out-dir", type=Path, default=ROOT / "results" / "diagnose")
     args = ap.parse_args(argv)

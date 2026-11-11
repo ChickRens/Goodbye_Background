@@ -69,7 +69,7 @@ def test_main_writes_three_panel_video_and_csv(tmp_path, monkeypatch):
     monkeypatch.setattr(m, "Sam2VideoTracker", FakeTracker)
 
     out = tmp_path / "out"
-    assert m.main([str(src), "--point", "0.5,0.5", "--out-dir", str(out)]) == 0
+    assert m.main([str(src), "--point", "0.5,0.5", "--model", "tiny", "--policy", "sam2", "--out-dir", str(out)]) == 0
 
     size = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(out / "diagnose-tiny.mp4")],
