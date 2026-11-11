@@ -135,7 +135,8 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
     モデルのリビジョンは `worker/cutout/models.py` の `MODEL_REVISION` 1 か所。プレビューとワーカーでモデルが違うと
     選ぶ範囲が食い違う（以前、画像の small と本番の tiny で起きた）。`video_cutout/preview/` の前処理・alpha は
     `worker/cutout/tracker.py`・`compositor.py` と同じ数値になるよう書いてある（EDGE_SHARPNESS・縁を縮める EDGE_SMOOTH_SIGMA_PX / EDGE_SHRINK_PX などを変えるときは両方直す。
-    縁の縮め方は出力の画素で決め、プレビューは `preview_px_scale` で出力との大きさの比だけ広げる）。
+    縁の縮め方は出力の画素で決め、プレビューは `preview_px_scale` で出力との大きさの比だけ広げる。
+    その後の「いちばん大きい塊だけ残す」`keep_largest_region` も両方にあり、全部のフレームにかける）。
     入力の大きさは両方とも `constants.json` の `image_size` から決める（512 の決め打ちはしない）。
     ワーカーの記憶の選び方は **DAM4SAM**（`worker/cutout/tracker_variants.py` の `PRODUCTION_POLICY`）。
     2 枚目以降の話なので、プレビュー（1 枚目）は SAM2 そのままの計算でワーカーと一致する（マスクの IoU 0.9999 を確認）。

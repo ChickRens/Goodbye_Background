@@ -279,7 +279,7 @@ def test_lost_on_later_prompted_frame_is_not_failure(tmp_path):
     assert final["phase"] == "done" and final["lost_frames"] == 1
 
 
-def test_blob_filter_skips_prompted_frames(tmp_path, monkeypatch):
+def test_blob_filter_also_cleans_prompted_frames(tmp_path, monkeypatch):
     import cutout.pipeline as pipeline
 
     monkeypatch.setattr(pipeline, "REMOVE_DETACHED_BLOBS", True)
@@ -293,7 +293,7 @@ def test_blob_filter_skips_prompted_frames(tmp_path, monkeypatch):
     ).stdout
     frames = np.frombuffer(raw, np.uint8).reshape(-1, 512, 512, 3).astype(int)
     r, g, b = frames[15, 15:55, 15:55].reshape(-1, 3).mean(axis=0)
-    assert not (g > 200 and r < 60 and b < 60)  # 点を打ったフレームの離れた塊は消さない（プレビューと一致）
+    assert g > 200 and r < 60 and b < 60  # 点を打ったフレームの離れた塊も消す（プレビューも同じ処理をする）
 
 
 def test_prompt_frames_uses_the_frame_shown_at_that_time():

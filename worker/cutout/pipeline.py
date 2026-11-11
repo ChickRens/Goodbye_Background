@@ -29,9 +29,10 @@ from cutout.contract import (
 )
 from cutout.errors import InputTooLarge
 from cutout.notifier import Notifier
-from cutout.postprocess import keep_largest_blob
+from cutout.postprocess import keep_largest_region
 
-# いちばん大きい塊だけを残す後処理（cutout/postprocess.py）を本番でかけるか（2026-11-11 に有効化。オーナー判断）
+# いちばん大きい塊だけを残す後処理（cutout/postprocess.py）を本番でかけるか（2026-11-11 に有効化。オーナー判断）。
+# プレビュー（Rust）は常にかけるので、False にするならプレビューも外す
 REMOVE_DETACHED_BLOBS = True
 from cutout.tracker import FrameResult
 from cutout.video_io import (
@@ -165,11 +166,10 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
             points = prompts.get(frames)
             result = tracker.process(frame, points)
             if result.object_present:
-                # いちばん大きい塊（体）以外を消す。点を打ったフレーム（1 枚目を含む）は触らない（プレビューと一致させる）
-                logits = result.high_res_logits
-                if REMOVE_DETACHED_BLOBS and points is None:
-                    logits, _ = keep_largest_blob(logits)
-                alpha = shrink_edge(alpha_from_logits(logits, width, height))
+                # 縁を縮めて滑らかにし、いちばん大きい塊（体）以外を消す。プレビューも同じ処理なので全部のフレームにかける
+                alpha = shrink_edge(alpha_from_logits(result.high_res_logits, width, height))
+                if REMOVE_DETACHED_BLOBS:
+                    alpha = keep_largest_region(alpha)
                 composed = composite(frame, alpha, req.background_rgb)
             else:
                 if frames == 0:

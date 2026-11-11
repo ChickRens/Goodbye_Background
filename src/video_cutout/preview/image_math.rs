@@ -8,6 +8,8 @@
 //!   （バイリニア拡大 → ±50 にクリップ → ×`EDGE_SHARPNESS` → ±50 にクリップ → sigmoid）
 //! - `shrink_edge`: `compositor.py` の `shrink_edge` と同じ（ガウスぼかし（端は BORDER_REFLECT_101）→ 縁を内側へずらす）。
 //!   ぼかしは OpenCV と同じく窓の重みを f64 で求めて f32 にし、横 → 縦の順に f32 で足す
+//! - `keep_largest_region`: `worker/cutout/postprocess.py` の `keep_largest_region` と同じ
+//!   （見える画素を 8 近傍でつなぎ、いちばん大きい塊だけ残す。同じ大きさなら上・左で先に見つかった塊）
 //!
 //! どちらも画素の中心を合わせる座標（`(dst + 0.5) * src / dst - 0.5`）で、縮小でもアンチエイリアスしない。
 //! 照合の方法: Python（OpenCV 5.0）で同じ入力を計算し、uint8 は完全一致、float32 は 4e-6 以内を確かめた（テストの期待値も同じ方法で作った）。
@@ -259,6 +261,60 @@ pub fn shrink_edge(alpha: &[f32], width: u32, height: u32, px_scale: f64) -> Vec
     out
 }
 
+/// これより大きい alpha は 8bit にすると 1 以上（目に見える）。`postprocess.py` の `VISIBLE_ALPHA` と同じ。
+const VISIBLE_ALPHA: f32 = 0.5 / 255.0;
+
+/// 見える画素（`VISIBLE_ALPHA` より大きい）を 8 近傍でつないだ塊のうち、いちばん大きいもの以外の alpha を 0 にする
+/// （`worker/cutout/postprocess.py` の `keep_largest_region`。体から離れた点や隣の人の切れ端を消す）。
+pub fn keep_largest_region(alpha: &mut [f32], width: u32, height: u32) {
+    let (w, h) = (width as usize, height as usize);
+    let mut labels = vec![0u32; w * h]; // 0 = 見えない画素。塊はラスター順に 1, 2, ... と番号を振る
+    let mut areas: Vec<usize> = vec![0];
+    let mut stack = Vec::new();
+    for start in 0..w * h {
+        if labels[start] != 0 || alpha[start] <= VISIBLE_ALPHA {
+            continue;
+        }
+        let label = areas.len() as u32;
+        let mut area = 0;
+        labels[start] = label;
+        stack.push(start);
+        while let Some(i) = stack.pop() {
+            area += 1;
+            let (x, y) = ((i % w) as isize, (i / w) as isize);
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
+                        continue;
+                    }
+                    let j = ny as usize * w + nx as usize;
+                    if labels[j] == 0 && alpha[j] > VISIBLE_ALPHA {
+                        labels[j] = label;
+                        stack.push(j);
+                    }
+                }
+            }
+        }
+        areas.push(area);
+    }
+    if areas.len() <= 2 {
+        return; // 塊が 0 個か 1 個
+    }
+    // 同じ大きさなら先に見つかった（番号の小さい）塊を残す（numpy の argmax と同じ）
+    let mut largest = 1;
+    for (label, &area) in areas.iter().enumerate().skip(2) {
+        if area > areas[largest] {
+            largest = label;
+        }
+    }
+    for (a, &l) in alpha.iter_mut().zip(&labels) {
+        if l != 0 && l as usize != largest {
+            *a = 0.0;
+        }
+    }
+}
+
 /// alpha（0〜1）をグレースケール 8bit の画像にする（255 = 前景）。
 pub fn alpha_to_gray(alpha: &[f32], width: u32, height: u32) -> GrayImage {
     let bytes = alpha
@@ -460,6 +516,43 @@ mod image_math_test {
                 assert!((got - want).abs() <= 2e-5, "scale {scale} ({y},{x}): {got} vs {want}");
             }
         }
+    }
+
+    fn region_alpha(w: usize, h: usize, boxes: &[(usize, usize, usize, usize, f32)]) -> Vec<f32> {
+        let mut a = vec![0f32; w * h];
+        for &(y0, y1, x0, x1, v) in boxes {
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    a[y * w + x] = v;
+                }
+            }
+        }
+        a
+    }
+
+    #[test]
+    fn keep_largest_region_removes_everything_else() {
+        // 体（10x4）、離れた塊、かすかな塊（0.05）、斜めに接する塊
+        let (w, h) = (20, 12);
+        let mut a = region_alpha(
+            w,
+            h,
+            &[(2, 12, 5, 9, 1.0), (0, 2, 15, 18, 1.0), (5, 7, 12, 14, 0.05), (0, 2, 9, 11, 1.0)],
+        );
+        keep_largest_region(&mut a, w as u32, h as u32);
+        assert!(a[2 * w + 5] == 1.0 && a[11 * w + 8] == 1.0); // 体
+        assert_eq!(a[w + 10], 1.0); // (1,9)〜 は体の角 (2,8) と斜めに接する → 残る
+        assert_eq!(a[16], 0.0); // 離れた塊
+        assert_eq!(a[6 * w + 12], 0.0); // かすかでも見える塊は消す
+    }
+
+    #[test]
+    fn keep_largest_region_tie_keeps_the_first_found() {
+        let (w, h) = (10, 3);
+        let mut a = region_alpha(w, h, &[(0, 1, 6, 8, 1.0), (2, 3, 0, 2, 1.0)]);
+        keep_largest_region(&mut a, w as u32, h as u32);
+        assert_eq!(a[6], 1.0); // ラスター順で先（上）の塊
+        assert_eq!(a[2 * w], 0.0);
     }
 
     #[test]

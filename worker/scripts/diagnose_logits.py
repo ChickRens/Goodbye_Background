@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT / "worker"))  # scripts/ から実行しても cutou
 from cutout.compositor import EDGE_SHARPNESS, alpha_from_logits, composite, shrink_edge  # noqa: E402
 from cutout.contract import NormalizedPoint, Prompt  # noqa: E402
 from cutout.pipeline import prompt_frames  # noqa: E402
-from cutout.postprocess import keep_largest_blob  # noqa: E402
+from cutout.postprocess import VISIBLE_ALPHA, keep_largest_region  # noqa: E402
 from cutout.models import VIDEO_MODELS, fetch_models, load_constants, load_sessions  # noqa: E402
 from cutout.tracker import Sam2VideoTracker  # noqa: E402
 from cutout.tracker_variants import CANDIDATE_OUTPUTS, POLICIES, PRODUCTION_POLICY, VariantTracker  # noqa: E402
@@ -167,17 +167,14 @@ def main(argv: list[str]) -> int:
             logits = r.high_res_logits
             removed = 0
             if r.object_present:
-                now = composite(frame, shrink_edge(alpha_from_logits(logits, width, height)), GREEN)
-                if points is not None:
-                    filtered = logits  # 本番（pipeline.py）と同じく点を打ったフレーム（1 枚目を含む）は消さない
-                else:
-                    filtered, removed = keep_largest_blob(logits)
-                post = composite(frame, shrink_edge(alpha_from_logits(filtered, width, height)), GREEN)
+                shaped = shrink_edge(alpha_from_logits(logits, width, height))
+                filtered = keep_largest_region(shaped)  # 本番（pipeline.py）と同じく全部のフレームにかける
+                now = composite(frame, filtered, GREEN)  # 本番と同じ合成
+                post = composite(frame, filtered, GREEN)
+                gone = (shaped > VISIBLE_ALPHA) & (filtered == 0.0)  # 消した所（半透明のかすかな点も含む）
+                removed = int(gone.sum())
                 if removed:
-                    # 消した所（元は前景・後処理で背景）を赤く塗って、何を消したか見えるようにする
-                    gone = (alpha_from_logits(logits, width, height) > 0.5) & (
-                        alpha_from_logits(filtered, width, height) <= 0.5
-                    )
+                    # 消した所を赤く塗って、何を消したか見えるようにする
                     post[gone] = (post[gone] * 0.3 + np.array([255, 0, 0]) * 0.7).astype(np.uint8)
             else:
                 now = post = composite(frame, None, GREEN)
