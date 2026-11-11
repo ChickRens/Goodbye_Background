@@ -1,5 +1,6 @@
 """マスクの合成とロゴのバッジ。入出力は RGB uint8 の numpy 配列。"""
 
+import math
 from pathlib import Path
 
 import cv2
@@ -15,6 +16,12 @@ import numpy as np
 # 残る約 1px の緑の縁は yuv420p のクロマ間引きによるもの。
 # CapCut / iPhone / SNS との互換性のため yuv420p は変えない。
 EDGE_SHARPNESS = 16.0
+
+# 縁を縮めて滑らかにする（shrink_edge。2026-11-11。オーナー判断: 輪郭のギザギザと、縁に残る背景の白い線を消す）。
+# 出力の画素（長辺 1080 以下）での値。D_man（576x1024）で 1.0/1.0・1.0/1.5・1.5/2.0 を比べ、1.5/2.0 で白い線が消え、
+# 拳や腕は残った。プレビュー（Rust の video_cutout/preview/image_math.rs）にも同じ値がある。変えるときは両方直す
+EDGE_SMOOTH_SIGMA_PX = 1.5  # 縁を滑らかにするガウスぼかしの σ
+EDGE_SHRINK_PX = 2.0  # 縁を内側へ縮める量
 
 
 def alpha_from_logits(logits_512: np.ndarray, width: int, height: int) -> np.ndarray:
@@ -33,6 +40,37 @@ def alpha_from_logits(logits_512: np.ndarray, width: int, height: int) -> np.nda
     # 16 倍すると float32 の exp が溢れる（exp(800)）ので、鋭くした後にもう一度クリップする
     sharp = np.clip(EDGE_SHARPNESS * up, -50.0, 50.0)
     return (1.0 / (1.0 + np.exp(-sharp))).astype(np.float32)
+
+
+def _normal_cdf(z: float) -> float:
+    return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+
+
+def _normal_pdf(z: float) -> float:
+    return math.exp(-0.5 * z * z) / math.sqrt(2.0 * math.pi)
+
+
+def gaussian_ksize(sigma: float) -> int:
+    """ぼかしの窓の大きさ（±3σ を含む奇数）。Rust のプレビューと同じ式。"""
+    return 2 * math.ceil(3.0 * sigma) + 1
+
+
+def shrink_edge(alpha: np.ndarray, px_scale: float = 1.0) -> np.ndarray:
+    """alpha の縁を EDGE_SHRINK_PX だけ内側へ縮め、階段状のギザギザを滑らかにする。[H,W] float32 を返す。
+
+    1. alpha を σ = EDGE_SMOOTH_SIGMA_PX でぼかす（g）。まっすぐな縁なら g = Φ(縁からの距離 / σ) になる
+    2. g が Φ(EDGE_SHRINK_PX / σ) の所を新しい縁にする（= ちょうど EDGE_SHRINK_PX 内側）。
+       その前後 1 画素で 0→1 になるよう傾きを付ける（半透明は 1〜2 画素だけ。CapCut のクロマキーで穴が開かない）
+    ロジットの閾値をずらすのでは駄目だった: 縁でのロジットの傾きがフレームで違い、同じ値で 0.6〜17 画素と縮み方がばらついた。
+    px_scale は出力より大きい画像（プレビュー）で同じ見た目にするための倍率（出力では 1）。
+    """
+    sigma = EDGE_SMOOTH_SIGMA_PX * px_scale
+    z = EDGE_SHRINK_PX / EDGE_SMOOTH_SIGMA_PX
+    level = _normal_cdf(z)
+    gain = sigma / _normal_pdf(z)  # 縁での g の傾きは pdf(z)/σ（1 画素あたり）→ 1 画素で 0→1
+    k = gaussian_ksize(sigma)
+    g = cv2.GaussianBlur(alpha.astype(np.float32), (k, k), sigma, sigmaY=sigma, borderType=cv2.BORDER_REFLECT_101)
+    return np.clip(0.5 + (g - level) * gain, 0.0, 1.0).astype(np.float32)
 
 
 def composite(

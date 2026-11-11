@@ -29,7 +29,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "worker"))  # scripts/ から実行しても cutout を import できるように
 
-from cutout.compositor import EDGE_SHARPNESS, alpha_from_logits, composite  # noqa: E402
+from cutout.compositor import EDGE_SHARPNESS, alpha_from_logits, composite, shrink_edge  # noqa: E402
 from cutout.contract import NormalizedPoint, Prompt  # noqa: E402
 from cutout.pipeline import prompt_frames  # noqa: E402
 from cutout.postprocess import keep_largest_blob  # noqa: E402
@@ -167,12 +167,12 @@ def main(argv: list[str]) -> int:
             logits = r.high_res_logits
             removed = 0
             if r.object_present:
-                now = composite(frame, alpha_from_logits(logits, width, height), GREEN)
+                now = composite(frame, shrink_edge(alpha_from_logits(logits, width, height)), GREEN)
                 if points is not None:
                     filtered = logits  # 本番（pipeline.py）と同じく点を打ったフレーム（1 枚目を含む）は消さない
                 else:
                     filtered, removed = keep_largest_blob(logits)
-                post = composite(frame, alpha_from_logits(filtered, width, height), GREEN)
+                post = composite(frame, shrink_edge(alpha_from_logits(filtered, width, height)), GREEN)
                 if removed:
                     # 消した所（元は前景・後処理で背景）を赤く塗って、何を消したか見えるようにする
                     gone = (alpha_from_logits(logits, width, height) > 0.5) & (

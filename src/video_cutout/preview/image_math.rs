@@ -6,6 +6,8 @@
 //!   重みは f64 で求めて f32 にし、補間は横 → 縦の順に f32 で計算する（誤差は f32 の丸め程度）。
 //! - `alpha_from_logits`: `worker/cutout/compositor.py` の `alpha_from_logits` と同じ
 //!   （バイリニア拡大 → ±50 にクリップ → ×`EDGE_SHARPNESS` → ±50 にクリップ → sigmoid）
+//! - `shrink_edge`: `compositor.py` の `shrink_edge` と同じ（ガウスぼかし（端は BORDER_REFLECT_101）→ 縁を内側へずらす）。
+//!   ぼかしは OpenCV と同じく窓の重みを f64 で求めて f32 にし、横 → 縦の順に f32 で足す
 //!
 //! どちらも画素の中心を合わせる座標（`(dst + 0.5) * src / dst - 0.5`）で、縮小でもアンチエイリアスしない。
 //! 照合の方法: Python（OpenCV 5.0）で同じ入力を計算し、uint8 は完全一致、float32 は 4e-6 以内を確かめた（テストの期待値も同じ方法で作った）。
@@ -15,6 +17,14 @@ use ndarray::Array2;
 
 /// alpha を硬くする鋭さ。`worker/cutout/compositor.py` の `EDGE_SHARPNESS` と同じ値にすること。
 pub const EDGE_SHARPNESS: f32 = 16.0;
+
+/// 縁を滑らかにするガウスぼかしの σ と、縁を内側へ縮める量（出力の画素）。
+/// `worker/cutout/compositor.py` の `EDGE_SMOOTH_SIGMA_PX`・`EDGE_SHRINK_PX` と同じ値にすること。
+pub const EDGE_SMOOTH_SIGMA_PX: f64 = 1.5;
+pub const EDGE_SHRINK_PX: f64 = 2.0;
+
+/// ワーカーの出力の長辺の上限（`worker/cutout/video_io.py` の `MAX_LONG_SIDE`）。
+const OUTPUT_MAX_LONG_SIDE: u32 = 1080;
 
 /// ロジットをクリップする幅（`exp` の溢れを避ける。ワーカーと同じ）。
 const LOGIT_CLIP: f32 = 50.0;
@@ -166,6 +176,87 @@ pub fn alpha_from_logits(logits: &Array2<f32>, width: u32, height: u32) -> Vec<f
             1.0 / (1.0 + (-sharp).exp())
         })
         .collect()
+}
+
+/// プレビューの画像（スマホが送ったフレームの大きさ）で、出力と同じ見た目に縮めるための倍率。
+/// 出力は長辺 1080 以下に縮小されるので、それより大きいフレームでは縮める量・ぼかしを同じ割合で大きくする。
+pub fn preview_px_scale(width: u32, height: u32) -> f64 {
+    let long = width.max(height).max(1);
+    long as f64 / long.min(OUTPUT_MAX_LONG_SIDE) as f64
+}
+
+/// erf（f64）。`|x|` が小さい（この用途では約 0.94）ので Taylor 級数で十分（40 項で f64 の精度）。
+fn erf(x: f64) -> f64 {
+    let (mut term, mut sum) = (x, x);
+    for n in 1..40 {
+        term *= -x * x / n as f64;
+        sum += term / (2 * n + 1) as f64;
+    }
+    sum * 2.0 / std::f64::consts::PI.sqrt()
+}
+
+/// OpenCV の `getGaussianKernel(ksize, sigma, CV_32F)` と同じ重み（ksize = 2⌈3σ⌉ + 1。ワーカーの `gaussian_ksize`）。
+fn gaussian_kernel(sigma: f64) -> Vec<f32> {
+    let k = 2 * (3.0 * sigma).ceil() as usize + 1;
+    let c = (k - 1) as f64 / 2.0;
+    let scale = -0.5 / (sigma * sigma);
+    let w: Vec<f64> = (0..k).map(|i| (scale * (i as f64 - c).powi(2)).exp()).collect();
+    let sum: f64 = w.iter().sum();
+    w.into_iter().map(|v| (v / sum) as f32).collect()
+}
+
+/// OpenCV の BORDER_REFLECT_101（`gfedcb|abcdefgh|gfedcba`）。
+fn reflect101(i: isize, n: usize) -> usize {
+    let n = n as isize;
+    if n == 1 {
+        return 0;
+    }
+    let mut i = i;
+    loop {
+        if i < 0 {
+            i = -i;
+        } else if i >= n {
+            i = 2 * n - 2 - i;
+        } else {
+            return i as usize;
+        }
+    }
+}
+
+/// alpha の縁を `EDGE_SHRINK_PX` × `px_scale` だけ内側へ縮め、ギザギザを滑らかにする（`compositor.py` の `shrink_edge`）。
+/// 出力のフレームでは `px_scale = 1`、プレビューでは `preview_px_scale`。
+pub fn shrink_edge(alpha: &[f32], width: u32, height: u32, px_scale: f64) -> Vec<f32> {
+    let (w, h) = (width as usize, height as usize);
+    let sigma = EDGE_SMOOTH_SIGMA_PX * px_scale;
+    let z = EDGE_SHRINK_PX / EDGE_SMOOTH_SIGMA_PX;
+    let level = (0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))) as f32;
+    let pdf = (-0.5 * z * z).exp() / (2.0 * std::f64::consts::PI).sqrt();
+    let gain = (sigma / pdf) as f32;
+    let kernel = gaussian_kernel(sigma);
+    let r = (kernel.len() / 2) as isize;
+
+    let mut tmp = vec![0f32; w * h];
+    for y in 0..h {
+        let row = &alpha[y * w..(y + 1) * w];
+        for x in 0..w {
+            let mut acc = 0f32;
+            for (j, &k) in kernel.iter().enumerate() {
+                acc += k * row[reflect101(x as isize + j as isize - r, w)];
+            }
+            tmp[y * w + x] = acc;
+        }
+    }
+    let mut out = vec![0f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let mut acc = 0f32;
+            for (j, &k) in kernel.iter().enumerate() {
+                acc += k * tmp[reflect101(y as isize + j as isize - r, h) * w + x];
+            }
+            out[y * w + x] = (0.5 + (acc - level) * gain).clamp(0.0, 1.0);
+        }
+    }
+    out
 }
 
 /// alpha（0〜1）をグレースケール 8bit の画像にする（255 = 前景）。
@@ -325,6 +416,56 @@ mod image_math_test {
                 "{i}: {got} vs {want}"
             );
         }
+    }
+
+    /// 期待値は Python で `shrink_edge`（compositor.py。OpenCV の GaussianBlur）を実行して得たもの。
+    #[test]
+    fn shrink_edge_matches_worker() {
+        let (w, h) = (20usize, 12usize);
+        let mut alpha: Vec<f32> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| if x + (y / 3) % 2 * 2 >= 8 { 1.0 } else { 0.0 }))
+            .collect();
+        alpha[5 * w + 15] = 0.4;
+        let cases: [(f64, &[(usize, usize, f32)]); 2] = [
+            (
+                1.0,
+                &[
+                    (0, 8, 0.0),
+                    (0, 9, 0.044_512_033),
+                    (0, 10, 0.961_619_6),
+                    (0, 11, 1.0),
+                    (2, 9, 0.403_648_1),
+                    (4, 8, 0.021_066_487),
+                    (4, 9, 0.847_224_4),
+                    (11, 8, 0.662_888_4),
+                    (5, 15, 0.945_892_6),
+                    (6, 0, 0.0),
+                ],
+            ),
+            (
+                1.5,
+                &[
+                    (0, 10, 0.324_689_15),
+                    (2, 10, 0.510_145_96),
+                    (4, 10, 0.718_340_5),
+                    (11, 9, 0.297_125_43),
+                    (5, 15, 1.0),
+                ],
+            ),
+        ];
+        for (scale, points) in cases {
+            let out = shrink_edge(&alpha, w as u32, h as u32, scale);
+            for &(y, x, want) in points {
+                let got = out[y * w + x];
+                assert!((got - want).abs() <= 2e-5, "scale {scale} ({y},{x}): {got} vs {want}");
+            }
+        }
+    }
+
+    #[test]
+    fn preview_px_scale_follows_output_size() {
+        assert_eq!(preview_px_scale(576, 1024), 1.0); // 出力と同じ大きさ
+        assert_eq!(preview_px_scale(1080, 1920), 1920.0 / 1080.0); // 出力は長辺 1080 に縮む
     }
 
     #[test]

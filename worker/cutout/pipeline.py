@@ -15,7 +15,7 @@ from typing import Protocol
 
 import numpy as np
 
-from cutout.compositor import LogoBadge, alpha_from_logits, composite
+from cutout.compositor import LogoBadge, alpha_from_logits, composite, shrink_edge
 from cutout.contract import (
     FailureCode,
     NormalizedPoint,
@@ -169,7 +169,7 @@ def _process(req, transfer, notifier, make_tracker, logo, workdir) -> dict:
                 logits = result.high_res_logits
                 if REMOVE_DETACHED_BLOBS and points is None:
                     logits, _ = keep_largest_blob(logits)
-                alpha = alpha_from_logits(logits, width, height)
+                alpha = shrink_edge(alpha_from_logits(logits, width, height))
                 composed = composite(frame, alpha, req.background_rgb)
             else:
                 if frames == 0:

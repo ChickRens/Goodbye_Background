@@ -15,7 +15,7 @@ use crate::video_cutout::{
     preview::{
         error::{PreviewError, PreviewInputError},
         feature_store::PreviewFeatureStore,
-        image_math::{alpha_from_logits, alpha_to_gray},
+        image_math::{alpha_from_logits, alpha_to_gray, preview_px_scale, shrink_edge},
         segmenter::PreviewSegmenter,
     },
     preview_mask::{error::PreviewMaskError, input::PreviewMaskInput, output::PreviewMaskOutput},
@@ -63,7 +63,13 @@ impl PreviewMaskUseCase {
         let (png, object_present) = spawn_blocking(move || -> Result<_, PreviewError> {
             let decoded = segmenter.decode(&features, &points)?;
             let (width, height) = (features.frame_width, features.frame_height);
-            let alpha = alpha_from_logits(&decoded.logits, width, height);
+            // ワーカーと同じく縁を縮めて滑らかにする（出力より大きいフレームでは同じ割合に広げる）
+            let alpha = shrink_edge(
+                &alpha_from_logits(&decoded.logits, width, height),
+                width,
+                height,
+                preview_px_scale(width, height),
+            );
             let gray = alpha_to_gray(&alpha, width, height);
             let mut png = Vec::new();
             gray.write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
