@@ -6,7 +6,8 @@ use axum::{
     middleware::from_fn_with_state,
     routing::{get, post},
 };
-use tower_http::services::ServeDir;
+use axum::http::{HeaderValue, header::CACHE_CONTROL};
+use tower_http::{services::ServeDir, set_header::SetResponseHeader};
 
 use crate::{
     api::handler::image_cutout::{
@@ -62,7 +63,19 @@ pub fn route(app: Arc<App>, video: Arc<VideoCutoutApp>) -> Router {
         .merge(video_tracked)
         .layer(from_fn_with_state(app, track_usage))
         .merge(video_untracked)
-        .fallback_service(ServeDir::new("frontend").append_index_html_on_directories(true))
+        .fallback_service(static_files("frontend"))
+}
+
+/// フロントエンドの静的ファイル。`Cache-Control: no-cache` を付ける（2026-11-12）。
+/// 付けないとブラウザ（特に iPhone の Safari）が最終更新日時から推測した期間だけ古い JS を使い続け、デプロイ後に
+/// 新しい HTML と古い JS、または新旧の JS どうしが混ざって動かなくなる（複数フレームの点のデプロイで実際に起きた）。
+/// no-cache は「毎回、変わったかをサーバーに確かめる」意味で、変わっていなければ 304 が返るだけなので重くない。
+fn static_files(dir: &str) -> SetResponseHeader<ServeDir, HeaderValue> {
+    SetResponseHeader::overriding(
+        ServeDir::new(dir).append_index_html_on_directories(true),
+        CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    )
 }
 
 /// 動画切り抜きのルート。（利用ログに記録するもの, 記録しないもの）の 2 つを返す。
@@ -232,6 +245,17 @@ mod router_test {
         let (status, _) = send(router, post_json(&format!("/video-jobs/{id}/start"), start_body())).await;
         assert_eq!(status, StatusCode::ACCEPTED);
         id
+    }
+
+    #[tokio::test]
+    async fn static_files_are_revalidated_every_time() {
+        // 古い JS が使われ続けないよう、静的ファイルには no-cache を付ける
+        let response = super::static_files("frontend")
+            .oneshot(Request::get("/video.html").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-cache");
     }
 
     #[tokio::test]
