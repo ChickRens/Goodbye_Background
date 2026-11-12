@@ -40,6 +40,7 @@ js/
     range.js     範囲の丸め込み(clampRange)・開始位置のフレームの切り出し(captureFrame)
     preview.js   開始フレームのプレビュー（/video-jobs/{id}/preview-frame・/preview。本番と同じ SAM2.1 tiny）と toNormalized・applyMaskAlpha
     upload.js    署名付き URL への PUT（XMLHttpRequest で進捗を出す。{ promise, abort } を返す）
+    trim.js      選んだ範囲だけの MP4 / MOV を作る（再エンコードしない。moov を書き直し、中身は元の File の slice）・toJobTime
     job.js       ジョブの状態のポーリング(pollJob)
     messages.js  失敗コード・状態・エラーコード → 日本語の文言
     selftest.html 純粋な関数(clampRange / toNormalized / applyMaskAlpha)の自己テスト。ブラウザで開いて確かめる
@@ -199,8 +200,12 @@ assets/        画像・動画
    `file.type` が `video/mp4` / `video/quicktime` ならそれ、無ければ拡張子（`.mp4` `.m4v` → `video/mp4`、
    `.mov` → `video/quicktime`）、どちらでもなければその場で断る。200MB を超えるものもその場で断る。
 2. **範囲を選ぶ** … `<video>` とスライダー 2 本。`clampRange` で「開始 0〜長さ、終了は 開始〜min(開始+10 秒, 長さ)」
-   に丸める。「この範囲で決める」で `POST /video-jobs`。**ジョブを作った後は範囲を変えさせない**。
-3. **アップロード** … 返ってきた `upload_url` に `XMLHttpRequest` で PUT（進捗バー）。
+   に丸める。「この範囲で決める」で `trimForUpload`（`trim.js`）→ `POST /video-jobs`。**ジョブを作った後は範囲を変えさせない**。
+   - `trimForUpload` は「開始以下の最後のキーフレーム 〜 終わり + 1 秒」だけの動画を作る（仕様 `docs/superpowers/specs/2026-11-12-video-upload-trim-design.md`）。
+     作れたら、**サーバーに送る時刻（範囲・preview-frame・preview・start の prompts）は全部 `元の時刻 − offsetMs`**（`toJobTime`。
+     `frame_set.js` と `page.js` で変換する）。画面の時刻（スライダー・フレームの選択・タブの表示）は元の動画のまま。
+     読めない形・ほとんど小さくならないときは元のファイルを丸ごと送り、offsetMs = 0
+3. **アップロード** … 返ってきた `upload_url` に `XMLHttpRequest` で PUT（進捗バー。送る大きさも出す）。
    **Content-Type は 1. で決めた文字列をそのまま付ける**（署名の一部なので、違うと R2 が 403 を返す）。
    R2 は別オリジンなので `client-id` は付けない。失敗したら「アップロードをやり直す」（URL は 15 分有効）。
 4. **残す所をタップ**（3. と並行）… `captureFrame` で開始位置のフレームを canvas に描き、長辺 2000px 以下に

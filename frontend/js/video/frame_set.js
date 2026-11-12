@@ -9,6 +9,7 @@
 
 import { createFramePreview } from './preview.js';
 import { MAX_FRAMES, allFramesReady, buildPrompts, canAddFrame, formatFrameTime } from './frames.js';
+import { toJobTime } from './trim.js';
 
 /**
  * @param {Object} opts
@@ -27,6 +28,7 @@ export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeToggleBtn,
   let active = null;
   let startMs = 0;
   let endMs = 0;
+  let offsetMs = 0; // アップロードした動画の時刻 0 = 元の動画の offsetMs（trim.js）
   let jobId = null;
   let locked = false;
 
@@ -114,14 +116,23 @@ export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeToggleBtn,
     }
   }
 
-  /** 範囲の開始位置のフレームで始める。失敗したら false（retry でやり直せる） */
-  async function start(newJobId, newStartMs, newEndMs, frameBlob) {
+  /** サーバーに送る時刻（アップロードした動画を切り出したときは、その分ずらす。trim.js） */
+  function jobTime(frame) {
+    return toJobTime(frame.timeMs, offsetMs);
+  }
+
+  /**
+   * 範囲の開始位置のフレームで始める。失敗したら false（retry でやり直せる）。
+   * 時刻は元の動画のミリ秒。newOffsetMs はアップロードした動画の時刻 0 が元の動画の何ミリ秒か（切り出していなければ 0）
+   */
+  async function start(newJobId, newStartMs, newEndMs, frameBlob, newOffsetMs = 0) {
     jobId = newJobId;
     startMs = newStartMs;
     endMs = newEndMs;
+    offsetMs = newOffsetMs;
     const first = frames[0] ?? makeFrame(newStartMs, frameBlob);
     select(first);
-    return first.preview.load(jobId, first.frameBlob, first.timeMs);
+    return first.preview.load(jobId, first.frameBlob, jobTime(first));
   }
 
   /** そのフレームを追加して表示し、登録する。追加できない時刻なら null、登録に失敗したら false */
@@ -130,13 +141,13 @@ export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeToggleBtn,
     if (locked || !jobId || !canAddFrame(times(), t, startMs, endMs)) return null;
     const frame = makeFrame(t, frameBlob);
     select(frame);
-    return frame.preview.load(jobId, frame.frameBlob, frame.timeMs);
+    return frame.preview.load(jobId, frame.frameBlob, jobTime(frame));
   }
 
   /** 表示中のフレームの登録をやり直す（「プレビューをやり直す」） */
   function retryActive() {
     if (!active || !jobId) return Promise.resolve(false);
-    return active.preview.load(jobId, active.frameBlob, active.timeMs);
+    return active.preview.load(jobId, active.frameBlob, jobTime(active));
   }
 
   function times() {
@@ -192,7 +203,7 @@ export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeToggleBtn,
     canSend: () => allFramesReady(frames.map((f) => ({ canSend: f.preview.canSend() }))),
     activeCanSendOrMissing: () => !!active && (active.preview.canSend() || active.preview.objectMissing()),
     firstProblem,
-    prompts: () => buildPrompts(frames.map((f) => ({ timeMs: f.timeMs, points: f.preview.videoPoints() }))),
+    prompts: () => buildPrompts(frames.map((f) => ({ timeMs: jobTime(f), points: f.preview.videoPoints() }))),
     lock,
     unlock,
     reset,

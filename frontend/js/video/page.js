@@ -18,6 +18,7 @@ import { clampRange, captureFrame, formatMs, MAX_CLIP_MS } from './range.js';
 import { createFrameSet } from './frame_set.js';
 import { formatFrameTime } from './frames.js';
 import { putWithProgress } from './upload.js';
+import { toJobTime, trimForUpload } from './trim.js';
 import { pollJob } from './job.js';
 import {
   apiErrorMessage,
@@ -101,6 +102,8 @@ function initialState() {
     finished: false, // done / failed / 404 になった
     poller: null,
     upload: null, // putWithProgress の { promise, abort }
+    uploadBlob: null, // 送るもの（選んだ範囲だけ切り出した動画。切り出せなければ元のファイル）
+    offsetMs: 0, // 送る動画の時刻 0 が元の動画の何ミリ秒か（切り出していなければ 0。trim.js）
   };
 }
 
@@ -260,11 +263,16 @@ async function createJob() {
   updateRangeControls();
   updateSelectAvailability();
   try {
+    // 選んだ範囲だけを切り出して送る（再エンコードしない）。切り出せなければ元のファイルを丸ごと送る
+    const trimmed = await trimForUpload(state.file, state.startMs, state.endMs);
+    if (gen !== generation) return;
+    state.uploadBlob = trimmed?.blob ?? state.file;
+    state.offsetMs = trimmed?.offsetMs ?? 0;
     const job = await createVideoJob({
-      sizeBytes: state.file.size,
+      sizeBytes: state.uploadBlob.size,
       contentType: state.contentType,
-      startMs: state.startMs,
-      endMs: state.endMs,
+      startMs: toJobTime(state.startMs, state.offsetMs),
+      endMs: toJobTime(state.endMs, state.offsetMs),
     });
     if (gen !== generation) return;
     state.job = { jobId: job.jobId, uploadUrl: job.uploadUrl };
@@ -295,13 +303,15 @@ async function startUpload() {
   const gen = generation;
   el.uploadRetryBtn.hidden = true;
   el.uploadProgress.value = 0;
-  el.uploadStatus.textContent = 'アップロード中 0%';
+  // 送る大きさも出す（選んだ範囲だけ切り出せたかが分かるように）
+  const sizeLabel = `${(state.uploadBlob.size / 1_000_000).toFixed(1)} MB`;
+  el.uploadStatus.textContent = `アップロード中 0%（${sizeLabel}）`;
   try {
     // Content-Type は POST /video-jobs で申告したもの（state.contentType）と同じでなければ署名が合わない
-    state.upload = putWithProgress(state.job.uploadUrl, state.file, state.contentType, (ratio) => {
+    state.upload = putWithProgress(state.job.uploadUrl, state.uploadBlob, state.contentType, (ratio) => {
       if (gen !== generation) return;
       el.uploadProgress.value = ratio;
-      el.uploadStatus.textContent = `アップロード中 ${Math.floor(ratio * 100)}%`;
+      el.uploadStatus.textContent = `アップロード中 ${Math.floor(ratio * 100)}%（${sizeLabel}）`;
     });
     await state.upload.promise;
     if (gen !== generation) return;
@@ -334,7 +344,7 @@ async function startPreview() {
     // 1 枚目がもうあれば、表示中のフレームの登録をやり直す（「プレビューをやり直す」）
     const ok = preview.hasFrames()
       ? await preview.retryActive()
-      : await preview.start(state.job.jobId, state.startMs, state.endMs, state.frameBlob);
+      : await preview.start(state.job.jobId, state.startMs, state.endMs, state.frameBlob, state.offsetMs);
     if (gen !== generation) return;
     if (!ok) el.previewRetryBtn.hidden = false;
   } catch (err) {

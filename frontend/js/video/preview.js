@@ -135,7 +135,7 @@ export function createFramePreview({ canvasEl, modeToggleBtn, undoBtn, redoBtn, 
 
   let generation = 0; // reset のたびに進める。前の動画の応答を捨てるため
   let jobId = null;
-  let timeMs = 0; // このフレームの時刻（元の動画のミリ秒）
+  let timeMs = 0; // このフレームの時刻（サーバーに送るジョブの時刻。アップロードした動画を切り出したときはずらした値。frame_set.js）
   let frameBlob = null;
   let frameUrl = null;
   let frameImg = null;

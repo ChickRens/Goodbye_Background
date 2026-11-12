@@ -147,6 +147,10 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
     記憶なし・点だけで切り抜き（= その時刻のプレビューと一致）、以後の条件メモリに入れる（方式 A。前のフレームには効かせない）。
     時刻 → フレーム番号は `floor((time_ms − start) × fps ÷ 1000)`（ブラウザがその時刻に表示するフレーム。`worker/cutout/pipeline.py` の `prompt_frames`）。
     Rust はワーカーに `prompts` と、古いワーカー向けに 1 つ目の点を `points` として送る（両方のデプロイが済んだら `points` はやめてよい）
+18. **アップロードする動画はスマホで選んだ範囲だけに切り出してある**（`frontend/js/video/trim.js`。再エンコードしない。
+    仕様 `docs/superpowers/specs/2026-11-12-video-upload-trim-design.md`）。**サーバー・ワーカーが受け取る時刻（`range_ms`・
+    `time_ms`）は切り出した動画の時刻**で、元の動画の時刻から整数の `offsetMs` を引いたもの。サーバーは元の動画の時刻を知らない
+    （知る必要もない）。切り出せない形（断片化 MP4 など）のときは元のファイルを丸ごと送り、時刻もそのまま
 
 ## 既知の問題（修正タスクの候補。詳細と根拠は docs/ARCHITECTURE.md）
 
