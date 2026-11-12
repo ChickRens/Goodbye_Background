@@ -25,6 +25,7 @@
   import { toNormalized, applyMaskAlpha } from './preview.js';
   import { MAX_FRAMES, canAddFrame, buildPrompts, allFramesReady, formatFrameTime } from './frames.js';
   import { planTrim, toJobTime } from './trim.js';
+  import { phaseMessage } from './messages.js';
 
   // 切り出しの計算用の偽のトラック（trim.js の parseMovie が返す形のうち、planTrim が使う所だけ）
   function fakeTrack(n, timescale, duration, { ctts = 0, mediaTime = 0, syncEvery = 1 } = {}) {
@@ -104,6 +105,13 @@
       },
       [896, 95],
     ],
+    ['phaseMessage(準備中は 1 分までは今までどおり)', () => phaseMessage('queued', null, 59_999), '準備中（GPU を起動しています）'],
+    [
+      'phaseMessage(準備中が 1 分を過ぎたら経過時間と上限)',
+      () => phaseMessage('queued', null, 125_400),
+      '準備中（GPU が混み合っています。2分05秒 経過・最大 10 分。失敗したら回数は戻ります）',
+    ],
+    ['phaseMessage(経過を渡さない呼び出しは今までどおり)', () => phaseMessage('tracking', 0.42), '処理中 42%'],
     ['formatFrameTime(範囲の開始からの時刻)', () => [formatFrameTime(1000, 1000), formatFrameTime(4300, 1000), formatFrameTime(73440, 1000)], ['0:00.0', '0:03.3', '1:12.4']],
   ];
 

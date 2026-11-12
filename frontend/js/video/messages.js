@@ -9,7 +9,7 @@ export const SERVER_RESTARTED_MESSAGE = 'サーバーが再起動したため、
 /** ジョブの失敗コード（failure_code）→ 文言 */
 const FAILURE_MESSAGES = {
   dispatch_failed: '混み合っています。時間をおいて試してください',
-  timeout: '処理が時間内に終わりませんでした。時間をおいて試してください',
+  timeout: 'GPU が混み合っていて、時間内に処理できませんでした。時間をおいて試してください',
   internal_error: 'サーバーでエラーが起きました。時間をおいて試してください',
   subject_not_found: '最初のフレームで被写体が見つかりませんでした。点を打ち直して試してください',
   unsupported_video: 'この動画はサーバーで読み込めませんでした。MP4（H.264）で試してください',
@@ -26,13 +26,24 @@ export function refundMessage(quotaRefunded) {
   return quotaRefunded ? '回数は戻りました' : '回数は戻りません';
 }
 
-/** 処理中の状態（phase）→ 文言。progress は 0〜1（tracking のときだけ来る） */
-export function phaseMessage(phase, progress) {
+/** 準備中（GPU の起動待ち）がこれより長くなったら、混んでいることと経過時間を出す */
+export const QUEUED_NOTICE_MS = 60_000;
+/** サーバーが準備中のまま待つ上限（src/video_cutout/job/video_job.rs の Queued の期限と同じ） */
+export const QUEUED_LIMIT_MIN = 10;
+
+/**
+ * 処理中の状態（phase）→ 文言。progress は 0〜1（tracking のときだけ来る）。
+ * queuedMs は準備中になってからの経過（ミリ秒。画面で数える）。
+ */
+export function phaseMessage(phase, progress, queuedMs = 0) {
   switch (phase) {
     case 'created':
       return '送信待ち';
-    case 'queued':
-      return '準備中（GPU を起動しています）';
+    case 'queued': {
+      if (queuedMs < QUEUED_NOTICE_MS) return '準備中（GPU を起動しています）';
+      const sec = Math.floor(queuedMs / 1000);
+      return `準備中（GPU が混み合っています。${Math.floor(sec / 60)}分${String(sec % 60).padStart(2, '0')}秒 経過・最大 ${QUEUED_LIMIT_MIN} 分。失敗したら回数は戻ります）`;
+    }
     case 'downloading':
       return '動画を読み込んでいます';
     case 'tracking':

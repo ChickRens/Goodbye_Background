@@ -260,7 +260,7 @@ src/video_cutout/
 | 状態 | 期限 | 期限が来たら |
 |---|---|---|
 | `Created` | 作成から 30 分 | ジョブと入力ファイルを削除 |
-| `Queued` | 5 分 | `Failed(timeout)`、回数を返す |
+| `Queued` | 10 分（2026-11-12 に 5 分から変更。GPU の起動が 5 分を超えたことがあるため） | `Failed(timeout)`、回数を返す |
 | `Downloading` / `Tracking` / `Finishing` | 最後の通知から 3 分 | `Failed(timeout)`、回数を返す |
 | `Done` / `Failed` | 30 分 | ジョブと出力ファイルを削除 |
 

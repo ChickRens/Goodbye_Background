@@ -11,6 +11,9 @@ use crate::video_cutout::job::{
 
 const MINUTE_MS: u64 = 60_000;
 
+/// `Queued`（GPU の起動待ち）の期限。フロントの `QUEUED_LIMIT_MIN`（frontend/js/video/messages.js）と同じ 10 分
+pub const QUEUED_LIMIT_MS: u64 = 10 * MINUTE_MS;
+
 /// 入力動画の上限サイズ（200MB）。作成時の申告・開始時の HEAD・ワーカーのダウンロードで使う。
 pub const MAX_INPUT_BYTES: u64 = 209_715_200;
 
@@ -57,7 +60,9 @@ impl VideoJob {
     pub fn deadline_ms(&self) -> u64 {
         match self.phase {
             JobPhase::Created => self.created_at_ms + 30 * MINUTE_MS,
-            JobPhase::Queued => self.last_event_at_ms + 5 * MINUTE_MS,
+            // GPU の起動待ち。普段は数秒だが、デプロイ直後や GPU が埋まっているときは 5 分を超えたことがある（2026-11-12）。
+            // 打ち切ると入力も消すので、来るはずのワーカーが 404 になる。10 分待つ（画面は 1 分を過ぎたら経過時間を出す）
+            JobPhase::Queued => self.last_event_at_ms + QUEUED_LIMIT_MS,
             JobPhase::Downloading | JobPhase::Tracking(_) | JobPhase::Finishing => {
                 self.last_event_at_ms + 3 * MINUTE_MS
             }
@@ -103,7 +108,7 @@ mod video_job_test {
     fn deadlines() {
         let j = job_created_at(1_000);
         assert_eq!(j.deadline_ms(), 1_000 + 30 * 60_000);
-        assert_eq!(with_phase(j.clone(), JobPhase::Queued, 2_000).deadline_ms(), 2_000 + 5 * 60_000);
+        assert_eq!(with_phase(j.clone(), JobPhase::Queued, 2_000).deadline_ms(), 2_000 + QUEUED_LIMIT_MS);
         assert_eq!(with_phase(j.clone(), JobPhase::Downloading, 2_500).deadline_ms(), 2_500 + 3 * 60_000);
         assert_eq!(with_phase(j.clone(), JobPhase::Tracking(0.1), 3_000).deadline_ms(), 3_000 + 3 * 60_000);
         assert_eq!(with_phase(j.clone(), JobPhase::Finishing, 3_500).deadline_ms(), 3_500 + 3 * 60_000);

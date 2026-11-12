@@ -113,6 +113,7 @@ impl GetVideoJobUseCase {
 
 #[cfg(test)]
 mod get_video_job_usecase_test {
+    use crate::video_cutout::job::video_job::QUEUED_LIMIT_MS;
     use super::*;
     use crate::video_cutout::{job::id::VideoJobId, testing::*};
     use serde_json::json;
@@ -148,9 +149,9 @@ mod get_video_job_usecase_test {
     }
 
     #[tokio::test]
-    async fn get_times_out_queued_after_5min() {
+    async fn get_times_out_queued_after_limit() {
         let h = started_job().await;
-        h.clock.advance(5 * 60_000 + 1);
+        h.clock.advance(QUEUED_LIMIT_MS + 1);
         let out = h.get().await;
         assert_eq!(out.phase, JobPhase::Failed(FailureCode::Timeout));
         assert_eq!(out.failure, Some(FailureCode::Timeout));
@@ -159,7 +160,7 @@ mod get_video_job_usecase_test {
         assert_eq!(h.remaining().await, 3);
         assert_eq!(h.storage.deleted(), vec![h.input_key()]);
         let job = h.repository.get(&h.id).unwrap();
-        assert_eq!(job.last_event_at_ms, NOW_MS + 5 * 60_000 + 1);
+        assert_eq!(job.last_event_at_ms, NOW_MS + QUEUED_LIMIT_MS + 1);
         // もう一度取得しても二重に返却しない
         h.get().await;
         assert_eq!(h.remaining().await, 3);
@@ -168,7 +169,7 @@ mod get_video_job_usecase_test {
     #[tokio::test]
     async fn get_keeps_queued_until_deadline() {
         let h = started_job().await;
-        h.clock.advance(5 * 60_000);
+        h.clock.advance(QUEUED_LIMIT_MS);
         assert_eq!(h.get().await.phase, JobPhase::Queued);
     }
 
@@ -231,7 +232,7 @@ mod get_video_job_usecase_test {
         let mut job = VideoJob::clone(&h.repository.get(&id).unwrap());
         job.phase = JobPhase::Queued;
         h.repository.save(job);
-        h.clock.advance(5 * 60_000 + 1);
+        h.clock.advance(QUEUED_LIMIT_MS + 1);
         let out = h.get.execute(get_input(id)).await.unwrap();
         assert_eq!(out.phase, JobPhase::Failed(FailureCode::Timeout));
         assert!(!out.quota_refunded);

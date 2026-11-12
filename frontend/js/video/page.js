@@ -104,6 +104,7 @@ function initialState() {
     upload: null, // putWithProgress の { promise, abort }
     uploadBlob: null, // 送るもの（選んだ範囲だけ切り出した動画。切り出せなければ元のファイル）
     offsetMs: 0, // 送る動画の時刻 0 が元の動画の何ミリ秒か（切り出していなければ 0。trim.js）
+    queuedSince: null, // 準備中（GPU の起動待ち）になった時刻（Date.now）。経過時間の表示に使う
   };
 }
 
@@ -510,7 +511,11 @@ function handleNotStarted() {
 }
 
 function showPhase(phase, progress) {
-  el.jobStatus.textContent = phaseMessage(phase, progress);
+  // 準備中になった時刻を覚えておき、経過時間を出す（GPU の起動が遅いとき、何分待っているか分かるように）
+  if (phase === 'queued') state.queuedSince ??= Date.now();
+  else state.queuedSince = null;
+  const queuedMs = state.queuedSince === null ? 0 : Date.now() - state.queuedSince;
+  el.jobStatus.textContent = phaseMessage(phase, progress, queuedMs);
   el.jobProgress.hidden = phase !== 'tracking';
   if (phase === 'tracking') el.jobProgress.value = progress ?? 0;
 }

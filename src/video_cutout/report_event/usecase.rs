@@ -106,6 +106,7 @@ impl ReportVideoJobEventUseCase {
 
 #[cfg(test)]
 mod report_video_job_event_usecase_test {
+    use crate::video_cutout::job::video_job::QUEUED_LIMIT_MS;
     use super::*;
     use crate::video_cutout::{
         job::{
@@ -184,7 +185,7 @@ mod report_video_job_event_usecase_test {
     #[tokio::test]
     async fn late_events_after_timeout_do_nothing() {
         let h = started_job().await;
-        h.clock.advance(5 * 60_000 + 1);
+        h.clock.advance(QUEUED_LIMIT_MS + 1);
         assert_eq!(h.get().await.phase, JobPhase::Failed(FailureCode::Timeout));
         let before = VideoJob::clone(&h.repository.get(&h.id).unwrap());
         h.clock.advance(1_000);
@@ -227,7 +228,7 @@ mod report_video_job_event_usecase_test {
     #[tokio::test]
     async fn event_after_deadline_times_out_instead_of_advancing() {
         let h = started_job().await;
-        h.clock.advance(5 * 60_000 + 1);
+        h.clock.advance(QUEUED_LIMIT_MS + 1);
         h.report(done()).await;
         let job = h.repository.get(&h.id).unwrap();
         assert_eq!(job.phase, JobPhase::Failed(FailureCode::Timeout));
@@ -240,7 +241,7 @@ mod report_video_job_event_usecase_test {
     #[tokio::test]
     async fn event_just_at_deadline_still_advances() {
         let h = started_job().await;
-        h.clock.advance(5 * 60_000);
+        h.clock.advance(QUEUED_LIMIT_MS);
         h.report(tracking(0.1)).await;
         assert_eq!(h.repository.get(&h.id).unwrap().phase, JobPhase::Tracking(0.1));
     }
