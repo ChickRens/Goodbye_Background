@@ -11,12 +11,11 @@
     --space-6: 32px;
 
     --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 16px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
 
     --touch-target: 44px;
 
-    --font-ui: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic", sans-serif;
     --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 
@@ -32,7 +31,7 @@ body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: var(--font-ui);
+    font-family: var(--font-body);
     -webkit-tap-highlight-color: transparent;
 }
 
@@ -45,10 +44,15 @@ button {
     outline-offset: 2px;
 }
 
+/* 画面の高さちょうどに固定する。min-height だと縦長の写真で canvas が画面より高くなり、
+   ページごとスクロールして「保存」などのツールバーが画面外に出てしまう。
+   高さが決まっていれば、canvas の max-height: 100% が効いて画面内に収まる。
+   (dvh 非対応ブラウザ向けに vh 版を先に置く。dvh はスマホのアドレスバーの伸縮を考慮した高さ) */
 #app {
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    height: 100vh;
+    height: 100dvh;
 }
 
 /* ---------- Header ---------- */
@@ -76,12 +80,23 @@ button {
 }
 
 .app-header-link:hover {
-    color: var(--text);
+    color: var(--primary);
+}
+
+.app-home-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.app-home-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
 }
 
 .app-header h1 {
+    font-family: var(--font-display);
     font-size: 1.05rem;
-    font-weight: 600;
+    font-weight: 700;
     margin: 0;
     letter-spacing: 0.01em;
 }
@@ -112,6 +127,11 @@ button {
     border-color: var(--highlight);
 }
 
+.primary-btn:hover {
+    background: var(--blue-hover);
+    border-color: var(--blue-hover);
+}
+
 .icon-btn:active,
 .primary-btn:active,
 .ghost-btn:active {
@@ -120,7 +140,7 @@ button {
 
 .primary-btn {
     background: var(--primary);
-    color: var(--bg-dark);
+    color: var(--on-blue);
     border-color: var(--primary);
     font-weight: 700;
 }
@@ -139,25 +159,21 @@ button {
 /* ---------- Dropzone (画像が1枚も無い間だけ表示する大きい入口) ---------- */
 .dropzone {
     margin: var(--space-4) var(--space-4) 0;
-    border: 1.5px dashed var(--border);
+    /* ホーム画面の入口と同じ見た目にして、「ここに写真を入れる」と分かるようにする */
+    border: 2px dashed var(--primary);
     border-radius: var(--radius-lg);
     padding: var(--space-6) var(--space-4);
     text-align: center;
-    color: var(--text-muted);
+    color: var(--text);
+    line-height: 1.8;
     cursor: pointer;
-    background: var(--bg-light);
+    background: var(--blue-soft);
     transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
-.dropzone:hover {
-    border-color: var(--primary);
-    color: var(--text);
-}
-
+.dropzone:hover,
 .dropzone.is-dragover {
-    border-color: var(--primary);
-    background: var(--bg-light);
-    color: var(--text);
+    background: var(--blue-soft-hover);
 }
 
 /* ---------- Strip (画像が1枚でもあれば表示する小さい一覧) ---------- */
@@ -215,11 +231,10 @@ button {
     border-radius: var(--radius-sm);
 }
 
-.strip-add,
 .strip-thumb {
     flex-shrink: 0;
-    width: 52px;
-    height: 52px;
+    width: 60px;
+    height: 60px;
     padding: 0;
     border-radius: var(--radius-sm);
     overflow: hidden;
@@ -227,20 +242,33 @@ button {
     cursor: pointer;
 }
 
+/* 「＋ 写真を追加」。ホーム画面の入口・最初のドロップエリアと同じ青い破線にして、
+   「ここから写真を入れる」と一目で分かるようにする。文字付きで、一覧の外(左端)に固定 */
 .strip-add {
-    border: 1.5px dashed var(--border);
-    background: var(--bg-light);
-    color: var(--text-muted);
-    font-size: 1.3rem;
-    display: flex;
+    flex-shrink: 0;
+    height: 60px;
+    padding: 0 var(--space-4);
+    border: 2px dashed var(--primary);
+    border-radius: var(--radius-md);
+    background: var(--blue-soft);
+    color: var(--primary);
+    font-size: 0.95rem;
+    font-weight: 700;
+    white-space: nowrap;
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    transition: border-color 0.15s ease, color 0.15s ease;
+    gap: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
 }
 
-.strip-add:hover {
-    border-color: var(--primary);
-    color: var(--text);
+.strip-add:hover,
+.strip-add.is-dragover {
+    background: var(--blue-soft-hover);
+}
+
+.strip-add:active {
+    transform: scale(0.97);
 }
 
 .strip-thumb {
@@ -251,6 +279,7 @@ button {
 
 .strip-thumb.is-active {
     border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--blue-soft);
 }
 
 .strip-thumb:disabled {
@@ -281,6 +310,8 @@ button {
 .status-dot.status-saving { background: var(--warning); }
 .status-dot.status-saved { background: var(--success); }
 .status-dot.status-error { background: var(--danger); }
+/* サーバー側で期限切れ（リロード後など）。開くと送り直すので、エラーではなく控えめな色にする */
+.status-dot.status-expired { background: var(--ink-muted); }
 
 .empty-hint {
     color: var(--text-muted);
@@ -298,13 +329,15 @@ button {
 }
 
 .edit-canvas-wrap {
+    position: relative; /* 状態表示(.edit-status)を画像の上に重ねるため */
     flex: 1;
+    min-height: 0; /* flex の子は既定で中身より小さくならないので、明示して画面内に収める */
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-dark);
     padding: var(--space-3);
     overflow: hidden;
+    background: var(--bg);
 }
 
 #edit-canvas {
@@ -312,7 +345,7 @@ button {
     max-height: 100%;
     touch-action: none; /* スマホでのスクロール/ズーム誤爆を防ぐ */
     border-radius: var(--radius-sm);
-    border: 1px solid var(--border-muted);
+    border: 1px solid var(--line);
     cursor: crosshair;
 }
 
@@ -324,33 +357,157 @@ button {
 }
 
 .edit-status {
+    /* 画像の上端中央に重ねる帯。空のときは出さない */
+    /* left:50% + translate だと幅が親の半分に制限されて折り返すので、左右0 + margin auto で中央に置く */
+    position: absolute;
+    top: var(--space-4);
+    left: 0;
+    right: 0;
+    width: fit-content;
+    margin-inline: auto;
+    z-index: 2;
+    max-width: calc(100% - var(--space-6));
+    margin-block: 0;
+    padding: var(--space-2) var(--space-4);
+    border-radius: 999px;
+    background: var(--overlay-bg);
+    color: var(--overlay-text);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.4;
     text-align: center;
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    min-height: 1.2em;
-    margin: 0 0 4px;
-    font-family: var(--font-mono);
+    pointer-events: none; /* 帯の下の画像もタップできるようにする */
+}
+
+.edit-status:empty {
+    display: none;
 }
 
 .edit-toolbar {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    flex-wrap: wrap;
+    max-width: 960px;
+    margin: 0 auto;
 }
 
 .edit-toolbar .spacer {
     flex: 1;
 }
 
-[data-mode="positive"] {
-    border-color: var(--success);
-    color: var(--success);
+/* ---------- 残す / 消す の切り替え ---------- */
+/* 2つのボタンを1つの部品としてつなげ、選択中(aria-pressed="true")だけを塗る。
+   色はキャンバス上の印(js/canvas.js)と同じ: 残す=緑 / 消す=赤 */
+.mode-switch {
+    position: relative; /* 選択中を示す板(::before)の基準 */
+    display: inline-grid;
+    grid-template-columns: 1fr 1fr; /* 2つを同じ幅にして、板がちょうど半分ずつ動くようにする */
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    padding: 3px;
+    gap: 3px;
 }
 
-[data-mode="negative"] {
-    border-color: var(--danger);
-    color: var(--danger);
+.mode-btn {
+    position: relative;
+    z-index: 1; /* 板より手前に文字を出す */
+    justify-content: center;
+    min-height: calc(var(--touch-target) - 8px);
+    padding: 0 var(--space-4);
+    border: 0;
+    border-radius: calc(var(--radius-md) - 2px);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    --mode-color: var(--success-ink);
+}
+
+.mode-btn[data-mode="negative"] {
+    --mode-color: var(--danger-ink);
+}
+
+.mode-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--mode-color);
+}
+
+.mode-btn:hover {
+    color: var(--text);
+}
+
+/* 選択中を示す色の板。切り替えると、左右にスライドしながら緑⇔赤に色が変わる。
+   位置は親の data-mode（js/editor.js の applyMode が設定）で決める */
+.mode-switch::before {
+    content: "";
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: 3px;
+    width: calc(50% - 4.5px); /* (幅 - 左右の余白3px×2 - 間の3px) / 2 */
+    border-radius: calc(var(--radius-md) - 2px);
+    background: var(--success-ink);
+    transition: transform 0.25s cubic-bezier(0.3, 0.7, 0.4, 1), background-color 0.25s ease;
+}
+
+.mode-switch[data-mode="negative"]::before {
+    transform: translateX(calc(100% + 3px));
+    background: var(--danger-ink);
+}
+
+.mode-btn {
+    transition: color 0.2s ease;
+}
+
+.mode-btn[aria-pressed="true"] {
+    color: var(--on-status-ink);
+}
+
+.mode-dot {
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.mode-btn[aria-pressed="true"] .mode-dot {
+    background: var(--on-status-ink);
+    border-color: var(--on-status-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mode-switch::before,
+    .mode-btn,
+    .mode-dot {
+        transition: none;
+    }
+}
+
+/* ---------- 元に戻す / やり直す ---------- */
+.history-btn {
+    padding: 0 var(--space-3);
+    flex-shrink: 0;
+}
+
+/* スマホでは文字を隠してアイコンだけにし、1行に収める（読み上げは aria-label で出る） */
+@media (max-width: 640px) {
+    .history-btn .btn-label {
+        display: none;
+    }
+
+    .history-btn {
+        padding: 0;
+    }
+}
+
+#save-btn {
+    flex-shrink: 0;
+    padding: 0 var(--space-5);
 }
 
 [hidden] {
@@ -381,7 +538,7 @@ button {
     padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
     border-radius: var(--radius-md);
     background: var(--toast-accent, var(--info));
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 8px 24px var(--shadow);
     color: var(--card-text);
     transform: translateY(-16px);
     opacity: 0;
@@ -438,6 +595,9 @@ button {
 
 .toast-close {
     flex-shrink: 0;
+    /* 色を指定しないとブラウザ既定のボタン文字色になり、ダークモードでは白くなって
+       明るいトーストの上で見えなくなる。カードの文字と同じ濃い色にする */
+    color: var(--card-text);
     width: var(--touch-target);
     height: var(--touch-target);
     margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0;

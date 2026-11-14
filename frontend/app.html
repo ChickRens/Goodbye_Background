@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
 <title>アプリ｜Goodbye Background</title>
 <!-- 編集画面は中身が動的で検索に出す価値が薄いので、検索結果には出さず、紹介ページ(index.html)に評価を集める。
      noindex を効かせるには検索ロボットがこのページを読めることが必要なので、robots.txt では禁止しない -->
 <meta name="robots" content="noindex, follow" />
-<link rel="stylesheet" href="css/tokens.css" />
-<link rel="stylesheet" href="css/checker-colors.css" />
-<link rel="stylesheet" href="css/style.css" />
+<link rel="stylesheet" href="css/tokens.css?v=1.5.2" />
+<link rel="stylesheet" href="css/checker-colors.css?v=1.5.2" />
+<link rel="stylesheet" href="css/style.css?v=1.5.2" />
 <link rel="icon" href="/favicon.ico" sizes="48x48" />
 <link rel="icon" type="image/png" href="assets/favicon-48.png" sizes="48x48" />
 <link rel="icon" type="image/png" href="assets/favicon-192.png" sizes="192x192" />
@@ -20,7 +21,7 @@
 <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 <div id="app">
   <header class="app-header">
-    <h1><a href="index.html" style="color: inherit; text-decoration: none;">Goodbye Background</a></h1>
+    <h1><a class="app-home-link" href="index.html">Goodbye Background</a></h1>
     <a class="app-header-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
   </header>
 
@@ -33,9 +34,13 @@
 
   <!-- 画像が1枚でもあればこちら（小さいストリップ）に切り替わる -->
   <div id="strip-wrap" class="strip-wrap" hidden>
+    <!-- 追加ボタンは一覧の外に置き、画像が増えてスクロールしても常に見えるようにする -->
+    <button id="strip-add" type="button" class="strip-add">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+      写真を追加
+    </button>
     <button id="strip-prev" type="button" class="strip-arrow" aria-label="前へ">‹</button>
     <div id="strip" class="strip">
-      <button id="strip-add" type="button" class="strip-add" aria-label="画像を追加">＋</button>
     </div>
     <button id="strip-next" type="button" class="strip-arrow" aria-label="次へ">›</button>
   </div>
@@ -44,14 +49,29 @@
 
   <section id="editor" class="editor" hidden>
     <div class="edit-canvas-wrap">
-      <canvas id="edit-canvas" role="img" aria-label="切り抜き編集中の画像。タップした位置を残す／除外する対象として指定できます"></canvas>
+      <!-- 画像の上端に重ねて出す案内・処理状況。空のときは非表示(CSS の :empty) -->
+      <p id="edit-status" class="edit-status" role="status" aria-live="polite"></p>
+      <canvas id="edit-canvas" role="img" aria-label="切り抜き編集中の画像。タップした位置を残す／消す対象として指定できます"></canvas>
     </div>
     <div class="edit-bottom-bar">
-      <p id="edit-status" class="edit-status" role="status" aria-live="polite"></p>
       <div class="edit-toolbar">
-        <button id="mode-toggle" type="button" class="icon-btn" data-mode="positive">➕ 含める（タップで追加）</button>
-        <button id="undo-btn" type="button" class="icon-btn" title="元に戻す (Ctrl+Z)" disabled>↺ Undo</button>
-        <button id="redo-btn" type="button" class="icon-btn" title="やり直す (Ctrl+Shift+Z)" disabled>↻ Redo</button>
+        <!-- タップしたところを「残す」か「消す」か。今どちらなのかが常に見えるよう2択で並べる -->
+        <div class="mode-switch" data-mode="positive" role="group" aria-label="タップしたところを">
+          <button id="mode-keep" type="button" class="mode-btn" data-mode="positive" aria-pressed="true">
+            <span class="mode-dot" aria-hidden="true"></span>残す
+          </button>
+          <button id="mode-remove" type="button" class="mode-btn" data-mode="negative" aria-pressed="false">
+            <span class="mode-dot" aria-hidden="true"></span>消す
+          </button>
+        </div>
+        <button id="undo-btn" type="button" class="icon-btn history-btn" aria-label="元に戻す" title="元に戻す (Ctrl+Z)" disabled>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 14 4 9l5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="btn-label">元に戻す</span>
+        </button>
+        <button id="redo-btn" type="button" class="icon-btn history-btn" aria-label="やり直す" title="やり直す (Ctrl+Shift+Z)" disabled>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="m15 14 5-5-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="btn-label">やり直す</span>
+        </button>
         <span class="spacer"></span>
         <button id="save-btn" type="button" class="primary-btn">保存</button>
       </div>
@@ -59,6 +79,6 @@
   </section>
 </div>
 
-<script type="module" src="js/app.js"></script>
+<script type="module" src="js/app.js?v=1.5.2"></script>
 </body>
 </html>

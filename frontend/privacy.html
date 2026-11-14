@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
 <title>プライバシーポリシー｜Goodbye Background</title>
 <meta name="description" content="Goodbye Background における、アップロードされた画像と識別子の取り扱いについて。" />
 <link rel="canonical" href="https://chickren.goodbye-background.com/privacy.html" />
@@ -11,23 +12,21 @@
 <link rel="icon" type="image/png" href="assets/favicon-48.png" sizes="48x48" />
 <link rel="icon" type="image/png" href="assets/favicon-192.png" sizes="192x192" />
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
-<link rel="stylesheet" href="css/tokens.css" />
-<link rel="stylesheet" href="css/checker-colors.css" />
-<link rel="stylesheet" href="css/landing.css" />
-<link rel="stylesheet" href="css/landing-additions.css" />
+<link rel="stylesheet" href="css/tokens.css?v=1.5.2" />
+<link rel="stylesheet" href="css/checker-colors.css?v=1.5.2" />
+<link rel="stylesheet" href="css/site.css?v=1.5.2" />
 </head>
 <body>
-<div class="page">
-
-  <header class="site-header">
-    <a class="wordmark" href="index.html" style="text-decoration:none">Goodbye Background</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="wordmark" href="index.html">Goodbye Background</a>
     <nav class="header-nav" aria-label="ヘッダー">
-      <a class="header-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
-      <a class="header-cta" href="app.html">アプリを開く</a>
+      <a href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
     </nav>
-  </header>
+  </div>
+</header>
 
-  <main class="doc">
+<main class="wrap doc">
     <h1>プライバシーポリシー</h1>
     <p class="doc-meta">最終更新: 2026年11月8日</p>
 
@@ -69,6 +68,11 @@
       client-id をブラウザの localStorage に保存します。ブラウザのサイトデータを削除すると、新しいIDが発行されます。
       Cookieは使用していません。
     </p>
+    <p>
+      ページを再読み込みしても編集を続けられるよう、選んだ写真と編集の状態（タップした位置など）を、お使いのブラウザの中（IndexedDB）に保存します。
+      この保存はお使いの端末の中だけで行われ、ここからサーバーへ送られることはありません。
+      最後に編集してから24時間が経つと、次にアプリを開いたときに自動で削除されます。ブラウザのサイトデータを削除しても消えます。
+    </p>
 
     <h2>6. お問い合わせ</h2>
     <p>
@@ -81,13 +85,11 @@
     <p><a href="index.html">トップへ戻る</a></p>
   </main>
 
-  <footer class="site-footer">
+<footer class="site-footer">
+  <div class="wrap">
     <span>Goodbye Background</span>
-    <nav class="footer-links" aria-label="フッター">
-      <a href="privacy.html">プライバシーポリシー</a>
-    </nav>
-  </footer>
-
-</div>
+    <a href="privacy.html">プライバシーポリシー</a>
+  </div>
+</footer>
 </body>
 </html>

@@ -1,0 +1,395 @@
+/*
+ * ホーム画面(index.html)とプライバシーポリシー(privacy.html)のスタイル。
+ * アプリ本体(app.html)は style.css。色と書体は tokens.css / checker-colors.css の変数を使う。
+ *
+ * ホーム画面は「即スタート」型: ファーストビューの大半を写真の選択エリアにして、
+ * 何をするツールか分かっている人が最短で作業を始められるようにしている。
+ */
+:root {
+    --radius: 8px;
+    --max: 1080px;
+    --gutter: 16px;
+    --touch: 48px;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-tap-highlight-color: transparent;
+}
+
+img { display: block; max-width: 100%; }
+
+a { color: var(--blue); text-underline-offset: 3px; }
+a:hover { color: var(--blue-hover); }
+
+:focus-visible {
+    outline: 3px solid var(--blue);
+    outline-offset: 3px;
+}
+
+[hidden] { display: none !important; }
+
+.wrap {
+    width: 100%;
+    max-width: var(--max);
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+}
+
+@media (min-width: 720px) {
+    :root { --gutter: 32px; }
+}
+
+/* ---------- Header ---------- */
+.site-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+}
+
+.site-header .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 60px;
+}
+
+.wordmark {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--ink);
+    text-decoration: none;
+    line-height: 1.3;
+}
+
+.header-nav {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+}
+
+.header-nav a {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--touch);
+    padding: 0 24px;
+    border-radius: var(--radius);
+    border: 2px solid var(--blue);
+    font: inherit;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-primary {
+    background: var(--blue);
+    color: var(--on-blue);
+}
+
+.btn-primary:hover {
+    background: var(--blue-hover);
+    border-color: var(--blue-hover);
+    color: var(--on-blue);
+}
+
+.btn-secondary {
+    background: var(--surface);
+    color: var(--blue);
+}
+
+.btn-secondary:hover {
+    background: var(--blue-soft);
+    color: var(--blue-hover);
+}
+
+.btn-large {
+    min-height: 56px;
+    padding: 0 32px;
+    font-size: 1.08rem;
+}
+
+/* ---------- 画像 ---------- */
+/* 透過部分を示す市松模様 */
+.checker {
+    background-color: var(--checker-light);
+    background-image:
+        linear-gradient(45deg, var(--checker-dark) 25%, transparent 25%),
+        linear-gradient(-45deg, var(--checker-dark) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, var(--checker-dark) 75%),
+        linear-gradient(-45deg, transparent 75%, var(--checker-dark) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.photo {
+    margin: 0;
+    overflow: hidden;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background-color: var(--surface);
+}
+
+/* .checker は .photo より前に定義しているので、組み合わせたときに市松模様が負けないようにする */
+.photo.checker {
+    background-color: var(--checker-light);
+}
+
+.photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* 元画像の右上に素材由来の「Made with AI」表示があるため、左下を基点に拡大して隠す
+   （本番 landing.css と同じ処理） */
+.photo-before img {
+    transform: scale(1.12);
+    transform-origin: left bottom;
+}
+
+/* ---------- 見出し・本文 ---------- */
+h1, h2, h3 {
+    line-height: 1.4;
+    margin: 0;
+    /* 文節の途中で折り返さず、行の長さも揃える（「す。」だけが次の行に残るのを防ぐ） */
+    word-break: auto-phrase;
+    text-wrap: balance;
+}
+
+.section {
+    padding: 56px 0;
+}
+
+.section + .section {
+    border-top: 1px solid var(--line);
+}
+
+.section-title {
+    font-size: 1.35rem;
+    margin-bottom: 24px;
+}
+
+.muted { color: var(--ink-muted); }
+
+.small { font-size: 0.875rem; }
+
+/* ---------- Footer ---------- */
+.site-footer {
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    padding: 24px 0;
+    font-size: 0.875rem;
+    color: var(--ink-muted);
+}
+
+.site-footer .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    justify-content: space-between;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+}
+
+/* ---------- 共通部品: 特徴リスト / 手順リスト ---------- */
+.feature-list {
+    list-style: none;
+    margin: 0 0 24px;
+    padding: 0;
+    display: grid;
+    gap: 16px;
+}
+
+@media (min-width: 720px) {
+    .feature-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
+}
+
+.feature-list li {
+    display: flex;
+    flex-direction: column;
+}
+
+/* li を flex にすると番号(::marker)が消えるので、手順リストは中の要素を block にする */
+.step-list strong,
+.step-list span {
+    display: block;
+}
+
+.feature-list span { color: var(--ink-muted); }
+
+/* 順番のある手順なので番号付き */
+.step-list {
+    margin: 0 0 32px;
+    padding-left: 1.6em;
+    display: grid;
+    gap: 12px;
+}
+
+.step-list li::marker { color: var(--blue); font-weight: 700; }
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* ==========================================================
+   ホーム画面 (index.html)
+   ========================================================== */
+.start {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 40px 0 48px;
+}
+
+.start-grid {
+    display: grid;
+    gap: 32px;
+    align-items: center;
+}
+
+@media (min-width: 860px) {
+    .start-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 48px; }
+}
+
+.start h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); }
+.start h1 + p { margin: 8px 0 24px; }
+
+/* 写真の選択エリア。アプリのドロップエリアと同じ見た目にして「ここに写真を入れる」と一目で分かるようにする。
+   エリア全体が <label> なので、どこを押してもファイル選択が開く。ドラッグ＆ドロップも受け付ける(js/home.js) */
+.start-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 200px;
+    padding: 24px;
+    border: 2px dashed var(--blue);
+    border-radius: 12px;
+    background: var(--blue-soft);
+    text-align: center;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.start-zone:hover,
+.start-zone.is-dragover {
+    background: var(--blue-soft-hover);
+    border-style: solid; /* 破線から実線にして、押せる・落とせる状態をはっきり見せる */
+}
+
+/* 本物の input は見えなくするが、キーボードのフォーカスは受けられるようにしておく */
+.start-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.start-input:focus-visible + .start-zone-title {
+    outline: 3px solid var(--blue);
+    outline-offset: 4px;
+}
+
+.start-zone-title {
+    display: inline-flex;
+    align-items: center;
+    min-height: 56px;
+    padding: 0 32px;
+    border-radius: var(--radius);
+    background: var(--blue);
+    color: var(--on-blue);
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.start-zone:hover .start-zone-title { background: var(--blue-hover); }
+
+.start-zone-sub {
+    color: var(--ink-muted);
+    font-size: 0.875rem;
+    margin-top: 8px;
+}
+
+/* PC ではドラッグ＆ドロップもできることを書く。タッチ端末では出さない */
+.start-zone-drop { display: none; }
+
+@media (hover: hover) and (pointer: fine) {
+    .start-zone-drop { display: inline; }
+}
+
+.start-zone.is-busy { cursor: progress; opacity: 0.7; }
+
+.start-error {
+    margin: 8px 0 0;
+    color: var(--danger-ink);
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+/* 手順を1行で。番号は CSS で付ける（実際に順番のある手順なので番号付き） */
+.start-flow {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    margin: 16px 0 0;
+    padding: 0;
+    counter-reset: flow;
+    font-size: 0.92rem;
+    color: var(--ink-muted);
+}
+
+.start-flow li { counter-increment: flow; }
+
+.start-flow li::before {
+    content: counter(flow) ". ";
+    color: var(--blue);
+    font-weight: 700;
+}
+
+.start-sample {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.start-sample .photo { aspect-ratio: 4 / 5; }
+
+/* ==========================================================
+   プライバシーポリシー (privacy.html)
+   ========================================================== */
+.doc {
+    max-width: 44rem; /* 日本語で1行が長くなりすぎない幅 */
+    padding-top: 40px;
+    padding-bottom: 64px;
+}
+
+.doc h1 { font-size: 1.6rem; margin-bottom: 8px; }
+.doc h2 { font-size: 1.1rem; margin: 32px 0 4px; }
+.doc p, .doc li { color: var(--ink-muted); }
+.doc ul { margin: 0; padding-left: 1.4em; }
+.doc .doc-meta { font-size: 0.875rem; margin: 0 0 24px; }

@@ -1,25 +1,87 @@
+/*
+ * サイト全体(index.html / app.html / privacy.html)の色と書体。
+ * 色を変えるときはこのファイルだけを触ればよいようにしている。
+ *
+ * 配色: 青ベース。リンク・ボタンの青は「押せるもの」として誰にでも通じる慣習に合わせている。
+ *   白文字 on --blue ≒ 5.6:1 / --ink-muted on --bg ≒ 6.7:1（どちらも WCAG AA 以上）
+ *
+ * ダークモード: 端末の設定(prefers-color-scheme)に合わせて、下の @media で色だけを差し替える。
+ * 部品のCSSは色をこのファイルの変数でしか指定しないこと（直接書いた色はダークモードで浮く）。
+ */
 :root {
-    --hue: 233;
+    /* ---- 基本の色（新しいスタイルはこちらを使う） ---- */
+    --bg: #f5f8fc;           /* ページの地 */
+    --surface: #ffffff;      /* ヘッダー・ボタン・入力欄などの面 */
+    --ink: #14213d;          /* 本文 */
+    --ink-muted: #4a5a78;    /* 補足の文字 */
+    --line: #d3ddec;         /* 区切り線・枠 */
+    --blue: #1d5fd6;         /* ボタン・リンク・選択中 */
+    --blue-hover: #164baa;
+    --blue-soft: #e3ecfb;    /* 青の薄い面（ドロップエリアなど） */
+    --blue-soft-hover: #d3e1f8;
+    --on-blue: #ffffff;      /* --blue の上の文字 */
 
-    /* hsl (fallback color) */
-    --bg-dark: hsl(var(--hue) 79% 3%);
-    --bg: hsl(var(--hue) 59% 7%);
-    --bg-light: hsl(var(--hue) 40% 11%);
-    --text: hsl(var(--hue) 100% 100%);
-    --text-muted: hsl(var(--hue) 55% 77%);
-    --highlight: hsl(var(--hue) 25% 45%);
-    --border: hsl(var(--hue) 31% 34%);
-    --border-muted: hsl(var(--hue) 41% 24%);
-    --primary: hsl(var(--hue) 74% 78%);
-    --secondary: hsl(48 45% 58%);
-    --danger: hsl(9 42% 65%);
-    --warning: hsl(51 29% 53%);
-    --success: hsl(148 27% 56%);
-    --info: hsl(217 46% 66%);
+    /* 状態の色。トーストの背景・サムネイルの点に使うので、上に --card-text(濃い文字)を乗せられる明るさにしている */
+    --danger: #f2a395;
+    --warning: #f2c66d;
+    --success: #8fd3a9;
+    --info: #9cc2f0;
+    --secondary: #f2c66d;
+    /* トーストは明るい状態色の上に乗せるので、ダークモードでも濃い文字のまま（--ink を使わない） */
+    --card-text: #14213d;
+    --card-text-muted: #33415e;
 
-    /* --danger/--warning/--success/--info は中間〜明るめの明度(53-66%)なので、
-       --text(白)や--text-muted(明るいラベンダー)を乗せると読みにくい。
-       これらの背景の上で使う専用のテキスト色。 */
-    --card-text: hsl(var(--hue) 60% 10%);
-    --card-text-muted: hsl(var(--hue) 35% 24%);
+    /* 白い面の上に「文字として」置くときの状態色（アプリの含める/除外ボタン） */
+    --success-ink: #1e7a4c;
+    --danger-ink: #b5321f;
+    --on-status-ink: #ffffff;  /* --success-ink / --danger-ink で塗った面の上の文字 */
+
+    /* 編集画面の上に重ねる案内の帯 */
+    --overlay-bg: rgba(20, 33, 61, 0.86);
+    --overlay-text: #ffffff;
+    --shadow: rgba(20, 33, 61, 0.18);
+
+    /* ---- アプリ本体(style.css)が使っている名前。上の基本の色に割り当てる ---- */
+    --bg-dark: var(--surface);
+    --bg-light: var(--surface);
+    --text: var(--ink);
+    --text-muted: var(--ink-muted);
+    --highlight: var(--blue);
+    --border: #b9c7dc;
+    --border-muted: var(--line);
+    --primary: var(--blue);
+
+    /* 書体: 読み込み待ちが無いよう、端末に入っている書体を使う */
+    --font-body: system-ui, -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+    --font-display: var(--font-body);
+}
+
+/* ---------- ダークモード ---------- */
+/* 明るい配色をそのまま反転させず、紺の地に少し明るくした青を合わせている。
+   --ink on --bg ≒ 14:1 / --ink-muted on --bg ≒ 7.6:1 / --on-blue on --blue ≒ 6.6:1 */
+@media (prefers-color-scheme: dark) {
+    :root {
+        color-scheme: dark; /* スクロールバーやファイル選択などのブラウザ部品も暗くする */
+
+        --bg: #0f1726;
+        --surface: #172236;
+        --ink: #e6ecf6;
+        --ink-muted: #a3b2cc;
+        --line: #2c3a55;
+        --blue: #6b9cf0;
+        --blue-hover: #8db4f5;
+        --blue-soft: #1c2d4d;
+        --blue-soft-hover: #243a62;
+        --on-blue: #0f1726;
+
+        --success-ink: #5fcf94;
+        --danger-ink: #f08a76;
+        --on-status-ink: #0f1726;
+
+        --overlay-bg: rgba(6, 10, 18, 0.88);
+        --overlay-text: #e6ecf6;
+        --shadow: rgba(0, 0, 0, 0.45);
+
+        --border: #3a4b6b;
+    }
 }

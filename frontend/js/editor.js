@@ -1,6 +1,14 @@
-import { getPreviewImage, segmentImage, undoEdit, redoEdit, saveImage, getCompletedImage } from './api.js';
-import { createCanvasController } from './canvas.js';
-import { showToast } from './toast.js';
+import {
+  getPreviewImage,
+  segmentImage,
+  undoEdit,
+  redoEdit,
+  saveImage,
+  getCompletedImage,
+  uploadImage,
+} from './api.js?v=1.5.2';
+import { createCanvasController } from './canvas.js?v=1.5.2';
+import { showToast } from './toast.js?v=1.5.2';
 
 /**
  * 画面には常に1枚分の大きな編集エリア（canvas+ツールバー）だけがあり、
@@ -44,7 +52,7 @@ const EXTENSION_BY_MIME = {
 export function initEditor({ store, elements }) {
   const {
     canvasEl,
-    modeToggleBtn,
+    modeButtons,
     undoBtn,
     redoBtn,
     saveBtn,
@@ -59,14 +67,20 @@ export function initEditor({ store, elements }) {
     onPointAdd: handlePointAdd,
   });
 
+  // 処理中の表示文言。空のときは renderStatus が「次にすること」の案内を代わりに出す
+  let statusText = '';
+
+  // 編集中の操作(タップ・元に戻す等)が期限切れで失敗した写真。送り直したときにその旨を伝える
+  const expiredDuringEdit = new Set();
+
   store.subscribe((state) => {
     if (currentLocalId) syncToolbar(state.sessions.get(currentLocalId));
+    renderStatus(); // ポイントの増減で案内の出し分けが変わる
   });
 
-  modeToggleBtn.addEventListener('click', () => {
-    const next = modeToggleBtn.dataset.mode === 'positive' ? 'negative' : 'positive';
-    applyMode(next);
-  });
+  for (const btn of modeButtons) {
+    btn.addEventListener('click', () => applyMode(btn.dataset.mode));
+  }
 
   undoBtn.addEventListener('click', () => runHistory(undoEdit, popLastPoint));
   redoBtn.addEventListener('click', () => runHistory(redoEdit, restoreLastPoint));
@@ -110,9 +124,10 @@ export function initEditor({ store, elements }) {
     currentLocalId = localId;
     controller.reset(); // 前の画像が残ったままタップできてしまわないよう、まず空にする
 
-    const session = store.getSession(localId);
+    let session = store.getSession(localId);
     syncToolbar(session);
-    if (!session || !session.imageId) {
+    if (!session) return;
+    if (session.status === 'uploading') {
       showToast({ type: 'warning', message: 'この画像はまだアップロードが完了していません' });
       return;
     }
@@ -120,12 +135,27 @@ export function initEditor({ store, elements }) {
     emptyHintEl.hidden = true;
     editorSectionEl.hidden = false;
 
+    // サーバー側で期限切れになっている写真は、保存しておいた元ファイルで送り直してから開く
+    if (session.status === 'expired' || !session.sessionId) {
+      const ok = await reupload(localId);
+      if (!ok || localId !== currentLocalId) return;
+      session = store.getSession(localId);
+    }
+
     setStatus('画像を読み込み中…');
 
     let url = null;
     let adopted = false;
     try {
-      url = await getPreviewImage(session.imageId);
+      try {
+        url = await getPreviewImage(session.imageId);
+      } catch (err) {
+        // 期限内のつもりでもサーバーの再起動などで消えていることがある。そのときも送り直す
+        if (err.status !== 404) throw err;
+        const ok = await reupload(localId);
+        if (!ok || localId !== currentLocalId) return;
+        url = await getPreviewImage(store.getSession(localId).imageId);
+      }
       if (localId !== currentLocalId) return; // その間に別画像へ切り替えられていたら破棄
 
       const size = await controller.loadBaseImage(url, isStale(localId));
@@ -156,8 +186,11 @@ export function initEditor({ store, elements }) {
   }
 
   function applyMode(mode) {
-    modeToggleBtn.dataset.mode = mode;
-    modeToggleBtn.textContent = mode === 'positive' ? '➕ 含める（タップで追加）' : '➖ 除外する（タップで追加）';
+    for (const btn of modeButtons) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.mode === mode));
+    }
+    // 親(.mode-switch)の data-mode で、選択中を示す色の板をスライドさせる（css/style.css）
+    modeButtons[0].parentElement.dataset.mode = mode;
     controller.setPointMode(mode);
   }
 
@@ -169,7 +202,7 @@ export function initEditor({ store, elements }) {
 
     if (session.busy) {
       // 処理中の変更系リクエストと重ねて送らない。タップ自体を無視する。
-      setStatus('処理中はポイントを追加できません。完了までお待ちください');
+      setStatus('切り抜きが終わってからタップしてください');
       return;
     }
 
@@ -201,12 +234,12 @@ export function initEditor({ store, elements }) {
     }
 
     store.updateSession(localId, { busy: true });
-    setStatus('セグメンテーション実行中…');
+    setStatus('切り抜き中…');
     let segmentApplied = false;
     try {
       const { imageId } = await segmentImage(session.sessionId, point);
       segmentApplied = true; // ここから先の失敗はサーバー側では適用済み。マーカーは戻さない
-      store.updateSession(localId, { imageId });
+      store.updateSession(localId, { imageId, touchedAt: Date.now() });
 
       const url = await getPreviewImage(imageId);
       replaceFullUrl(localId, url);
@@ -218,9 +251,11 @@ export function initEditor({ store, elements }) {
       }
     } catch (err) {
       if (!segmentApplied) rollbackPoint(localId, point, previousRedoStack);
-      if (localId === currentLocalId) {
+      if (err.status === 404) {
+        handleExpired(localId);
+      } else if (localId === currentLocalId) {
         setStatus('');
-        showToast({ type: 'danger', message: `セグメンテーションに失敗しました: ${err.message}`, code: err.code });
+        showToast({ type: 'danger', message: `切り抜きに失敗しました: ${err.message}`, code: err.code });
       }
     } finally {
       store.updateSession(localId, { busy: false });
@@ -251,11 +286,11 @@ export function initEditor({ store, elements }) {
     if (!session || session.busy) return;
 
     store.updateSession(localId, { busy: true });
-    setStatus('処理中…');
+    setStatus('切り抜きを更新中…');
     try {
       const { imageId } = await apiFn(session.sessionId);
       // サーバーの履歴は進んだので、表示中かどうかに関わらずマーカー履歴も同期する
-      store.updateSession(localId, { imageId });
+      store.updateSession(localId, { imageId, touchedAt: Date.now() });
       localPointSync(store.getSession(localId));
 
       const url = await getPreviewImage(imageId);
@@ -266,7 +301,9 @@ export function initEditor({ store, elements }) {
         setStatus('');
       }
     } catch (err) {
-      if (localId === currentLocalId) {
+      if (err.status === 404) {
+        handleExpired(localId);
+      } else if (localId === currentLocalId) {
         setStatus('');
         showToast({ type: 'danger', message: `失敗しました: ${err.message}`, code: err.code });
       }
@@ -290,9 +327,10 @@ export function initEditor({ store, elements }) {
 
     const fileName = session.file ? session.file.name : null;
     store.updateSession(localId, { busy: true, status: 'saving' });
-    setStatus('保存用のフル画質版を作成中…');
+    setStatus('保存用の画像を作成中…（元の解像度で作るので少し時間がかかります）');
     try {
       const { imageId: completedImageId } = await saveImage(session.sessionId);
+      store.updateSession(localId, { touchedAt: Date.now() });
       setStatus('ダウンロード準備中…');
       const blob = await getCompletedImage(completedImageId);
 
@@ -303,6 +341,11 @@ export function initEditor({ store, elements }) {
       triggerDownload(blob, fileName);
     } catch (err) {
       if (localId === currentLocalId) setStatus('');
+      if (err.status === 404) {
+        store.updateSession(localId, { status: 'ready' });
+        handleExpired(localId);
+        return;
+      }
       showToast({
         type: 'danger',
         message: `${fileName ? `${fileName}: ` : ''}保存に失敗しました: ${err.message}`,
@@ -329,8 +372,82 @@ export function initEditor({ store, elements }) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  /**
+   * サーバー側で期限切れになった写真を、保存しておいた元ファイルで送り直す。
+   * サーバーの編集状態は消えているので、タップした点と履歴はリセットされる。
+   * @returns {Promise<boolean>} 送り直せたら true
+   */
+  async function reupload(localId) {
+    const session = store.getSession(localId);
+    if (!session || !session.file || session.busy) return false;
+
+    const hadPoints = session.points.length > 0;
+    // 編集中の操作が期限切れで失敗した場合（handleExpired）は、その操作が反映されていないことを必ず伝える
+    const lostAction = expiredDuringEdit.delete(localId);
+    store.updateSession(localId, { busy: true });
+    if (localId === currentLocalId) setStatus('時間が経ったため、写真を送り直しています…');
+    try {
+      const { sessionId, imageId } = await uploadImage(session.file);
+      store.updateSession(localId, {
+        sessionId,
+        imageId,
+        status: 'ready',
+        points: [],
+        redoStack: [],
+        touchedAt: Date.now(),
+      });
+      if (localId === currentLocalId) {
+        controller.setPoints([]);
+        setStatus('');
+      }
+      if (hadPoints || lostAction) {
+        showToast({
+          type: 'info',
+          message: hadPoints
+            ? '時間が経ってサーバーから消えていたため、写真を送り直しました。タップした点はリセットされています。'
+            : '時間が経ってサーバーから消えていたため、写真を送り直しました。もう一度タップしてください。',
+        });
+      }
+      return true;
+    } catch (err) {
+      store.updateSession(localId, { status: 'expired' });
+      if (localId === currentLocalId) {
+        setStatus('');
+        showToast({ type: 'danger', message: `写真を送り直せませんでした: ${err.message}`, code: err.code });
+      }
+      return false;
+    } finally {
+      store.updateSession(localId, { busy: false });
+    }
+  }
+
+  // 編集中にサーバーから「見つからない(404)」が返った = 期限切れ。送り直して開き直す
+  function handleExpired(localId) {
+    expiredDuringEdit.add(localId);
+    store.updateSession(localId, { status: 'expired' });
+    if (localId === currentLocalId) {
+      setStatus('');
+      // busy の解除(finally)を待ってから開き直す
+      setTimeout(() => { if (localId === currentLocalId) open(localId); }, 0);
+    }
+  }
+
   function setStatus(text) {
-    statusEl.textContent = text;
+    statusText = text;
+    renderStatus();
+  }
+
+  // 処理中はその内容を、何もしていないときは「次にすること」を画像の上に出す。
+  // 1点目を置いたあとは案内を消して、画像を見やすくする。
+  function renderStatus() {
+    let text = statusText;
+    if (!text) {
+      const session = currentLocalId ? store.getSession(currentLocalId) : null;
+      if (session && session.status !== 'saving' && session.points.length === 0) {
+        text = '残したいところをタップしてください';
+      }
+    }
+    if (statusEl.textContent !== text) statusEl.textContent = text;
   }
 
   return { open };

@@ -1,21 +1,26 @@
-import { uploadImage } from './api.js';
-import { createLocalId } from './id.js';
-import { showToast } from './toast.js';
+import { uploadImage } from './api.js?v=1.5.2';
+import { createLocalId } from './id.js?v=1.5.2';
+import { showToast } from './toast.js?v=1.5.2';
 
 /**
  * アップロードの入口は2つある。
  * - dropzoneEl: 画像が1枚も無い間だけ表示する大きいドロップゾーン
- * - addBtnEl（ストリップ内の「＋」タイル）: 画像が1枚でもあれば表示する、
+ * - addBtnEl（一覧の左端の「＋ 写真を追加」ボタン）: 画像が1枚でもあれば表示する、
  *   小さいストリップ側の入口
- * どちらも同じ handleFiles() に合流する。1枚でもセッションができた時点で
+ * どちらも同じ handleFiles() に合流する。ホーム画面(index.html)で選ばれた写真も、
+ * app.js がこの関数(initStrip の戻り値)経由で同じところに流し込む。1枚でもセッションができた時点で
  * dropzoneEl を隠し、stripWrapEl（矢印＋サムネイル一覧）を表示する——
  * これにより「最初は大きく、画像が増えたら小さく」という見た目になる。
  *
  * サムネイルをクリックすると、そのセッションが編集画面（editor.js）に
- * 切り替わる（onSelectコールバック経由）。何も選ばれていない状態で
- * アップロードが完了した画像があれば、最初の1枚だけ自動的に選択する
- * （毎回のアップロードで編集中の画像を勝手に奪わないよう、既に何か
- * 選ばれていれば自動選択はしない）。
+ * 切り替わる（onSelectコールバック経由）。
+ *
+ * 写真を追加したら、いちばん新しく追加した写真を自動で編集画面に開く（2回目以降の追加でも）。
+ * - 複数枚をまとめて選んだときは、その中の最後の1枚。アップロードが終わった時点で開く
+ *   （同時に送るので完了順はばらばらだが、開くのは1回だけにして画面が何度も切り替わらないようにする）。
+ * - 最後の1枚のアップロードに失敗したら、同じ回に選んだ写真のうち成功した最後の1枚を開く。
+ * - 開く前に利用者が自分でサムネイルを選んだら、その選択を優先して自動では開かない。
+ * - さらに次の写真が追加されたら、前の回の自動表示は取りやめて新しい回の写真を開く。
  *
  * - 複数枚を選んでも、同時に送るのは MAX_CONCURRENT_UPLOADS 件まで（残りは順番待ち）。
  * - アップロードに失敗したサムネイル（赤いドット）は、クリックすると一覧から消せる。
@@ -41,6 +46,10 @@ export function initStrip({
   const uploadQueue = [];
   let runningUploads = 0;
 
+  // 自動で開く対象の「回」（直近の handleFiles 1回分）。null なら自動では開かない。
+  // { order: localId[]（選んだ順）, pending: Set（アップロード中）, succeeded: Set（成功） }
+  let autoOpenBatch = null;
+
   dropzoneEl.addEventListener('click', () => fileInputEl.click());
   addBtnEl.addEventListener('click', () => fileInputEl.click());
 
@@ -50,7 +59,7 @@ export function initStrip({
   });
 
   // 大きいドロップゾーン・ストリップどちらにもドラッグ＆ドロップ対応（PC向け）
-  for (const el of [dropzoneEl, stripEl]) {
+  for (const el of [dropzoneEl, stripEl, addBtnEl]) {
     el.addEventListener('dragover', (evt) => {
       evt.preventDefault();
       el.classList.add('is-dragover');
@@ -66,7 +75,8 @@ export function initStrip({
   }
 
   // PC向けの矢印ボタン。スマホは直接スワイプでスクロールできるので不要
-  // （CSS側で `pointer: coarse` のときは非表示にしている）
+  // （CSS側で `pointer: coarse` のときは非表示にしている）。
+  // サムネイルが帯からあふれているときだけ表示する（updateArrows）。
   prevBtnEl.addEventListener('click', () => {
     stripEl.scrollBy({ left: -200, behavior: 'smooth' });
   });
@@ -86,27 +96,46 @@ export function initStrip({
       store.removeSession(localId);
       return;
     }
+    autoOpenBatch = null; // 利用者が選んだ写真を優先し、アップロード完了で勝手に切り替えない
     setActive(localId);
   });
 
   store.subscribe((state) => render(state));
   render(store.getState());
 
+  // 画面幅が変わったとき（ウィンドウのリサイズ・帯が表示に切り替わったとき）にも、あふれているかを判定し直す
+  new ResizeObserver(() => updateArrows()).observe(stripWrapEl);
+
+  // ホーム画面から渡された写真を app.js が流し込めるよう、入口の handleFiles を外に出す。
+  // select はリロード後に、前回開いていた写真を開き直すのに使う
+  return { handleFiles, select: setActive };
+
   function handleFiles(fileList) {
     const files = Array.from(fileList || []).filter((f) => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+
+    const batch = { order: [], pending: new Set(), succeeded: new Set() };
+    autoOpenBatch = batch;
+
     for (const file of files) {
       const localId = createLocalId();
+      batch.order.push(localId);
+      batch.pending.add(localId);
       const thumbUrl = URL.createObjectURL(file);
 
       store.createSession(localId, { thumbUrl, file });
       enqueueUpload(() =>
         uploadImage(file)
           .then(({ sessionId, imageId }) => {
-            store.updateSession(localId, { sessionId, imageId, status: 'ready' });
-            if (!store.getState().activeLocalId) setActive(localId);
+            store.updateSession(localId, { sessionId, imageId, status: 'ready', touchedAt: Date.now() });
+            batch.pending.delete(localId);
+            batch.succeeded.add(localId);
+            maybeAutoOpen(batch);
           })
           .catch((err) => {
             store.updateSession(localId, { status: 'error', error: err.message });
+            batch.pending.delete(localId);
+            maybeAutoOpen(batch);
             showToast({
               type: 'danger',
               message: `${file.name} のアップロードに失敗しました: ${err.message}`,
@@ -115,6 +144,25 @@ export function initStrip({
           }),
       );
     }
+  }
+
+  // その回の最後の1枚が開けるようになったら開く（説明はファイル冒頭のコメント）
+  function maybeAutoOpen(batch) {
+    if (autoOpenBatch !== batch) return; // もっと新しい回がある / 利用者が自分で選んだ
+
+    const last = batch.order[batch.order.length - 1];
+    if (batch.succeeded.has(last)) {
+      autoOpenBatch = null;
+      setActive(last);
+      return;
+    }
+    if (batch.pending.has(last)) return; // 最後の1枚がまだアップロード中
+
+    // 最後の1枚は失敗した。残りが全部終わるのを待ってから、成功した最後の1枚を開く
+    if (batch.pending.size > 0) return;
+    autoOpenBatch = null;
+    const fallback = [...batch.order].reverse().find((id) => batch.succeeded.has(id) && store.getSession(id));
+    if (fallback) setActive(fallback);
   }
 
   // 同時アップロード数を制限する（大量に選んだときに一斉送信して詰まらせない）
@@ -182,8 +230,27 @@ export function initStrip({
       const name = session.file ? session.file.name : '画像';
       thumb.btn.disabled = session.status === 'uploading';
       thumb.btn.classList.toggle('is-active', session.localId === state.activeLocalId);
-      thumb.btn.title = session.status === 'error' ? `${name}（アップロード失敗・クリックで削除）` : name;
+      thumb.btn.title =
+        session.status === 'error' ? `${name}（アップロード失敗・クリックで削除）`
+        : session.status === 'expired' ? `${name}（時間が経ったため、開くと送り直します）`
+        : name;
       thumb.dot.className = `status-dot status-${session.status}`;
     }
+
+    updateArrows();
+  }
+
+  /**
+   * サムネイルが帯の幅に収まらないときだけ矢印を出す。
+   * 矢印を出すと帯が狭くなるので、「矢印が無い状態で」あふれるかを測る
+   * （矢印がある状態で測ると、矢印を消せば収まる場合でも出しっぱなしになる）。
+   * 一度隠して測り、同じ処理の中で表示を戻すので、画面がちらつくことはない。
+   */
+  function updateArrows() {
+    prevBtnEl.hidden = true;
+    nextBtnEl.hidden = true;
+    const overflowing = stripEl.scrollWidth > stripEl.clientWidth + 1;
+    prevBtnEl.hidden = !overflowing;
+    nextBtnEl.hidden = !overflowing;
   }
 }

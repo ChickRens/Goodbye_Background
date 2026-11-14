@@ -34,6 +34,13 @@ const FRAME_INTERVAL_MS = 1000 / 30;
 export function createCanvasController(canvasEl, { onPointAdd }) {
   const ctx = canvasEl.getContext('2d');
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  // 市松模様・印の色は CSS 変数から読んでキャッシュしている。
+  // 編集中に端末のライト/ダークが切り替わったら、キャッシュを捨てて描き直す
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    colors = null;
+    checkerPattern = null;
+    dirty = true;
+  });
 
   let baseImage = null; // サーバーから返るプレビュー画像
   let originalImage = null; // アップロード直後のFileから作った元画像（薄く表示する用）
@@ -58,9 +65,10 @@ export function createCanvasController(canvasEl, { onPointAdd }) {
       colors = {
         checkerLight: read('--checker-light'),
         checkerDark: read('--checker-dark'),
-        success: read('--success'),
-        danger: read('--danger'),
-        outline: read('--bg-dark'),
+        // 印の色はツールバーの「残す」「消す」ボタンと同じ色にする
+        success: read('--success-ink'),
+        danger: read('--danger-ink'),
+        outline: read('--surface'),
       };
     }
     return colors;
@@ -198,7 +206,10 @@ export function createCanvasController(canvasEl, { onPointAdd }) {
 
     // 4. ポイントのマーカー
     const palette = getColors();
-    const radius = Math.max(5, canvasEl.width * 0.008);
+    // 印は「画面上で」半径7px以上になるようにする。canvas は縮小して表示されるので、
+    // 画像のピクセル数だけで決めるとスマホでは点のように小さくなってしまう
+    const displayScale = canvasEl.width / (canvasEl.clientWidth || canvasEl.width);
+    const radius = Math.max(7 * displayScale, canvasEl.width * 0.008);
     ctx.lineWidth = Math.max(1.5, radius * 0.25);
     ctx.strokeStyle = palette.outline;
     for (const p of points) {

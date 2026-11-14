@@ -31,8 +31,27 @@
 .video-remaining {
     margin: 0;
     font-size: 0.85rem;
-    color: var(--secondary);
+    color: var(--ink-muted);
     font-weight: 600;
+}
+
+/* ヘッダーの右側のリンク（画像の切り抜き・お問い合わせ）。並べて置く */
+.app-header-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-shrink: 0;
+}
+
+/* スマホ幅でもロゴとリンクを1行に収める（ロゴが2行に折れないようにする） */
+.app-header:has(.app-header-nav) h1 {
+    white-space: nowrap;
+}
+
+@media (max-width: 400px) {
+    .app-header-nav { gap: var(--space-2); }
+    .app-header-nav .app-header-link { font-size: 0.8rem; }
+    .app-header:has(.app-header-nav) h1 { font-size: 0.95rem; }
 }
 
 .video-step {
@@ -50,8 +69,15 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    font-size: 0.95rem;
-    font-weight: 600;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+/* 手順 4 の「残す／消す」と元に戻す・やり直す。部品は style.css（app.html と同じ）を使い、並べ方だけ変える */
+.video-step .edit-toolbar {
+    margin: 0;
+    max-width: none;
+    flex-wrap: wrap;
 }
 
 .video-step-no {
@@ -60,7 +86,7 @@
     height: 24px;
     border-radius: 50%;
     background: var(--primary);
-    color: var(--bg-dark);
+    color: var(--on-blue);
     font-size: 0.8rem;
     font-weight: 700;
     display: inline-flex;
@@ -69,25 +95,26 @@
 }
 
 .video-select {
-    min-height: 96px;
-    border: 1.5px dashed var(--border);
-    border-radius: var(--radius-md);
-    background: var(--bg);
+    /* ホーム画面の写真選択エリア(site.css の .start-zone)と同じ見た目にして、「ここに動画を入れる」と分かるようにする */
+    min-height: 140px;
+    border: 2px dashed var(--primary);
+    border-radius: var(--radius-lg);
+    background: var(--blue-soft);
     color: var(--text);
-    font-size: 0.95rem;
-    font-weight: 600;
+    font: inherit;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: var(--space-1);
+    gap: var(--space-2);
     padding: var(--space-4);
-    transition: border-color 0.15s ease;
+    transition: background-color 0.15s ease;
 }
 
 .video-select:hover {
-    border-color: var(--primary);
+    background: var(--blue-soft-hover);
+    border-style: solid; /* 破線から実線にして、押せる状態をはっきり見せる */
 }
 
 .video-select:disabled {
@@ -95,8 +122,24 @@
     cursor: not-allowed;
 }
 
+.video-select-title {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--touch-target);
+    padding: 0 28px;
+    border-radius: var(--radius-md);
+    background: var(--primary);
+    color: var(--on-blue);
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.video-select:hover .video-select-title {
+    background: var(--blue-hover);
+}
+
 .video-select-note {
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     font-weight: 400;
     color: var(--text-muted);
 }
@@ -108,9 +151,9 @@
     color: var(--text-muted);
 }
 
-/* 本文中のリンク（プライバシーポリシーなど）。既定の青は暗い背景で読めないので、ヘッダーのリンクに揃える */
+/* 本文中のリンク（プライバシーポリシーなど）。ホーム画面と同じ青 */
 .video-note a {
-    color: var(--text);
+    color: var(--blue);
     text-decoration: underline;
     text-underline-offset: 3px;
 }
@@ -128,7 +171,7 @@
 .video-player {
     width: 100%;
     max-height: 50vh;
-    background: var(--bg-dark);
+    background: var(--bg);
     border-radius: var(--radius-md);
     display: block;
 }
@@ -173,7 +216,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-dark);
+    background: var(--bg);
     border-radius: var(--radius-md);
     padding: var(--space-2);
     min-height: 120px;
@@ -215,7 +258,7 @@
 
 .bg-option:has(input:checked) {
     border-color: var(--primary);
-    background: var(--bg);
+    background: var(--blue-soft);
 }
 
 .bg-option input {
@@ -281,8 +324,8 @@
 }
 
 .frame-tab-select[aria-selected="true"] {
-    background: var(--text);
-    color: var(--bg);
+    background: var(--primary);
+    color: var(--on-blue);
     font-weight: 600;
 }
 
