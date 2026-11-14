@@ -1,4 +1,4 @@
-import { getClientId } from './client-id.js?v=1.5.2';
+import { getClientId } from './client-id.js?v=1.5.3';
 
 // 同一オリジンで配信する想定。別ホストの場合はここを書き換える。
 // （別ホストにする場合、バックエンドは CORS で `client-id` ヘッダーを許可する

@@ -21,11 +21,11 @@
 <ul id="results"></ul>
 <p id="summary"></p>
 <script type="module">
-  import { clampRange } from './range.js?v=1.5.2';
-  import { toNormalized, applyMaskAlpha } from './preview.js?v=1.5.2';
-  import { MAX_FRAMES, canAddFrame, buildPrompts, allFramesReady, formatFrameTime } from './frames.js?v=1.5.2';
-  import { planTrim, toJobTime } from './trim.js?v=1.5.2';
-  import { phaseMessage } from './messages.js?v=1.5.2';
+  import { clampRange } from './range.js?v=1.5.3';
+  import { toNormalized, applyMaskAlpha } from './preview.js?v=1.5.3';
+  import { MAX_FRAMES, canAddFrame, buildPrompts, allFramesReady, formatFrameTime } from './frames.js?v=1.5.3';
+  import { planTrim, toJobTime } from './trim.js?v=1.5.3';
+  import { phaseMessage } from './messages.js?v=1.5.3';
 
   // 切り出しの計算用の偽のトラック（trim.js の parseMovie が返す形のうち、planTrim が使う所だけ）
   function fakeTrack(n, timescale, duration, { ctts = 0, mediaTime = 0, syncEvery = 1 } = {}) {

@@ -3,7 +3,7 @@
  * 選ばれた(またはドロップされた)画像を handoff.js でブラウザ内に一時保存し、アプリ画面へ移動する。
  * アプリ画面(js/app.js)が起動時に取り出してアップロードを始める。
  */
-import { saveFiles } from './handoff.js?v=1.5.2';
+import { saveFiles } from './handoff.js?v=1.5.3';
 
 const zone = document.getElementById('start-zone');
 const input = document.getElementById('start-input');
