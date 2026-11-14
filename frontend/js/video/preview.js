@@ -18,8 +18,8 @@
  * 座標: canvas の解像度はフレーム画像の実ピクセルなので、タップ点はフレームの座標で届く。
  * 動画ジョブには toNormalized で 0〜1 にして送る（仕様 §3。既存の 3 つの座標系とは混ざらない）。
  */
-import { setVideoPreviewFrame, previewVideoMask } from '../api.js?v=1.5.2';
-import { createCanvasController } from '../canvas.js?v=1.5.2';
+import { setVideoPreviewFrame, previewVideoMask } from '../api.js?v=1.5.3';
+import { createCanvasController } from '../canvas.js?v=1.5.3';
 
 /** 動画ジョブに送れる点の上限（サーバーの MAX_POINTS と同じ値） */
 export const MAX_POINTS = 8;

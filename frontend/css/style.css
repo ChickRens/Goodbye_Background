@@ -215,6 +215,7 @@ button {
 }
 
 .strip {
+    min-width: 0; /* 横の「写真を追加」「保存済みを削除」に押されたとき、一覧のほうが縮んでスクロールするように */
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -285,6 +286,114 @@ button {
 .strip-thumb:disabled {
     cursor: default;
     opacity: 0.45;
+}
+
+/* サムネイルと、その右上の ✕（削除）をまとめる箱 */
+.strip-item {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.strip-del {
+    /* 押せる範囲はサムネイル(60px)の右上 26px 四方だけにする。中央付近まで広げると、
+       サムネイルを開こうとしたタップで削除してしまう（スマホでは ✕ が常に出ているため特に危ない） */
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--overlay-text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+/* 見た目の丸。押せる範囲(ボタン全体)より一回り小さく描く */
+.strip-del::before {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: var(--overlay-bg);
+}
+
+.strip-del svg {
+    position: relative; /* 丸(::before)より手前に出す */
+}
+
+.strip-del:hover {
+    color: var(--on-status-ink);
+}
+
+.strip-del:hover::before {
+    background: var(--danger-ink);
+}
+
+/* マウスで操作する端末では、サムネイルにカーソルを乗せたとき・キーボードで選んだときだけ出す。
+   タッチ端末ではカーソルが無いので常に出しておく */
+@media (hover: hover) and (pointer: fine) {
+    .strip-del {
+        opacity: 0;
+        pointer-events: none; /* 見えていない間は押せないようにする */
+        transition: opacity 0.15s ease;
+    }
+
+    .strip-item:hover .strip-del,
+    .strip-item:focus-within .strip-del {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+
+/* 「保存済みを削除（N）」。帯の右端に、目立ちすぎない文字ボタンで置く */
+.strip-clear {
+    flex-shrink: 0;
+    margin-left: auto;
+    min-height: var(--touch-target);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.strip-clear {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.strip-clear-count::before { content: "（"; }
+.strip-clear-count::after { content: "）"; }
+
+.strip-clear:hover {
+    border-color: var(--danger-ink);
+    color: var(--danger-ink);
+}
+
+/* スマホでは「保存済みを削除（N）」の文字が長く、写真一覧が1枚分しか見えなくなるので、
+   ゴミ箱のアイコンと枚数だけにする（読み上げは aria-label の「保存済みの写真N枚を削除」） */
+@media (max-width: 640px) {
+    .strip-clear {
+        padding: 0 var(--space-2);
+    }
+
+    .strip-clear-text {
+        display: none;
+    }
+
+    .strip-clear-count::before,
+    .strip-clear-count::after {
+        content: none;
+    }
 }
 
 .strip-thumb img {

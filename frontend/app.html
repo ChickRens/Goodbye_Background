@@ -8,9 +8,9 @@
 <!-- 編集画面は中身が動的で検索に出す価値が薄いので、検索結果には出さず、紹介ページ(index.html)に評価を集める。
      noindex を効かせるには検索ロボットがこのページを読めることが必要なので、robots.txt では禁止しない -->
 <meta name="robots" content="noindex, follow" />
-<link rel="stylesheet" href="css/tokens.css?v=1.5.2" />
-<link rel="stylesheet" href="css/checker-colors.css?v=1.5.2" />
-<link rel="stylesheet" href="css/style.css?v=1.5.2" />
+<link rel="stylesheet" href="css/tokens.css?v=1.5.3" />
+<link rel="stylesheet" href="css/checker-colors.css?v=1.5.3" />
+<link rel="stylesheet" href="css/style.css?v=1.5.3" />
 <link rel="icon" href="/favicon.ico" sizes="48x48" />
 <link rel="icon" type="image/png" href="assets/favicon-48.png" sizes="48x48" />
 <link rel="icon" type="image/png" href="assets/favicon-192.png" sizes="192x192" />
@@ -43,6 +43,11 @@
     <div id="strip" class="strip">
     </div>
     <button id="strip-next" type="button" class="strip-arrow" aria-label="次へ">›</button>
+    <!-- 保存(ダウンロード)が済んだ写真をまとめて一覧から消す。保存済みが1枚も無いときは出さない -->
+    <button id="strip-clear-saved" type="button" class="strip-clear" hidden>
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="strip-clear-text">保存済みを削除</span><span class="strip-clear-count"></span>
+    </button>
   </div>
 
   <p id="empty-hint" class="empty-hint">画像をアップロードすると、ここに編集画面が表示されます。</p>
@@ -79,6 +84,6 @@
   </section>
 </div>
 
-<script type="module" src="js/app.js?v=1.5.2"></script>
+<script type="module" src="js/app.js?v=1.5.3"></script>
 </body>
 </html>

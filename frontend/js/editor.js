@@ -6,9 +6,9 @@ import {
   saveImage,
   getCompletedImage,
   uploadImage,
-} from './api.js?v=1.5.2';
-import { createCanvasController } from './canvas.js?v=1.5.2';
-import { showToast } from './toast.js?v=1.5.2';
+} from './api.js?v=1.5.3';
+import { createCanvasController } from './canvas.js?v=1.5.3';
+import { showToast } from './toast.js?v=1.5.3';
 
 /**
  * 画面には常に1枚分の大きな編集エリア（canvas+ツールバー）だけがあり、
@@ -450,5 +450,15 @@ export function initEditor({ store, elements }) {
     if (statusEl.textContent !== text) statusEl.textContent = text;
   }
 
-  return { open };
+  /** 開いている写真が削除されて、開くものが無くなったときに編集画面を閉じる */
+  function close() {
+    currentLocalId = null;
+    controller.reset();
+    statusText = '';
+    statusEl.textContent = '';
+    editorSectionEl.hidden = true;
+    emptyHintEl.hidden = false;
+  }
+
+  return { open, close };
 }
