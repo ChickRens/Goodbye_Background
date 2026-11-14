@@ -7,22 +7,22 @@
  * 仕様: docs/superpowers/specs/2026-11-09-video-multi-frame-prompts-design.md §6
  */
 
-import { createFramePreview } from './preview.js';
-import { MAX_FRAMES, allFramesReady, buildPrompts, canAddFrame, formatFrameTime } from './frames.js';
-import { toJobTime } from './trim.js';
+import { createFramePreview } from './preview.js?v=1.5.2';
+import { MAX_FRAMES, allFramesReady, buildPrompts, canAddFrame, formatFrameTime } from './frames.js?v=1.5.2';
+import { toJobTime } from './trim.js?v=1.5.2';
 
 /**
  * @param {Object} opts
  * @param {HTMLElement} opts.tabsEl タブを並べる所
  * @param {HTMLElement} opts.panelsEl パネルを入れる所
  * @param {HTMLTemplateElement} opts.panelTemplate canvas・.edit-status・.video-alert を持つパネルのひな形
- * @param {HTMLButtonElement} opts.modeToggleBtn
+ * @param {HTMLElement} opts.modeSwitchEl
  * @param {HTMLButtonElement} opts.undoBtn
  * @param {HTMLButtonElement} opts.redoBtn
  * @param {() => void} opts.onChange
  * @param {(err: Error, what: string) => void} opts.onError
  */
-export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeToggleBtn, undoBtn, redoBtn, onChange, onError }) {
+export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeSwitchEl, undoBtn, redoBtn, onChange, onError }) {
   /** @type {{ timeMs: number, preview: any, panel: HTMLElement, tab: HTMLElement, frameBlob: Blob }[]} */
   let frames = [];
   let active = null;
@@ -39,7 +39,7 @@ export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeToggleBtn,
     const frame = { timeMs, frameBlob, panel, tab: null, preview: null };
     frame.preview = createFramePreview({
       canvasEl: panel.querySelector('canvas'),
-      modeToggleBtn,
+      modeSwitchEl,
       undoBtn,
       redoBtn,
       statusEl: panel.querySelector('.edit-status'),

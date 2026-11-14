@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
 <title>動画の切り抜き｜Goodbye Background</title>
 <!-- app.html と同じ理由で検索結果には出さない（紹介ページに評価を集める） -->
 <meta name="robots" content="noindex, follow" />
-<link rel="stylesheet" href="css/tokens.css" />
-<link rel="stylesheet" href="css/checker-colors.css" />
-<link rel="stylesheet" href="css/style.css" />
-<link rel="stylesheet" href="css/video.css" />
+<link rel="stylesheet" href="css/tokens.css?v=1.5.2" />
+<link rel="stylesheet" href="css/checker-colors.css?v=1.5.2" />
+<link rel="stylesheet" href="css/style.css?v=1.5.2" />
+<link rel="stylesheet" href="css/video.css?v=1.5.2" />
 <link rel="icon" type="image/png" href="video-favicon.png" />
 <link rel="apple-touch-icon" href="video-favicon.png" />
 </head>
@@ -17,8 +18,11 @@
 <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 <div id="app">
   <header class="app-header">
-    <h1><a href="index.html" style="color: inherit; text-decoration: none;">Goodbye Background</a></h1>
-    <a class="app-header-link" href="app.html">画像の切り抜き</a>
+    <h1><a class="app-home-link" href="index.html">Goodbye Background</a></h1>
+    <nav class="app-header-nav" aria-label="ヘッダー">
+      <a class="app-header-link" href="app.html">画像の切り抜き</a>
+      <a class="app-header-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
+    </nav>
   </header>
 
   <main class="video-page">
@@ -32,7 +36,7 @@
       <h3 class="video-step-title"><span class="video-step-no">1</span>動画を選ぶ</h3>
       <input id="video-file" type="file" accept="video/*" hidden />
       <button id="select-btn" type="button" class="video-select">
-        タップして動画を選択
+        <span class="video-select-title">動画を選ぶ</span>
         <span class="video-select-note">MP4 / MOV・200MB まで・切り抜けるのは 10 秒まで</span>
       </button>
       <p class="video-note">きれいに切り抜けるのは、背景がすっきりしていて、切り抜く人に他の人が重ならない動画です。手を速く振る所や、同じ服の人と重なる所は、腕や手が欠けることがあります。</p>
@@ -76,16 +80,30 @@
       <template id="frame-panel-template">
         <div class="frame-panel">
           <div class="video-canvas-wrap">
-            <canvas role="img" aria-label="点を打つフレーム。タップした位置を残す／除外する対象として指定できます"></canvas>
+            <canvas role="img" aria-label="点を打つフレーム。タップした位置を残す／消す対象として指定できます"></canvas>
           </div>
           <p class="edit-status" role="status" aria-live="polite"></p>
           <p class="video-alert" role="alert" hidden>この点では切り抜く対象が見つかりませんでした。このまま送ると失敗するので、残したい物の真ん中をタップし直してください。</p>
         </div>
       </template>
       <div class="edit-toolbar">
-        <button id="mode-toggle" type="button" class="icon-btn" data-mode="positive">➕ 含める</button>
-        <button id="undo-btn" type="button" class="icon-btn" disabled>↺ Undo</button>
-        <button id="redo-btn" type="button" class="icon-btn" disabled>↻ Redo</button>
+        <!-- タップしたところを「残す」か「消す」か。画像のアプリ(app.html)と同じ2択のスイッチ -->
+        <div id="mode-switch" class="mode-switch" data-mode="positive" role="group" aria-label="タップしたところを">
+          <button type="button" class="mode-btn" data-mode="positive" aria-pressed="true">
+            <span class="mode-dot" aria-hidden="true"></span>残す
+          </button>
+          <button type="button" class="mode-btn" data-mode="negative" aria-pressed="false">
+            <span class="mode-dot" aria-hidden="true"></span>消す
+          </button>
+        </div>
+        <button id="undo-btn" type="button" class="icon-btn history-btn" aria-label="元に戻す" title="元に戻す" disabled>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 14 4 9l5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="btn-label">元に戻す</span>
+        </button>
+        <button id="redo-btn" type="button" class="icon-btn history-btn" aria-label="やり直す" title="やり直す" disabled>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="m15 14 5-5-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="btn-label">やり直す</span>
+        </button>
       </div>
       <button id="preview-retry-btn" type="button" class="ghost-btn" hidden>プレビューをやり直す</button>
 
@@ -132,6 +150,6 @@
   </main>
 </div>
 
-<script type="module" src="js/video/page.js"></script>
+<script type="module" src="js/video/page.js?v=1.5.2"></script>
 </body>
 </html>

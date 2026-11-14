@@ -8,8 +8,8 @@
  * - それ以外の失敗（通信の切断・5xx）は一時的なものとして、次の回にもう一度取りに行く。
  *   ジョブが本当に止まっていればサーバー側のタイムアウトで failed になる。
  */
-import { getVideoJob } from '../api.js';
-import { SERVER_RESTARTED_MESSAGE } from './messages.js';
+import { getVideoJob } from '../api.js?v=1.5.2';
+import { SERVER_RESTARTED_MESSAGE } from './messages.js?v=1.5.2';
 
 const TERMINAL_PHASES = new Set(['done', 'failed']);
 

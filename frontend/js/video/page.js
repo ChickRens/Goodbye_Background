@@ -12,14 +12,14 @@
  * 残り回数は POST /video-jobs と GET の応答の remaining_today で更新する（それより前は「1日3回まで」）。
  * 0 になったら動画の選択で止める。
  */
-import { createVideoJob, startVideoJob } from '../api.js';
-import { showToast } from '../toast.js';
-import { clampRange, captureFrame, formatMs, MAX_CLIP_MS } from './range.js';
-import { createFrameSet } from './frame_set.js';
-import { formatFrameTime } from './frames.js';
-import { putWithProgress } from './upload.js';
-import { toJobTime, trimForUpload } from './trim.js';
-import { pollJob } from './job.js';
+import { createVideoJob, startVideoJob } from '../api.js?v=1.5.2';
+import { showToast } from '../toast.js?v=1.5.2';
+import { clampRange, captureFrame, formatMs, MAX_CLIP_MS } from './range.js?v=1.5.2';
+import { createFrameSet } from './frame_set.js?v=1.5.2';
+import { formatFrameTime } from './frames.js?v=1.5.2';
+import { putWithProgress } from './upload.js?v=1.5.2';
+import { toJobTime, trimForUpload } from './trim.js?v=1.5.2';
+import { pollJob } from './job.js?v=1.5.2';
 import {
   apiErrorMessage,
   failureMessage,
@@ -27,7 +27,7 @@ import {
   refundMessage,
   remainingMessage,
   SERVER_RESTARTED_MESSAGE,
-} from './messages.js';
+} from './messages.js?v=1.5.2';
 
 /** アップロードの上限（サーバーの MAX_INPUT_BYTES と同じ 200MB） */
 const MAX_INPUT_BYTES = 209_715_200;
@@ -118,7 +118,7 @@ preview = createFrameSet({
   tabsEl: $('frame-tabs'),
   panelsEl: $('frame-panels'),
   panelTemplate: $('frame-panel-template'),
-  modeToggleBtn: $('mode-toggle'),
+  modeSwitchEl: $('mode-switch'),
   undoBtn: $('undo-btn'),
   redoBtn: $('redo-btn'),
   onChange: updateSendButton,
