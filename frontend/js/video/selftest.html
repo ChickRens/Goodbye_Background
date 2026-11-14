@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>動画ページの自己テスト</title>
+<style>
+  body { font-family: system-ui, sans-serif; padding: 16px; }
+  .ok { color: #2a7a4b; }
+  .ng { color: #b3261e; font-weight: bold; }
+</style>
+</head>
+<body>
+<!--
+  フロントにはテストの仕組みが無いので、純粋な関数だけをここで確かめる。
+  ブラウザで開くか、Playwright で開いて console に assert の失敗が無いことを見る。
+  （#summary の data-failures に失敗件数が入る）
+-->
+<h1>動画ページの自己テスト</h1>
+<ul id="results"></ul>
+<p id="summary"></p>
+<script type="module">
+  import { clampRange } from './range.js';
+  import { toNormalized, applyMaskAlpha } from './preview.js';
+  import { MAX_FRAMES, canAddFrame, buildPrompts, allFramesReady, formatFrameTime } from './frames.js';
+  import { planTrim, toJobTime } from './trim.js';
+  import { phaseMessage } from './messages.js';
+
+  // 切り出しの計算用の偽のトラック（trim.js の parseMovie が返す形のうち、planTrim が使う所だけ）
+  function fakeTrack(n, timescale, duration, { ctts = 0, mediaTime = 0, syncEvery = 1 } = {}) {
+    return {
+      timescale,
+      mediaTime,
+      durations: new Array(n).fill(duration),
+      ctsOffsets: new Array(n).fill(ctts),
+      sizes: new Array(n).fill(10),
+      offsets: Array.from({ length: n }, (_, i) => i * 10),
+      sync: Array.from({ length: n }, (_, i) => i % syncEvery === 0),
+    };
+  }
+
+  const cases = [
+    ['clampRange(0, 12000, 30000)', () => clampRange(0, 12000, 30000), { startMs: 0, endMs: 10000 }],
+    ['clampRange(25000, 31000, 30000)', () => clampRange(25000, 31000, 30000), { startMs: 25000, endMs: 30000 }],
+    ['clampRange(1000, 5000, 30000)', () => clampRange(1000, 5000, 30000), { startMs: 1000, endMs: 5000 }],
+    ['clampRange(-500, 3000, 30000)', () => clampRange(-500, 3000, 30000), { startMs: 0, endMs: 3000 }],
+    ['clampRange(5000, 2000, 30000)', () => clampRange(5000, 2000, 30000), { startMs: 5000, endMs: 5000 }],
+    ['clampRange(0, 6000, 30000, 5000)', () => clampRange(0, 6000, 30000, 5000), { startMs: 0, endMs: 5000 }],
+    ['toNormalized(300, 150, 600, 300)', () => toNormalized(300, 150, 600, 300), { x: 0.5, y: 0.5 }],
+    ['toNormalized(-5, 400, 600, 300)', () => toNormalized(-5, 400, 600, 300), { x: 0, y: 1 }],
+    ['toNormalized(600, 0, 600, 300)', () => toNormalized(600, 0, 600, 300), { x: 1, y: 0 }],
+    // マスク（グレースケール PNG を canvas に描いた RGBA。R = G = B = 濃さ、alpha = 255）の R を alpha にする
+    [
+      'applyMaskAlpha(2 画素)',
+      () => Array.from(applyMaskAlpha(new Uint8ClampedArray([10, 20, 30, 255, 40, 50, 60, 255]), new Uint8ClampedArray([0, 0, 0, 255, 200, 200, 200, 255]))),
+      [10, 20, 30, 0, 40, 50, 60, 200],
+    ],
+    // ---- 複数フレームの点（frames.js）----
+    ['MAX_FRAMES', () => MAX_FRAMES, 5],
+    // 範囲 1000..9000、開始位置のフレームだけある
+    ['canAddFrame(新しい時刻)', () => canAddFrame([1000], 4300, 1000, 9000), true],
+    ['canAddFrame(同じ時刻は追加しない)', () => canAddFrame([1000, 4300], 4300, 1000, 9000), false],
+    ['canAddFrame(範囲の外)', () => [canAddFrame([1000], 999, 1000, 9000), canAddFrame([1000], 9000, 1000, 9000)], [false, false]],
+    // 同じフレームになるほど近い時刻は追加しない（後のものが先の点を黙って上書きするため）。50ms 以上離れていれば追加できる
+    ['canAddFrame(開始位置から 16ms は近すぎる)', () => canAddFrame([1000], 1016, 1000, 9000), false],
+    ['canAddFrame(4300 と 4310 は近すぎる)', () => canAddFrame([1000, 4300], 4310, 1000, 9000), false],
+    ['canAddFrame(50ms 離れていれば追加できる)', () => canAddFrame([1000], 1050, 1000, 9000), true],
+    ['canAddFrame(5 枚で追加できない)', () => canAddFrame([1000, 2000, 3000, 4000, 5000], 6000, 1000, 9000), false],
+    [
+      'buildPrompts(時刻の昇順。1 つ目は開始位置)',
+      () => buildPrompts([
+        { timeMs: 4300.4, points: [{ x: 0.1, y: 0.2, label: 'include' }] },
+        { timeMs: 1000, points: [{ x: 0.5, y: 0.5, label: 'include' }] },
+      ]),
+      [
+        { time_ms: 1000, points: [{ x: 0.5, y: 0.5, label: 'include' }] },
+        { time_ms: 4300, points: [{ x: 0.1, y: 0.2, label: 'include' }] },
+      ],
+    ],
+    ['allFramesReady(全部準備できた)', () => allFramesReady([{ canSend: true }, { canSend: true }]), true],
+    ['allFramesReady(1 枚でも未確定なら送れない)', () => allFramesReady([{ canSend: true }, { canSend: false }]), false],
+    ['allFramesReady(空)', () => allFramesReady([]), false],
+    ['toJobTime(整数でずらす。時刻どうしの差は変わらない)', () => [toJobTime(5300, 4000), toJobTime(5349.6, 4000), toJobTime(1000, 0)], [1300, 1350, 1000]],
+    [
+      'planTrim(開始以下の最後のキーフレームから。編集リストの開始は ctts の分)',
+      () => {
+        // 30fps（3000 単位で 1 枚 100）、1 秒ごとにキーフレーム、B フレームの遅れ 2 枚分を元の編集リストで打ち消している
+        const p = planTrim({ video: fakeTrack(90, 3000, 100, { ctts: 200, mediaTime: 200, syncEvery: 30 }), audio: null }, 1500, 2000);
+        return [p.offsetMs, p.tracks.length, p.tracks[0].sizes.length, p.tracks[0].mediaTime, p.tracks[0].offsets[0]];
+      },
+      [1000, 1, 60, 200, 300],
+    ],
+    [
+      'planTrim(音声は同じ瞬間が時刻 0 になる編集リスト)',
+      () => {
+        const p = planTrim(
+          { video: fakeTrack(90, 3000, 100, { syncEvery: 30 }), audio: fakeTrack(200, 48000, 1024) },
+          1500,
+          2000,
+        );
+        const a = p.tracks[1];
+        // 元の 1000ms = 48000 単位。残す先頭は 46 番（46×1024 = 47104）→ 48000 − 47104 = 896。終わりは 3000ms 以下の 140 番まで
+        return [a.mediaTime, a.sizes.length];
+      },
+      [896, 95],
+    ],
+    ['phaseMessage(準備中は 1 分までは今までどおり)', () => phaseMessage('queued', null, 59_999), '準備中（GPU を起動しています）'],
+    [
+      'phaseMessage(準備中が 1 分を過ぎたら経過時間と上限)',
+      () => phaseMessage('queued', null, 125_400),
+      '準備中（GPU が混み合っています。2分05秒 経過・最大 10 分。失敗したら回数は戻ります）',
+    ],
+    ['phaseMessage(経過を渡さない呼び出しは今までどおり)', () => phaseMessage('tracking', 0.42), '処理中 42%'],
+    ['formatFrameTime(範囲の開始からの時刻)', () => [formatFrameTime(1000, 1000), formatFrameTime(4300, 1000), formatFrameTime(73440, 1000)], ['0:00.0', '0:03.3', '1:12.4']],
+  ];
+
+  const list = document.getElementById('results');
+  let failures = 0;
+  for (const [name, run, expected] of cases) {
+    let actual;
+    try {
+      actual = run();
+    } catch (err) {
+      actual = { error: String(err) };
+    }
+    const pass = JSON.stringify(actual) === JSON.stringify(expected);
+    console.assert(pass, `${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    if (!pass) failures += 1;
+    const li = document.createElement('li');
+    li.className = pass ? 'ok' : 'ng';
+    li.textContent = `${pass ? 'OK' : 'NG'} ${name} → ${JSON.stringify(actual)}`;
+    list.appendChild(li);
+  }
+  const summary = document.getElementById('summary');
+  summary.dataset.failures = String(failures);
+  summary.textContent = failures === 0 ? `全 ${cases.length} 件 OK` : `${failures} 件失敗`;
+</script>
+</body>
+</html>

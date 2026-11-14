@@ -12,21 +12,25 @@
    ▼
 axum Router (presentation/router.rs)
    ├─ middleware: track_usage ──────────────► UsageRecorder ─(mpsc)─► SQLite / Postgres
-   ├─ api/handler/*  (リクエスト → Input 変換, spawn_blocking)
+   ├─ api/handler/image_cutout/*  (リクエスト → Input 変換, spawn_blocking)
    │     ▼
    │  App (composition/wiring.rs)  … 全ユースケースのファサード
    │     ▼
-   │  UseCase (image_io/*, editing/*)
+   │  UseCase (image_cutout/image_io/*, image_cutout/editing/*)
    │     ▼
    │  Service (PreviewService, SegmentService, PrepareSegmentService, CompletedService)
    │     ▼
    │  Repository / Storage (全て TtlStore = DashMap + 最終アクセス時刻)
    │  Generator (WebP エンコード, リサイズ) / Sam2Segmenter (ONNX Runtime)
+   ├─ api/handler/video_cutout/*  (動画。async のまま。spawn_blocking しない)
+   │     ▼
+   │  VideoCutoutApp (composition/video_wiring.rs) … 動画のユースケースのファサード（§9）
    └─ fallback: ServeDir("frontend")
 ```
 
 バックグラウンドタスク:
 - GC: 60 秒ごとに `App::cleanup` → `DeleteExpiredEntriesUseCase` → 各ストアの `delete_expired`
+- 動画の GC（補助）: 60 秒ごとに `VideoCutoutApp::cleanup_video_jobs`（本命は動画 API の処理中の実行。§9）
 - 利用ログ: `UsageRecorder` のチャネルを受信して INSERT
 
 ---
@@ -192,7 +196,7 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 1. **編集セッションのメモリリーク**: `SAM2EditingSessionRepository` を `DeleteExpiredEntriesUseCase` に
    `Arc<dyn DeleteExpiredRepository>` として渡し、GC 対象にした。テスト:
    `delete_expired_entries_usecase_test::execute_removes_expired_editing_sessions`
-2. **マスクのロジットを確率として扱っていた件**: `editing/segmenter/mask_activation.rs` を追加し、
+2. **マスクのロジットを確率として扱っていた件**: `image_cutout/editing/segmenter/mask_activation.rs` を追加し、
    リサイズ後・平滑化/適用前に sigmoid を掛けるようにした。履歴に保存する前回マスクはロジットのまま。
    テスト: `sam2_test::generate_image_fast_converts_mask_logits_to_alpha`,
    `sam2_test::generate_image_high_quality_treats_zero_logit_as_half_transparent`,
@@ -201,18 +205,39 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
      グラデーションになる。境界の幅は「マスク 1px = 元画像の 長辺/256 px」に比例して広がるので、
      大きい画像ではエッジが柔らかくなりすぎる可能性がある（実モデルでの見た目は未検証）
    - 残課題: `mask_smoother` の `confidence` ブレンドは確率入力では実質効いていない（同ファイルのコメント参照）
-3. **同一セッションの並行更新**: `editing/session/lock.rs` の `EditingSessionLocks`（セッションごとの
+3. **同一セッションの並行更新**: `image_cutout/editing/session/lock.rs` の `EditingSessionLocks`（セッションごとの
    Mutex を `TtlStore` に保持、GC 対象）を追加し、`SegmentServiceImpl` の各操作全体をロックで囲んだ。
    テスト: `segment_service_test::concurrent_segments_on_same_session_keep_all_points`（偽セグメンタ使用）
 4. **DB マイグレーション**: `migrations/sqlite/` と `migrations/postgres/` に分割し、両方とも起動時に適用。
    SQLite は適用済みの2本を変えずに、テーブルを作り直して id を振り直す3本目を追加
-   （既存行は保持）。Postgres の2本目は手動作成済みテーブルでも通るよう `ADD COLUMN IF NOT EXISTS`。
+   （既存行は保持）。
    `.env.example` も有効な URL 形式に修正。
    テスト: `sqlite_migration_test::*`（新規 DB / 既存 DB の更新）。Postgres はローカルの PostgreSQL 16 で
    「空の DB」「手動でテーブル作成済みの DB」の両方を手動確認
-   - 注意: もし過去に sqlx-cli で Postgres に旧マイグレーションを適用していた場合、2本目のチェックサムが
-     変わっているので起動時にエラーになる（アプリ本体は Postgres でマイグレーションを実行していなかったので、
-     通常は該当しない）
+   - **本番 DB との互換（2026-11-07）**: 本番（Cloud Run・PostgreSQL）は master ではなく Google ログインのブランチ
+     （`feat/user-google-login`）からデプロイされていた。そのブランチは平らな `migrations/` を使っており、本番の
+     `_sqlx_migrations` には `20260919032531` / `20261004122625`（`ADD COLUMN client_id TEXT;`、末尾改行なし）/
+     `20261101090000`（users・login_sessions）が適用済み。そのため:
+     - `postgres/20261004122625` は本番が適用したファイルとバイト単位で同じものに戻した（master で一度
+       `IF NOT EXISTS` に変えていたが、それだとチェックサム不一致で起動しない）
+     - `20261101090000_users_and_login_sessions.sql` をそのブランチからバイト単位でそのまま `postgres/` と `sqlite/`
+       の両方に置いた（無いと `VersionMissing(20261101090000)`。sqlite は同ブランチで動かした開発用 DB のため）。
+       ファイルにコメントを足すとチェックサムが変わるので、説明はここに書く
+     - `20261107000000_drop_users_and_login_sessions.sql`（両 DB）で users / login_sessions を消す
+       （オーナー判断: Google ログインは本番から外したので個人情報を残さない）
+     - **改行も本番どおり**: オーナーは Windows（`core.autocrlf=true`）でチェックアウトしてイメージを作っていたので、
+       本番が適用したバイト列は `20260919032531` と `20261004122625` が CRLF、`20261101090000` が LF
+       （本番の `_sqlx_migrations.checksum` の先頭 16 桁: `7d1303a9617d0b61` / `2085933da5d32124` / `d7cbb94d73748d77`）。
+       リポジトリの `migrations/postgres/` にはこの混在した改行のまま置き、`.gitattributes` の `migrations/** -text` で
+       チェックアウト・コミット時の改行変換を止めている（autocrlf の設定に関係なく、ビルドにはリポジトリのバイト列が入る）。
+       これから追加する `20261106000000` / `20261107000000` も、最初にデプロイしたバイト列（LF）で固定され、以後変えてはいけない
+     - `migrations/sqlite/` は開発用なので LF のまま。Google ログインのブランチを Windows で動かして作った手元の SQLite の DB は
+       CRLF のチェックサムを持っていて `VersionMismatch` になることがある。利用ログしか入っていないので、ファイルを消して作り直せばよい
+     - これらのファイルは絶対に編集しない。チェックサムはテスト
+       `postgres_migration_checksum_test` で本番の値（SHA-384 全桁）に固定している。
+       テスト: `sqlite_migration_test::sqlite_migrations_upgrade_google_login_branch_database_and_drop_login_tables`。
+       Postgres はローカルの PostgreSQL 16 で「本番の再現（ブランチの3本＋ログインの行）→ このブランチ」
+       「空の DB」の両方を確認（修正前のマイグレーションでは `VersionMissing(20261101090000)` が再現した）
 5. **巨大画像の u16 回り込み**: `ImageSize::from_u32` を追加し、u32 のまま範囲チェックするようにした。
    テスト: `image_loader_tests::test_{width,height}_over_u16_max_is_rejected`
 
@@ -236,9 +261,105 @@ undo      Point: current=[p0]      cursor=1   Ctx: current=m0          cursor=1
 9. 仕様（`rule.txt`）と実装の差: 最大 3000px ↔ 8000px、寿命 30 分 ↔ 10 分、保存後 10 分で削除 ↔ 特別扱い無し。
 10. `frontend/README.md` の API 表で `/get-preview` が `image/png` となっているが実際は `image/webp`。
 11. `Sam2Segmenter::new(model_dir)` なのに `image_pe.bin` だけ `"models/image_pe.bin"` 固定。
-12. `image/completed/generator/` の trait/実装ファイル名が他と逆。
+12. `image_cutout/image/completed/generator/` の trait/実装ファイル名が他と逆。
 13. `RedoUseCaseError::SegmenterInputStorage` は生成されない死んだ variant。
 14. `App::new` は `Result` を返すが、失敗は全て `expect` で panic する。
 15. ログが `println!` / `eprintln!`（リクエストごとに座標や処理時間が出る）。`tracing` への移行を推奨。
 16. `SQLiteUsageRecorder` と `PostgresUsageRecorder` がプレースホルダ以外同一の重複コード。
 17. `desktop.ini`（OneDrive の設定ファイル）がコミットされている。
+
+---
+
+## 9. 動画切り抜き（video_cutout）
+
+仕様は `docs/superpowers/specs/2026-11-05-video-cutout-design.md`。重い処理（SAM2 の追跡・エンコード）は
+Modal 上の Python ワーカーで行い、Rust 側はジョブの管理・回数制限・署名付き URL の発行と、
+1 フレーム目のプレビュー（本番と同じ SAM2.1 small を Cloud Run の CPU で動かす。§9.4）を行う。
+
+### 9.1 構成
+
+```
+ブラウザ ──POST /video-jobs──────────► CreateVideoJob（回数 > 0 を確認、Created で保存）→ 201 {job_id, upload_url}
+   │──PUT upload_url（動画本体）──────► Cloudflare R2（サーバーを経由しない）
+   │──POST /video-jobs/{id}/start ────► StartVideoJob（R2 に HEAD → 回数を消費 → Queued → Modal に投入）→ 202
+   │──POST /video-jobs/{id}/preview-frame?time_ms=（点を打つフレームの静止画。最大 5 枚）► SetPreviewFrame（small でエンコードして (ジョブ, 時刻) ごとに保存）→ 204
+   │──POST /video-jobs/{id}/preview（time_ms と点）► PreviewMask（その時刻の特徴量で small のデコーダ → alpha の PNG）→ 200 image/png
+   │──GET /video-jobs/{id}（1 秒ごと）► GetVideoJob（期限切れなら Failed(timeout)、Done なら download_url）→ 200
+Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）──► ReportVideoJobEvent → 204
+```
+
+- ファサードは画像の `App` とは別の `VideoCutoutApp`（`composition/video_wiring.rs`）。`App::new` は SAM2 のモデルを
+  読むため、動画だけをモデル無しで組み立て・テストできるように分けた（設計判断 R4）。ハンドラは
+  `State<Arc<VideoCutoutApp>>` を取り、そのメソッドだけを呼ぶ
+- 動画の環境変数（`.env.example`）が 1 つでも欠ける、またはプレビューのモデル（§9.4）が無い・読めないと
+  `VideoCutoutApp` は空になり、動画の 6 ルートは本文を読む前に 503 `VIDEO_CUTOUT_DISABLED` を返す
+  （足りないものの名前は起動ログに出る）。画像機能はそのまま動く
+- ポート（`VideoObjectStorage` = R2、`CutoutWorker` = Modal、`DailyQuota` = 利用ログと同じ DB）は非同期の trait。
+  ネットワーク待ちだけなので `spawn_blocking` は使わない（例外はプレビューの推論。ユースケースの中で `spawn_blocking` する）
+- ジョブはインメモリ（`VideoJobRepositoryInMemory`）。TtlStore の GC ではなく、状態ごとの期限（仕様 §5.2）で
+  `DeleteExpiredVideoJobsUseCase` が消す。Cloud Run はリクエストベースの CPU で裏のタスクがほとんど進まないため、
+  動画 API の各メソッドの先頭で `VideoCleanupThrottle`（60 秒に 1 回）が許せば await して実行する
+- ジョブの取得 → 変更 → 保存は `VideoJobLocks`（ジョブ単位の `tokio::sync::Mutex`）で囲む
+
+### 9.2 利用ログ・認証・IP
+
+| ルート | 利用ログ | 認証 |
+|---|---|---|
+| `POST /video-jobs` | 記録（`create-video-job`） | `client-id` ヘッダー（無い・UUID でない → 400 `MISSING_CLIENT_ID`） |
+| `POST /video-jobs/{id}/start` | 記録（`start-video-job`） | 持ち主の `client-id` |
+| `GET /video-jobs/{id}` | 記録しない（ポーリング） | 持ち主の `client-id` |
+| `POST /video-jobs/{id}/preview-frame` | 記録しない（回数も消費しない） | 持ち主の `client-id`。`created` のときだけ（以降は 409 `VIDEO_JOB_INVALID_STATE`） |
+| `POST /video-jobs/{id}/preview` | 記録しない（回数も消費しない） | 持ち主の `client-id`。`created` のときだけ。フレーム未登録（または LRU で捨てられた）は 409 `PREVIEW_FRAME_NOT_FOUND` |
+| `POST /internal/video-jobs/{id}/events` | 記録しない | HMAC-SHA256（401 `INVALID_SIGNATURE`）。パスと本文の `job_id` が違えば 400 `JOB_ID_MISMATCH` |
+
+- `router.rs` の `video_routes` が（記録する, しない）の 2 つの Router を返し、`route` が `track_usage` の前と後に merge する
+- 回数制限（1 日 3 回）は `client-id` と IP の 2 系統。IP は `presentation/client_ip.rs`: `TRUSTED_PROXY_HOPS` = 0 なら
+  接続元（`ConnectInfo`。そのため serve は `into_make_service_with_connect_info`）、N ≥ 1 なら `X-Forwarded-For` の右から N 番目。
+  左端は偽装できるので使わない。Cloud Run で 0 のままだと全員が同じ内部アドレスになり、全員で 1 日 3 回になる
+- 他人のジョブは 404（存在しないものとして扱う）
+
+### 9.3 運用上の制約
+
+- **Cloud Run の最大インスタンス数は 1 のまま変えない**。ジョブがインメモリなので、2 台以上にするとポーリングや
+  通知が別の台に届いて 404 になる
+- R2 の削除などの後処理はレスポンスを返す前に await する（`tokio::spawn` に任せると CPU が割り当てられず進まない）
+- サーバーの再起動・0 台への縮小でジョブは消える（回数は DB にあるので返却されない。まれなので許容）
+- アップロード用の PUT URL は `content-type` に加えて `content-length`（作成時に申告した `size_bytes`）も署名に含める。
+  申告と違うサイズの本文は R2 が 403 で拒否する。ブラウザは `File` を送ると Content-Length を自動で付ける（= `file.size`）ので、
+  フロントは `size_bytes` に `file.size` をそのまま申告する。開始時の HEAD（`Content-Length` ヘッダーを読む）による
+  200MB の確認は、この上の二重の守り。R2 の CORS は本番のオリジンからの PUT で `content-type` と `content-length` を許可すること
+- 署名付き URL（`X-Amz-Credential` / `X-Amz-Signature`）をログに出さない。reqwest のエラーは URL を含むので、
+  文字列にするときは必ず `without_url()` を通す
+- 回数の返却は消費した日（`VideoJob::quota_day`、日本時間）の分を戻す。日付をまたいで失敗しても翌日の枠は増えない
+
+### 9.4 プレビュー（本番と同じ SAM2.1 small を Rust の CPU で）
+
+当初（仕様 D8）は画像機能の SAM2.1 small（1024px）を流用していたが、ベストを 1 点タップしたとき small は人物全体、
+本番の tiny はベストだけを選ぶ、という食い違いが本番で出た（2026-11-07）。そこで「プレビューで見えた範囲 = 出力の 1 フレーム目」に
+なるよう、本番のワーカーと同じモデル・同じ計算を Rust で動かす（D8 を置き換え。計画 `docs/superpowers/plans/2026-11-07-video-preview-tiny.md`）。
+2026-11-08 に、速く動く腕が消える問題のため、ワーカーとプレビューの両方を tiny（512）から small（1024）に切り替えた
+（オーナー判断。ワーカーの記憶の選び方は DAM4SAM。`docs/video-cutout-measurements.md` の案 C）。
+同じ形式の ONNX なので、コードは `constants.json` の `image_size` から大きさを決めるだけで両方に対応する。
+
+- モデル: `models/sam2.1-small-video/`（git 管理外。`constants.json`・`onnx/vision_encoder.onnx`・`onnx/mask_decoder.onnx`。
+  `diffusionstudio/sam2.1-small-video-onnx-fp16` のワーカーと同じリビジョン）。カレントディレクトリからの相対パス
+- `video_cutout/preview/`: `PreviewSegmenter`（trait）と `Sam2PreviewSegmenter`（ort。グラフごとに `Mutex<Session>`）。
+  入力の型はモデルの宣言に合わせ（fp16 なら変換）、fp16 の出力は f32 にする（`worker/cutout/models.py` の `OnnxGraph` と同じ）
+- 計算は `worker/cutout/tracker.py` の 1 枚目と `compositor.py` の `alpha_from_logits` と同じ:
+  S×S（small は 1024）に引き伸ばし → mean/std で正規化 → `vision_encoder` → `feats2_no_mem` を `feats2_cond` に、点は ×S・include=1 / exclude=0
+  → `mask_decoder` の `high_res_mask` → フレームの大きさにバイリニア拡大 → ±50 → ×16 → ±50 → sigmoid → グレースケール PNG。
+  バイリニアは `preview/image_math.rs` が OpenCV の `cv2.resize(INTER_LINEAR)` をなぞる（uint8 は完全一致を確認済み）
+- フレームの登録時に 1 回だけエンコードし（開発環境の 4 コアで約 2.5 秒。デコードは約 0.09 秒）、特徴量（`feats0`/`feats1`/`feats2_no_mem` を f16 で約 8MB。モデルが fp16 なので
+  f32 で持つのと結果は同じ）とフレームの大きさを `PreviewFeatureStore` にジョブごとに置く。点が変わるたびにデコーダだけを回す
+- `/preview` はヘッダー `X-Object-Present: true|false` も返す（デコーダの `object_score_logits > 0`。ワーカーは 1 枚目でこれが偽だと
+  `subject_not_found` で失敗する）
+- 作成は回数を消費しないので、メモリと CPU に上限を付けている:
+  - 特徴量は (ジョブ, 時刻) ごとに持つ（複数フレームの点の指定。1 ジョブ最大 5 枚で、6 枚目はそのジョブの最も古い 1 枚を捨てる）。
+    全体で最大 `MAX_PREVIEW_FEATURES`（16 枚 ≒ 128MB。tiny の頃は 64 件 × 2MB）枚。溢れたら最も長く使われていないもの（LRU）を捨てる。捨てられたジョブの `/preview` は
+    409 `PREVIEW_FRAME_NOT_FOUND` になり、フロントがフレームを登録し直す
+  - `preview-frame` は同時に `MAX_CONCURRENT_PREVIEW_ENCODES`（2）件まで（本文を読む前に `Semaphore` の `try_acquire`）。
+    空きが無ければ待たずに 503 `PREVIEW_BUSY`
+- 特徴量の寿命はジョブと同じ: 開始（`Created` を抜けたとき）と、`DeleteExpiredVideoJobsUseCase` がジョブを消すときに消す
+  （ジョブの無い特徴量も掃除する）。登録はジョブのロックを持ったまま行うので、片付けとすれ違って消えたジョブの特徴量が残ることはない
+- 登録できる画像: PNG / JPEG、10MB 以下（`preview-frame` のルートにだけ `DefaultBodyLimit`）、長辺 2000px 以下。
+  違えば 400 `INVALID_PREVIEW_IMAGE`。推論の失敗は 500 `PREVIEW_FAILED`

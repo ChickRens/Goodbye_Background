@@ -24,8 +24,9 @@ function buildHeaders(extra = {}) {
  *
  * バックエンドのエラーレスポンスは { code } だけで message を持たないため、
  * 文言はフロント側で持つ。対応は presentation/errors/app_error.rs の
- *   InvalidInput → 400 / NotFound → 404 / Conflict → 409 / Internal → 500
- * に合わせている。413/429 はサーバー前段（Cloud Run 等）が返し得るもの。
+ *   InvalidInput → 400 / Unauthorized → 401 / NotFound → 404 / Conflict → 409 /
+ *   TooManyRequests → 429 / Internal → 500 / Unavailable → 503
+ * に合わせている。413 はサーバー前段（Cloud Run 等）が返し得るもの。
  * Network / Timeout は fetch 自体が失敗した場合（HTTPステータスは無い）。
  */
 const ERROR_MESSAGES = {
@@ -241,4 +242,103 @@ export async function getCompletedImage(imageId) {
     await throwApiError(res);
   }
   return res.blob();
+}
+// ---------------------------------------------------------------------------
+// 動画の切り抜き（video.html から使う）
+// エラーは { code } の JSON。err.code の文言は js/video/messages.js が持つ。
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /video-jobs
+ * request : { size_bytes, content_type, start_ms, end_ms }
+ *   - content_type は "video/mp4" か "video/quicktime"。返ってくる upload_url の署名に含まれるので、
+ *     PUT するときも同じ文字列を Content-Type に付けること（js/video/upload.js）
+ * response: 201 { job_id, upload_url, remaining_today }
+ *   - この時点では回数を消費しない（消費は /start のとき）
+ */
+export async function createVideoJob({ sizeBytes, contentType, startMs, endMs }) {
+  const res = await postJson('/video-jobs', {
+    size_bytes: sizeBytes,
+    content_type: contentType,
+    start_ms: startMs,
+    end_ms: endMs,
+  });
+  const data = await parseJsonOrThrow(res);
+  return { jobId: data.job_id, uploadUrl: data.upload_url, remainingToday: data.remaining_today };
+}
+
+/**
+ * POST /video-jobs/{id}/start
+ * request : { prompts: [{ time_ms, points: [{ x, y, label: "include" | "exclude" }] }], background: "green" | "blue" | "magenta" }
+ *   - prompts: 点を打ったフレーム（1〜5 個、1 つ目は範囲の開始、時刻の昇順で重複なし、範囲の中。違反は 400 INVALID_PROMPTS）
+ *   - x, y は動画フレームに対する 0〜1 の正規化座標（プレビュー画像の幅・高さで割ったもの）
+ * response: 202 { phase: "queued" | "failed", failure_code, remaining_today }
+ */
+export async function startVideoJob(jobId, { prompts, background }) {
+  const res = await postJson(`/video-jobs/${encodeURIComponent(jobId)}/start`, { prompts, background });
+  const data = await parseJsonOrThrow(res);
+  return { phase: data.phase, failureCode: data.failure_code, remainingToday: data.remaining_today };
+}
+
+/**
+ * GET /video-jobs/{id}
+ * response: 200 { phase, progress, failure_code, quota_refunded, download_url, remaining_today }
+ *   - phase: created | queued | downloading | tracking | finishing | done | failed
+ *   - progress は tracking のときだけ 0〜1。download_url は done のときだけ（10 分有効）
+ *   - 404 はサーバーの再起動などでジョブが無い（err.status === 404）
+ */
+export async function getVideoJob(jobId) {
+  const res = await request(`/video-jobs/${encodeURIComponent(jobId)}`, {
+    method: 'GET',
+    headers: buildHeaders(),
+  });
+  const data = await parseJsonOrThrow(res);
+  return {
+    phase: data.phase,
+    progress: data.progress,
+    failureCode: data.failure_code,
+    quotaRefunded: data.quota_refunded,
+    downloadUrl: data.download_url,
+    remainingToday: data.remaining_today,
+  };
+}
+
+/**
+ * POST /video-jobs/{id}/preview-frame?time_ms=4300
+ * request : multipart/form-data, field "file"（点を打つフレーム。PNG / JPEG、10MB 以下、長辺 2000px 以下）
+ *   time_ms: そのフレームの時刻（元の動画のミリ秒、整数。範囲の中）。サーバーは 1 ジョブ 5 枚まで持ち、超えるとそのジョブの
+ *   最も長く使われていない 1 枚を捨てる（そのフレームの /preview は 409 PREVIEW_FRAME_NOT_FOUND → 登録し直す）
+ * response: 204（本文なし）。サーバーがフレームを 1 回だけエンコードしてジョブごとに持つ
+ *   - 回数は消費しない。ジョブの持ち主だけ、送信（start）前だけ使える
+ *   - 503 PREVIEW_BUSY: 同時に登録できる数（サーバー全体で 2）を超えた。少し待ってやり直す
+ */
+export async function setVideoPreviewFrame(jobId, frameBlob, timeMs) {
+  const formData = new FormData();
+  const name = frameBlob.type === 'image/jpeg' ? 'frame.jpg' : 'frame.png';
+  formData.append('file', frameBlob, name);
+  const res = await request(
+    `/video-jobs/${encodeURIComponent(jobId)}/preview-frame?time_ms=${Math.round(timeMs)}`,
+    { method: 'POST', headers: buildHeaders(), body: formData },
+    LONG_TIMEOUT_MS,
+  );
+  if (!res.ok) await throwApiError(res);
+}
+
+/**
+ * POST /video-jobs/{id}/preview
+ * request : { time_ms, points: [{ x, y, label: "include" | "exclude" }] }（time_ms は preview-frame と同じ値。点は 1〜8 個、0〜1 の正規化座標）
+ * response: 200 image/png（グレースケール 8bit の alpha マスク。255 = 残す。大きさは登録したフレームと同じ）
+ *   - ヘッダー X-Object-Present: "false" なら対象が見つからない（このまま送ると subject_not_found で失敗する）
+ *   - 409 PREVIEW_FRAME_NOT_FOUND: フレームが未登録か、サーバーが特徴量を捨てた。登録し直してやり直す
+ * 戻り値: { maskBlob, objectPresent }
+ */
+export async function previewVideoMask(jobId, timeMs, points) {
+  const res = await postJson(`/video-jobs/${encodeURIComponent(jobId)}/preview`, {
+    time_ms: Math.round(timeMs),
+    points,
+  });
+  if (!res.ok) await throwApiError(res);
+  const objectPresent = res.headers.get('x-object-present') === 'true';
+  const maskBlob = await res.blob();
+  return { maskBlob, objectPresent };
 }

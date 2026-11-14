@@ -45,6 +45,8 @@ impl SQLiteUsageRecorder {
                     UsageOperation::Undo => "undo".to_string(),
                     UsageOperation::GetPreview => "get-preview".to_string(),
                     UsageOperation::GetCompleted => "get-completed".to_string(),
+                    UsageOperation::CreateVideoJob => "create-video-job".to_string(),
+                    UsageOperation::StartVideoJob => "start-video-job".to_string(),
                     UsageOperation::Unknown(err) => err.to_owned(),
                 };
 
@@ -102,6 +104,8 @@ impl PostgresUsageRecorder {
                     UsageOperation::Undo => "undo".to_string(),
                     UsageOperation::GetPreview => "get-preview".to_string(),
                     UsageOperation::GetCompleted => "get-completed".to_string(),
+                    UsageOperation::CreateVideoJob => "create-video-job".to_string(),
+                    UsageOperation::StartVideoJob => "start-video-job".to_string(),
                     UsageOperation::Unknown(err) => err.to_owned(),
                 };
 
@@ -202,5 +206,74 @@ mod sqlite_migration_test {
                 (Some(3), Some("client".to_string()), "segment".to_string()),
             ]
         );
+    }
+
+    // Google ログインのブランチ（feat/user-google-login）で動かしていた開発用 DB
+    // （20260919032531 / 20261004122625 / 20261101090000 が適用済み）を、このブランチの
+    // マイグレーションで更新できること。ログインのテーブルは消え、利用ログは残る。
+    #[tokio::test]
+    async fn sqlite_migrations_upgrade_google_login_branch_database_and_drop_login_tables() {
+        let pool = memory_pool().await;
+        let mut google_branch = sqlx::migrate!("./migrations/sqlite");
+        google_branch.migrations = Cow::Owned(
+            google_branch
+                .migrations
+                .iter()
+                .filter(|m| [20260919032531, 20261004122625, 20261101090000].contains(&m.version))
+                .cloned()
+                .collect(),
+        );
+        assert_eq!(google_branch.migrations.len(), 3);
+        google_branch.run(&pool).await.unwrap();
+        insert_record(&pool).await;
+        sqlx::query("INSERT INTO users (id, google_sub, email) VALUES ('u1', 'sub', 'a@example.com')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO login_sessions (token_hash, user_id, expires_at) VALUES ('h', 'u1', 0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::migrate!("./migrations/sqlite").run(&pool).await.unwrap();
+
+        let login_tables: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE name IN ('users', 'login_sessions', 'idx_login_sessions_expires_at')",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(login_tables.is_empty(), "残っている: {login_tables:?}");
+        let ids: Vec<Option<i64>> = sqlx::query_scalar("SELECT id FROM usage_records")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(ids, vec![Some(1)]);
+    }
+}
+
+// 本番の PostgreSQL は feat/user-google-login ブランチの migrations/ で作られた。
+// 適用済みのファイルのチェックサムが変わると起動しなくなるので、本番が適用したときの値に固定する。
+// オーナーは Windows（core.autocrlf=true）でイメージを作ったので、本番が適用したバイト列は
+// 0919 と 1004 が CRLF、1101 が LF。リポジトリにはそのバイト列を置き、.gitattributes（migrations/** -text）で
+// チェックアウト時の改行変換を止めている。値は本番の _sqlx_migrations.checksum（SHA-384）と同じ。
+#[cfg(test)]
+mod postgres_migration_checksum_test {
+    #[test]
+    fn postgres_migrations_applied_in_production_keep_their_checksums() {
+        let expected = [
+            (20260919032531_i64, "7d1303a9617d0b615e2f94960ddd2ea5060ab477dbb52ee0261a83b458387ee33bc26e2aa474045b0748b95ed6dcfa4b"),
+            (20261004122625, "2085933da5d321246556501b6fe2238847a00bce75df957ba24d82e78ef99c8f0b923ac6e0ec88c4335a1eb422d433d0"),
+            (20261101090000, "d7cbb94d73748d77f08c55249b9401e2341af4f92c4cf5f2c3f7d6337e56c2111155a58cbf83ed3a56f5da069ffede63"),
+        ];
+        let migrator = sqlx::migrate!("./migrations/postgres");
+        for (version, checksum) in expected {
+            let m = migrator
+                .iter()
+                .find(|m| m.version == version)
+                .unwrap_or_else(|| panic!("{version} が無い"));
+            let actual: String = m.checksum.iter().map(|b| format!("{b:02x}")).collect();
+            assert_eq!(actual, checksum, "{version} のチェックサムが本番と違う");
+        }
     }
 }

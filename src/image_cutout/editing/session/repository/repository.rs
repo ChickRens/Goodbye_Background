@@ -1,0 +1,30 @@
+//! 編集セッション保存先のトレイト。
+//!
+//! 関連型 `StaticContext` / `InferenceContext` で、どのセグメンタ（現状 SAM2 のみ）用かを決める。
+
+use std::sync::Arc;
+
+use crate::{
+    image_cutout::editing::session::{
+        repository::error::EditingSessionRepositoryError, session::CommonEditingSession,
+    },
+    image_cutout::session::id::SessionId,
+};
+
+pub trait EditingSessionRepository: Send + Sync {
+    type StaticContext;
+    type InferenceContext;
+
+    fn save(
+        &self,
+        session_id: &SessionId,
+        editing_session: CommonEditingSession<Self::StaticContext, Self::InferenceContext>,
+    );
+    fn get(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<
+        Arc<CommonEditingSession<Self::StaticContext, Self::InferenceContext>>,
+        EditingSessionRepositoryError,
+    >;
+}
