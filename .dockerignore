@@ -6,3 +6,8 @@ target
 results
 worker
 contracts
+*.mov
+*.zip
+*.md
+*.txt
+*.mp4
