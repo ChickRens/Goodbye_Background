@@ -4,8 +4,8 @@
    （src/video_cutout/job/background.rs の rgb）そのままなのでここに直接書く。
 
    レイアウト（今の手順だけを出す。どれを出すかは js/video/page.js の renderView）:
-   - スマホ（縦長・900px 未満）: 進み具合 → ステージ → 操作パネル の縦並び。進むボタンは画面の下に固定
-   - PC（横長・900px 以上）: 左にステージ、右に進み具合と操作パネル。画面の高さちょうどに収める
+   - スマホ（縦長・900px 未満）: 進み具合 → ステージ → 操作パネル の縦並び。進むボタン・切り抜きの操作は画面の下に固定
+   - PC（横長・900px 以上）: 左にステージ（その下に切り抜きの操作）、右に進み具合と操作パネル。画面の高さちょうどに収める
    ========================================================== */
 
 /* style.css の #app は画面の高さに固定（写真のアプリ用）。動画ページのスマホでは縦に伸ばしてスクロールさせる */
@@ -22,8 +22,10 @@
     grid-template-areas:
         "head"
         "stage"
-        "panel";
-    align-content: start;
+        "panel"
+        "tools";
+    /* パネルの行を伸ばして、中身が短くても下の操作バーが画面の一番下に来るようにする */
+    grid-template-rows: auto auto 1fr auto;
 }
 
 /* ---------- 進み具合 ---------- */
@@ -339,6 +341,29 @@
     to { transform: rotate(360deg); }
 }
 
+/* 切り抜き中のメーター（回る丸と一緒に出す） */
+.vmeter {
+    width: min(100%, 360px);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.vmeter-bar {
+    width: 100%;
+    height: 10px;
+    accent-color: var(--primary);
+}
+
+.vmeter-label {
+    min-width: 4em;
+    font-size: 0.85rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
 .vwait-text {
     margin: 0;
     font-size: 0.9rem;
@@ -491,7 +516,7 @@
     font-weight: 700;
 }
 
-/* アップロード（「残す所」の手順の中の1行） */
+/* アップロード（「背景色」の手順の中の1行。送信にはアップロードの完了が要るので、ここで初めて見せる） */
 .upload-line {
     display: grid;
     gap: 6px;
@@ -514,10 +539,46 @@
     justify-self: start;
 }
 
-.vtoolbar {
-    margin: 0;
-    max-width: none;
-    flex-wrap: wrap;
+/* ---------- 切り抜きの操作（写真のアプリの下のバーと同じ並び: 残す｜消す・元に戻す・やり直す …… 次へ） ---------- */
+.vtools {
+    grid-area: tools;
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+    background: var(--bg-dark);
+    border-top: 1px solid var(--border-muted);
+}
+
+.vtools .spacer {
+    flex: 1;
+}
+
+.vtools #next-btn {
+    flex-shrink: 0;
+    padding: 0 var(--space-5);
+}
+
+/* 「別の動画にする」など、目立たせなくてよい操作の文字ボタン */
+.vtext-btn {
+    align-self: flex-start;
+    min-height: 36px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.85rem;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+}
+
+.vtext-btn:hover {
+    color: var(--primary);
 }
 
 /* 腕が欠ける・カットがあるとき（普段は畳んでおく） */
@@ -637,10 +698,11 @@
     .vpage {
         min-height: 0;
         grid-template-columns: minmax(0, 1fr) clamp(340px, 30vw, 420px);
-        grid-template-rows: auto minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr) auto;
         grid-template-areas:
             "stage head"
-            "stage panel";
+            "stage panel"
+            "tools panel";
         align-content: stretch;
     }
 
@@ -665,7 +727,15 @@
     }
 
     .frame-panel canvas {
-        max-height: calc(100dvh - 220px);
+        max-height: calc(100dvh - 290px); /* ヘッダー・タブ・下の操作バーの分を引く */
+    }
+
+    /* PC では左の列の一番下（フレームの真下）に置く。固定はしない */
+    .vtools {
+        position: static;
+        padding: var(--space-3) var(--space-5);
+        background: var(--surface);
+        border-top: 1px solid var(--line);
     }
 
     .vpage-head,

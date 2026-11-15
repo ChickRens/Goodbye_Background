@@ -14,8 +14,9 @@
  *
  * 見た目は「今の手順だけを出す」形（renderView）。上の進み具合(#stepper)で今どこにいるかを見せ、
  * 終わった手順は表示しない。PC は左にステージ・右に操作パネル、スマホは縦に並べる（css/video.css）。
- * 「残す所」と「背景色」は別の手順で、「次へ：背景色を選ぶ」「残す所に戻る」で行き来する（送信するまで）。
- * アップロードは手順にせず、「残す所」の手順の中に1行で出す。
+ * 「切り抜き」（残したい所をタップ）と「背景色」は別の手順で、「次へ」「切り抜きに戻る」で行き来する（送信するまで）。
+ * 切り抜きの操作（残す／消す・元に戻す・やり直す・次へ）は、写真のアプリと同じく下のツールバー(.vtools)にまとめる。
+ * アップロードは手順にせず裏で進め、進み具合は送信に要る「背景色」の手順で初めて出す。
  * ホーム画面で動画が選ばれていれば、起動時に受け取って範囲の選択から始める（js/handoff.js）。
  */
 import { createVideoJob, startVideoJob } from '../api.js?v=1.6.0';
@@ -71,6 +72,7 @@ const el = {
   backBtn: $('back-btn'),
   reselectBtn2: $('reselect-btn-2'),
   jobWait: $('job-wait'),
+  jobMeterLabel: $('job-meter-label'),
   resultTitle: $('result-title'),
   reselectBtn: $('reselect-btn'),
   decideBtn: $('decide-btn'),
@@ -166,7 +168,7 @@ function updateSelectAvailability() {
 // ---------- 手順の表示（今の手順だけを出す） ----------
 
 const STEP_ORDER = ['select', 'range', 'tap', 'send', 'result'];
-// 「残す所」と「背景色」のどちらを見ているか（ジョブを作ってから送信するまでの間だけ使う）
+// 「切り抜き」と「背景色」のどちらを見ているか（ジョブを作ってから送信するまでの間だけ使う）
 let jobView = 'tap';
 let shownView = 'select';
 
@@ -217,13 +219,13 @@ function chooseAnotherVideo() {
 }
 el.reselectBtn2.addEventListener('click', chooseAnotherVideo);
 
-// 残す所 → 背景色。送れる点の指定ができてから進める
+// 切り抜き → 背景色。送れる点の指定ができてから進める
 el.nextBtn.addEventListener('click', () => {
   if (el.nextBtn.disabled) return;
   jobView = 'send';
   renderView();
 });
-// 背景色 → 残す所（送信するまでは戻って点を直せる）
+// 背景色 → 切り抜き（送信するまでは戻って点を直せる）
 el.backBtn.addEventListener('click', () => {
   if (state.sending || state.sent) return;
   jobView = 'tap';
@@ -397,13 +399,13 @@ async function startUpload() {
   el.uploadProgress.value = 0;
   // 送る大きさも出す（選んだ範囲だけ切り出せたかが分かるように）
   const sizeLabel = `${(state.uploadBlob.size / 1_000_000).toFixed(1)} MB`;
-  el.uploadStatus.textContent = `裏でアップロード中 0%（${sizeLabel}）。その間に、残す所をタップできます`;
+  el.uploadStatus.textContent = `アップロード中 0%（${sizeLabel}）`;
   try {
     // Content-Type は POST /video-jobs で申告したもの（state.contentType）と同じでなければ署名が合わない
     state.upload = putWithProgress(state.job.uploadUrl, state.uploadBlob, state.contentType, (ratio) => {
       if (gen !== generation) return;
       el.uploadProgress.value = ratio;
-      el.uploadStatus.textContent = `裏でアップロード中 ${Math.floor(ratio * 100)}%（${sizeLabel}）。その間に、残す所をタップできます`;
+      el.uploadStatus.textContent = `アップロード中 ${Math.floor(ratio * 100)}%（${sizeLabel}）`;
     });
     await state.upload.promise;
     if (gen !== generation) return;
@@ -530,8 +532,9 @@ function updateSendButton() {
 
   let hint = '';
   if (state.sent || state.sending) hint = '';
-  else if (!state.uploadDone) hint = 'アップロードが終わると送信できます（もう少しお待ちください）';
-  else if (!preview.canSend()) hint = '残す所に戻って、点を打ち直してください';
+  else if (!state.uploadDone && state.upload) hint = 'アップロードが終わると送信できます（もう少しお待ちください）';
+  else if (!state.uploadDone) hint = 'アップロードに失敗しました。上の「アップロードをやり直す」を押してください';
+  else if (!preview.canSend()) hint = '「切り抜きに戻る」で、点を打ち直してください';
   else hint = '送信すると今日の回数を 1 回使います';
   el.sendHint.textContent = hint;
   updateSelectAvailability();
@@ -613,8 +616,16 @@ function showPhase(phase, progress) {
   else state.queuedSince = null;
   const queuedMs = state.queuedSince === null ? 0 : Date.now() - state.queuedSince;
   el.jobStatus.textContent = phaseMessage(phase, progress, queuedMs);
-  el.jobProgress.hidden = phase !== 'tracking';
-  if (phase === 'tracking') el.jobProgress.value = progress ?? 0;
+  // メーター: 処理の割合が分かる間(tracking)は値を出す。分からない間（準備中・ダウンロード・仕上げ）は
+  // value を外して、動き続けるメーター（ブラウザ標準の「進行中」表示）にする
+  if (phase === 'tracking') {
+    const ratio = Math.max(0, Math.min(1, progress ?? 0));
+    el.jobProgress.value = ratio;
+    el.jobMeterLabel.textContent = `${Math.floor(ratio * 100)}%`;
+  } else {
+    el.jobProgress.removeAttribute('value');
+    el.jobMeterLabel.textContent = phase === 'finishing' ? '仕上げ中' : '準備中';
+  }
 }
 
 function handleJobUpdate(job) {
@@ -682,6 +693,10 @@ function resetAll() {
   el.resultVideo.load();
   el.resultVideo.hidden = true;
   el.jobWait.hidden = false;
+  // メーターを最初の状態（値なしの動き続ける表示）に戻す（showLost で隠していることがある）
+  el.jobProgress.hidden = false;
+  el.jobProgress.removeAttribute('value');
+  el.jobMeterLabel.textContent = '';
   el.resultTitle.textContent = '切り抜いています';
   jobView = 'tap';
   el.downloadLink.href = '#';
