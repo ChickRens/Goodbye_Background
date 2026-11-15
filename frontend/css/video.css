@@ -2,19 +2,39 @@
    動画の切り抜きページ(video.html)専用のスタイル。style.css の後に読み込む。
    色は tokens.css の変数を使う。背景色の見本 3 色だけは、ワーカーが塗る色
    （src/video_cutout/job/background.rs の rgb）そのままなのでここに直接書く。
+
+   レイアウト（今の手順だけを出す。どれを出すかは js/video/page.js の renderView）:
+   - スマホ（縦長・900px 未満）: 進み具合 → ステージ → 操作パネル の縦並び。進むボタンは画面の下に固定
+   - PC（横長・900px 以上）: 左にステージ、右に進み具合と操作パネル。画面の高さちょうどに収める
    ========================================================== */
 
-.video-page {
-    width: 100%;
-    max-width: 640px;
-    margin: 0 auto;
-    padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
+/* style.css の #app は画面の高さに固定（写真のアプリ用）。動画ページのスマホでは縦に伸ばしてスクロールさせる */
+#app:has(.vpage) {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
 }
 
-.video-intro {
+.vpage {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+        "head"
+        "stage"
+        "panel";
+    align-content: start;
+}
+
+/* ---------- 進み具合 ---------- */
+.vpage-head {
+    grid-area: head;
+    padding: var(--space-4) var(--space-4) var(--space-3);
+    display: grid;
+    gap: var(--space-3);
+}
+
+.vpage-title-row {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -22,52 +42,40 @@
     flex-wrap: wrap;
 }
 
-.video-title {
+.vpage-title {
     margin: 0;
-    font-size: 1.15rem;
+    font-size: 1.05rem;
     font-weight: 700;
 }
 
-.video-remaining {
+.vpage-remaining {
     margin: 0;
-    font-size: 0.85rem;
-    color: var(--ink-muted);
+    font-size: 0.8rem;
     font-weight: 600;
+    color: var(--text-muted);
 }
 
-.video-step {
-    background: var(--bg-light);
-    border: 1px solid var(--border-muted);
-    border-radius: var(--radius-lg);
-    padding: var(--space-4);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-}
-
-/* ---------- 進み具合（動画を選ぶ → 範囲 → 残す所 → 送信 → 完成） ---------- */
-.video-stepper {
+.vstepper {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 4px;
     font-size: 0.75rem;
     color: var(--text-muted);
     text-align: center;
 }
 
-.video-stepper li {
+.vstepper li {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 4px;
-    position: relative;
 }
 
-/* 丸と丸をつなぐ線（最初の項目以外、自分の左側に引く） */
-.video-stepper li + li::before {
+/* 丸と丸をつなぐ線（2つ目以降の項目の左側に引く） */
+.vstepper li + li::before {
     content: "";
     position: absolute;
     top: 9px;
@@ -75,15 +83,13 @@
     width: 100%;
     height: 2px;
     background: var(--border-muted);
-    z-index: 0;
 }
 
-.video-stepper li.is-done + li::before,
-.video-stepper li.is-done + li.is-current::before {
+.vstepper li.is-done + li::before {
     background: var(--primary);
 }
 
-.video-stepper-dot {
+.vstepper-dot {
     position: relative;
     z-index: 1;
     width: 20px;
@@ -96,23 +102,23 @@
     justify-content: center;
 }
 
-.video-stepper li.is-current {
+.vstepper li.is-current {
     color: var(--text);
     font-weight: 700;
 }
 
-.video-stepper li.is-current .video-stepper-dot {
+.vstepper li.is-current .vstepper-dot {
     border-color: var(--primary);
     box-shadow: 0 0 0 4px var(--blue-soft);
 }
 
-.video-stepper li.is-done .video-stepper-dot {
+.vstepper li.is-done .vstepper-dot {
     border-color: var(--primary);
     background: var(--primary);
 }
 
 /* 終わった手順の丸の中のチェック */
-.video-stepper li.is-done .video-stepper-dot::after {
+.vstepper li.is-done .vstepper-dot::after {
     content: "";
     width: 5px;
     height: 9px;
@@ -121,89 +127,313 @@
     transform: translateY(-1px) rotate(45deg);
 }
 
-/* ---------- 手順の欄の見出し・終わった手順の要約 ---------- */
-.video-step {
-    scroll-margin-top: 80px; /* スクロールで見せるとき、固定のヘッダーの下に隠れないように */
-}
-
-.video-step-head {
+/* ---------- ステージ（動画・フレーム・結果を大きく見せる所） ---------- */
+.vstage {
+    grid-area: stage;
+    min-width: 0;
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: var(--space-3);
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 4px var(--space-3);
+    justify-content: center;
 }
 
-.video-step-summary {
-    margin: 0;
-    flex: 1 1 12em;
+.vstage-item {
+    width: 100%;
     min-width: 0;
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    overflow-wrap: anywhere;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
 }
 
-.video-step-change {
-    margin-left: auto;
-    min-height: 36px;
-    padding: 0 var(--space-3);
-    border: 1px solid var(--border);
+.vplayer {
+    display: block;
+    width: 100%;
+    max-height: 50vh;
+    background: #000;
     border-radius: var(--radius-md);
-    background: var(--surface);
+}
+
+/* 動画を選ぶ（ホーム画面の選択エリアと同じ青い破線） */
+.vselect {
+    width: 100%;
+    min-height: 220px;
+    border: 2px dashed var(--primary);
+    border-radius: var(--radius-lg);
+    background: var(--blue-soft);
     color: var(--primary);
     font: inherit;
-    font-size: 0.85rem;
-    font-weight: 700;
     cursor: pointer;
-}
-
-.video-step-change:hover {
-    border-color: var(--primary);
-}
-
-/* 終わった手順は、見出しと要約だけを残して中身を隠す。番号の丸はチェックにする。
-   見出しは「左: 見出しと要約（2行） / 右: 変更ボタン」に並べ、スマホでも1つの欄が低く収まるようにする */
-.video-step.is-done .video-step-head {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    column-gap: var(--space-3);
-    row-gap: 2px;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-5) var(--space-4);
+    transition: background-color 0.15s ease;
 }
 
-.video-step.is-done .video-step-title { grid-column: 1; }
-.video-step.is-done .video-step-summary { grid-column: 1; padding-left: 32px; }
-.video-step.is-done .video-step-change { grid-column: 2; grid-row: 1 / span 2; margin-left: 0; }
-
-.video-step.is-done {
-    padding-top: var(--space-3);
-    padding-bottom: var(--space-3);
-    background: transparent;
+.vselect:hover {
+    background: var(--blue-soft-hover);
+    border-style: solid;
 }
 
-.video-step.is-done > :not(.video-step-head) {
+.vselect:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.vselect-title {
+    display: inline-flex;
+    align-items: center;
+    min-height: 52px;
+    padding: 0 32px;
+    border-radius: var(--radius-md);
+    background: var(--primary);
+    color: var(--on-blue);
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.vselect:hover .vselect-title {
+    background: var(--blue-hover);
+}
+
+.vselect-note {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+/* 点を打つフレーム */
+.frame-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+}
+
+.frame-tabs:empty {
     display: none;
 }
 
-.video-step.is-done .video-step-title {
+.frame-tab {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--surface);
+}
+
+.frame-tab-select,
+.frame-tab-delete {
+    background: transparent;
+    color: var(--text-muted);
+    border: 0;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 6px 12px;
+    min-height: 36px;
+    cursor: pointer;
+}
+
+.frame-tab-select[aria-selected="true"] {
+    background: var(--primary);
+    color: var(--on-blue);
+    font-weight: 600;
+}
+
+.frame-tab-delete {
+    padding: 6px 10px;
+    border-left: 1px solid var(--border);
+}
+
+.frame-panels {
+    width: 100%;
+}
+
+.frame-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.vcanvas-wrap {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* canvas は動画の実寸(幅 640px〜)で描かれるので、必ず枠の幅に縮めて表示する（スマホではみ出さないように） */
+.frame-panel canvas {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    max-height: 55vh;
+    touch-action: none; /* スマホでのスクロール/ズーム誤爆を防ぐ */
+    border-radius: var(--radius-sm);
+    cursor: crosshair;
+}
+
+.frame-panel .edit-status {
+    margin: 0;
+    min-height: 1.4em;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/* 背景色の手順では、フレームは仕上がりの見本として見せるだけ（タップしても点は増えない） */
+.vpage[data-view="send"] .frame-panels {
+    pointer-events: none;
+}
+
+.vpage[data-view="send"] .frame-panel .edit-status {
+    display: none;
+}
+
+/* 2 枚目以降のフレームを選んでいる間は、フレームとタブの代わりに選ぶ画面を出す */
+.vstage-frames:has(#frame-picker:not([hidden])) .frame-panels,
+.vstage-frames:has(#frame-picker:not([hidden])) .frame-tabs {
+    display: none;
+}
+
+.frame-picker {
+    width: 100%;
+    display: grid;
+    gap: var(--space-2);
+}
+
+.frame-picker input[type="range"] {
+    width: 100%;
+    min-height: var(--touch-target);
+    accent-color: var(--primary);
+}
+
+/* 完成（処理中の表示） */
+.vwait {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-6) var(--space-4);
+    text-align: center;
+}
+
+.vwait-spinner {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 4px solid var(--blue-soft);
+    border-top-color: var(--primary);
+    animation: vspin 0.9s linear infinite;
+}
+
+@keyframes vspin {
+    to { transform: rotate(360deg); }
+}
+
+.vwait-text {
+    margin: 0;
     font-size: 0.9rem;
     color: var(--text-muted);
 }
 
-.video-step.is-done .video-step-no {
-    font-size: 0;
-    position: relative;
+/* ---------- 操作パネル ---------- */
+.vpanel {
+    grid-area: panel;
+    min-width: 0;
+    padding: var(--space-4) var(--space-4) 0;
 }
 
-.video-step.is-done .video-step-no::after {
-    content: "";
-    width: 5px;
-    height: 9px;
-    border: solid var(--on-blue);
-    border-width: 0 2px 2px 0;
-    transform: translateY(-1px) rotate(45deg);
+.vpanel-step {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
 }
 
-/* ---------- 範囲の帯（動画全体のうち選んでいる所） ---------- */
+.vpanel-title {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.vnote {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: var(--text-muted);
+}
+
+.vnote a {
+    color: var(--blue);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.vhint {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+.vhint:empty {
+    display: none;
+}
+
+.vlimits {
+    margin: 0;
+    padding-left: 1.2em;
+    font-size: 0.9rem;
+    line-height: 1.8;
+}
+
+.valert {
+    margin: 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--danger);
+    color: var(--card-text);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+/* 進むボタンなど。スマホでは画面の下に固定して、親指で押せる所に置く */
+.vpanel-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    gap: var(--space-2);
+    margin: 0 calc(var(--space-4) * -1);
+    padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+    background: var(--bg-dark);
+    border-top: 1px solid var(--line);
+}
+
+.vpanel-actions .primary-btn {
+    flex: 1;
+}
+
+.vpanel-actions:not(:has(> :not([hidden]))) {
+    display: none;
+}
+
+/* ボタンの下の補足は、固定したボタンのすぐ下ではなく流れの中に置く */
+.vpanel-actions + .vhint {
+    margin-top: calc(var(--space-2) * -1);
+    padding-bottom: var(--space-3);
+}
+
+/* 範囲 */
 .range-bar {
     position: relative;
     height: 10px;
@@ -231,135 +461,6 @@
     font-variant-numeric: tabular-nums;
 }
 
-/* ---------- アップロード（「残す所」の手順の中の1行） ---------- */
-.upload-line {
-    display: grid;
-    gap: 6px;
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-md);
-    background: var(--blue-soft);
-}
-
-.upload-line .video-progress {
-    height: 6px;
-}
-
-.upload-line .ghost-btn {
-    justify-self: start;
-}
-
-.video-step-title {
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: 1rem;
-    font-weight: 700;
-}
-
-/* 手順 4 の「残す／消す」と元に戻す・やり直す。部品は style.css（app.html と同じ）を使い、並べ方だけ変える */
-.video-step .edit-toolbar {
-    margin: 0;
-    max-width: none;
-    flex-wrap: wrap;
-}
-
-.video-step-no {
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: var(--primary);
-    color: var(--on-blue);
-    font-size: 0.8rem;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.video-select {
-    /* ホーム画面の写真選択エリア(site.css の .start-zone)と同じ見た目にして、「ここに動画を入れる」と分かるようにする */
-    min-height: 140px;
-    border: 2px dashed var(--primary);
-    border-radius: var(--radius-lg);
-    background: var(--blue-soft);
-    color: var(--text);
-    font: inherit;
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    padding: var(--space-4);
-    transition: background-color 0.15s ease;
-}
-
-.video-select:hover {
-    background: var(--blue-soft-hover);
-    border-style: solid; /* 破線から実線にして、押せる状態をはっきり見せる */
-}
-
-.video-select:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
-.video-select-title {
-    display: inline-flex;
-    align-items: center;
-    min-height: var(--touch-target);
-    padding: 0 28px;
-    border-radius: var(--radius-md);
-    background: var(--primary);
-    color: var(--on-blue);
-    font-size: 1rem;
-    font-weight: 700;
-}
-
-.video-select:hover .video-select-title {
-    background: var(--blue-hover);
-}
-
-.video-select-note {
-    font-size: 0.8rem;
-    font-weight: 400;
-    color: var(--text-muted);
-}
-
-.video-note {
-    margin: 0;
-    font-size: 0.8rem;
-    line-height: 1.5;
-    color: var(--text-muted);
-}
-
-/* 本文中のリンク（プライバシーポリシーなど）。ホーム画面と同じ青 */
-.video-note a {
-    color: var(--blue);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-}
-
-.video-alert {
-    margin: 0;
-    padding: var(--space-3);
-    border-radius: var(--radius-md);
-    background: var(--danger);
-    color: var(--card-text);
-    font-size: 0.85rem;
-    line-height: 1.5;
-}
-
-.video-player {
-    width: 100%;
-    max-height: 50vh;
-    background: var(--bg);
-    border-radius: var(--radius-md);
-    display: block;
-}
-
 .range-field {
     display: flex;
     flex-direction: column;
@@ -372,9 +473,10 @@
 }
 
 .range-field output {
-    color: var(--text);
-    font-family: var(--font-mono);
     margin-left: var(--space-2);
+    color: var(--text);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
 }
 
 .range-field input[type="range"] {
@@ -383,62 +485,85 @@
     accent-color: var(--primary);
 }
 
-.video-actions {
-    display: flex;
-    gap: var(--space-2);
-    justify-content: flex-end;
-    flex-wrap: wrap;
+.vrange-length {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 700;
 }
 
-.video-progress {
+/* アップロード（「残す所」の手順の中の1行） */
+.upload-line {
+    display: grid;
+    gap: 6px;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--blue-soft);
+}
+
+.vprogress {
     width: 100%;
-    height: 10px;
+    height: 8px;
     accent-color: var(--primary);
 }
 
-.video-canvas-wrap {
+.upload-line .vprogress {
+    height: 6px;
+}
+
+.upload-line .ghost-btn {
+    justify-self: start;
+}
+
+.vtoolbar {
+    margin: 0;
+    max-width: none;
+    flex-wrap: wrap;
+}
+
+/* 腕が欠ける・カットがあるとき（普段は畳んでおく） */
+.vmore {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+}
+
+.vmore summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    min-height: 32px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    background: var(--bg);
-    border-radius: var(--radius-md);
-    padding: var(--space-2);
-    min-height: 120px;
 }
 
-/* 点を打つフレーム。canvas は動画の実寸(例: 幅 640px〜)で描かれるので、必ず枠の幅に縮めて表示する。
-   以前は #frame-canvas を指定していたが、フレームを <template> から作るようになって id が無くなり、
-   スマホで画面からはみ出していた（ページが横にスクロールし、下の送信ボタンに重なって押せなくなる） */
-.frame-panel canvas {
-    display: block;
-    max-width: 100%;
-    height: auto;
-    max-height: 60vh;
-    touch-action: none; /* スマホでのスクロール/ズーム誤爆を防ぐ */
-    border-radius: var(--radius-sm);
-    cursor: crosshair;
+.vmore[open] {
+    display: grid;
+    gap: var(--space-2);
 }
 
+.vmore .ghost-btn {
+    justify-self: start;
+}
+
+/* 背景色 */
 .bg-options {
     margin: 0;
     padding: 0;
     border: none;
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-2);
-}
-
-.bg-options legend {
-    padding: 0;
-    margin-bottom: var(--space-2);
 }
 
 .bg-option {
-    min-height: var(--touch-target);
-    display: inline-flex;
+    min-height: 56px;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: var(--space-2);
-    padding: 0 var(--space-3);
+    justify-content: center;
+    gap: 4px;
+    padding: var(--space-2);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     font-size: 0.85rem;
@@ -448,17 +573,25 @@
 .bg-option:has(input:checked) {
     border-color: var(--primary);
     background: var(--blue-soft);
+    font-weight: 700;
 }
 
+.bg-option:has(input:focus-visible) {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* ラジオボタン本体は隠し、色見本と枠で選択を見せる（キーボードでは上の focus-visible で分かる） */
 .bg-option input {
-    accent-color: var(--primary);
-    margin: 0;
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .bg-swatch {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
     border: 1px solid var(--border-muted);
 }
 
@@ -466,75 +599,109 @@
 .bg-blue { background: rgb(0 0 255); }
 .bg-magenta { background: rgb(255 0 255); }
 
-.video-send,
-.video-download {
-    width: 100%;
-    text-decoration: none;
-}
-
-.video-job-status {
+/* 完成 */
+.vjob-status {
     margin: 0;
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 600;
 }
 
-#job-done {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-}
-
-/* 点を打つフレームのタブ（複数フレームの点の指定） */
-.frame-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: 4px 0 8px;
-}
-
-.frame-tab {
-    display: inline-flex;
-    align-items: stretch;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    overflow: hidden;
-}
-
-.frame-tab-select,
-.frame-tab-delete {
-    background: transparent;
-    color: var(--text-muted);
-    border: 0;
-    font: inherit;
-    font-size: 0.85rem;
-    padding: 6px 12px;
-    min-height: 36px;
-    cursor: pointer;
-}
-
-.frame-tab-select[aria-selected="true"] {
-    background: var(--primary);
-    color: var(--on-blue);
-    font-weight: 600;
-}
-
-.frame-tab-delete {
-    padding: 6px 10px;
-    border-left: 1px solid var(--border);
-}
-
-.frame-picker {
+.vdone {
     display: grid;
-    gap: 8px;
-    margin-top: 8px;
+    gap: var(--space-2);
 }
 
-.frame-picker input[type="range"] {
+.vdownload {
     width: 100%;
+    min-height: 52px;
+    text-decoration: none;
+    font-size: 1rem;
 }
 
-.frame-picker-actions {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* ---------- PC（横長）: 左にステージ、右に進み具合と操作パネル ---------- */
+@media (min-width: 900px) {
+    #app:has(.vpage) {
+        height: 100vh;
+        height: 100dvh;
+    }
+
+    .vpage {
+        min-height: 0;
+        grid-template-columns: minmax(0, 1fr) clamp(340px, 30vw, 420px);
+        grid-template-rows: auto minmax(0, 1fr);
+        grid-template-areas:
+            "stage head"
+            "stage panel";
+        align-content: stretch;
+    }
+
+    .vstage {
+        min-height: 0;
+        overflow: hidden;
+        border: 0;
+        padding: var(--space-5);
+    }
+
+    .vstage-item {
+        max-height: 100%;
+    }
+
+    .vplayer {
+        max-height: calc(100dvh - 140px);
+    }
+
+    .vselect {
+        max-width: 640px;
+        min-height: 360px;
+    }
+
+    .frame-panel canvas {
+        max-height: calc(100dvh - 220px);
+    }
+
+    .vpage-head,
+    .vpanel {
+        background: var(--surface);
+        border-left: 1px solid var(--line);
+    }
+
+    .vpage-head {
+        padding: var(--space-5) var(--space-5) var(--space-4);
+        border-bottom: 1px solid var(--line);
+    }
+
+    .vpanel {
+        min-height: 0;
+        overflow-y: auto;
+        padding: var(--space-5) var(--space-5) 0;
+    }
+
+    /* PC では固定しない（パネルの中でスクロールする）。ボタンは右寄せの普通の並び */
+    .vpanel-actions {
+        position: static;
+        margin: var(--space-2) 0 0;
+        padding: 0 0 var(--space-4);
+        background: transparent;
+        border-top: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vwait-spinner {
+        animation: none;
+        border-top-color: var(--primary);
+    }
+
+    .vselect {
+        transition: none;
+    }
 }

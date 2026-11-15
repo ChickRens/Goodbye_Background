@@ -43,7 +43,8 @@ export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeSwitchEl, 
       undoBtn,
       redoBtn,
       statusEl: panel.querySelector('.edit-status'),
-      warningEl: panel.querySelector('.video-alert'),
+      // 見た目のクラス名に頼らないよう、専用の目印で探す（video.html のテンプレート）
+      warningEl: panel.querySelector('[data-frame-warning]'),
       onChange: () => {
         renderTabs();
         onChange();

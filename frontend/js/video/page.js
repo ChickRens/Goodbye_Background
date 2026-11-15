@@ -12,8 +12,10 @@
  * 残り回数は POST /video-jobs と GET の応答の remaining_today で更新する（それより前は「1日3回まで」）。
  * 0 になったら動画の選択で止める。
  *
- * 見た目は「1ステップずつ進む」形（renderSteps）。上の進み具合(#stepper)で今の手順を強調し、
- * 終わった手順は見出しと1行の要約だけに縮める。アップロードは手順にせず、「残す所」の手順の中に1行で出す。
+ * 見た目は「今の手順だけを出す」形（renderView）。上の進み具合(#stepper)で今どこにいるかを見せ、
+ * 終わった手順は表示しない。PC は左にステージ・右に操作パネル、スマホは縦に並べる（css/video.css）。
+ * 「残す所」と「背景色」は別の手順で、「次へ：背景色を選ぶ」「残す所に戻る」で行き来する（送信するまで）。
+ * アップロードは手順にせず、「残す所」の手順の中に1行で出す。
  * ホーム画面で動画が選ばれていれば、起動時に受け取って範囲の選択から始める（js/handoff.js）。
  */
 import { createVideoJob, startVideoJob } from '../api.js?v=1.6.0';
@@ -63,6 +65,13 @@ const el = {
   rangeBarFill: $('range-bar-fill'),
   rangeTotal: $('range-total'),
   stepper: $('stepper'),
+  vpage: $('vpage'),
+  nextBtn: $('next-btn'),
+  nextHint: $('next-hint'),
+  backBtn: $('back-btn'),
+  reselectBtn2: $('reselect-btn-2'),
+  jobWait: $('job-wait'),
+  resultTitle: $('result-title'),
   reselectBtn: $('reselect-btn'),
   decideBtn: $('decide-btn'),
   stepUpload: $('step-upload'),
@@ -143,7 +152,6 @@ function setRemaining(value) {
   remainingToday = value;
   el.remaining.textContent = remainingMessage(value);
   // ジョブを作る前に使い切ったら、範囲の欄は閉じる（決めても作れないため）。作った後なら送信まで続けられる
-  if (value === 0 && !state.job) el.stepRange.hidden = true;
   updateSelectAvailability();
 }
 
@@ -152,41 +160,38 @@ function updateSelectAvailability() {
   const exhausted = remainingToday === 0;
   el.quotaOut.hidden = !exhausted;
   el.selectBtn.disabled = exhausted || state.creating || state.sending || (state.sent && !state.finished);
-  renderSteps();
+  renderView();
 }
 
-// ---------- 手順の表示（1ステップずつ進む見た目） ----------
+// ---------- 手順の表示（今の手順だけを出す） ----------
 
 const STEP_ORDER = ['select', 'range', 'tap', 'send', 'result'];
-const BACKGROUND_LABELS = { green: 'グリーン', blue: 'ブルー', magenta: 'マゼンタ' };
-let shownPhase = 'select';
+// 「残す所」と「背景色」のどちらを見ているか（ジョブを作ってから送信するまでの間だけ使う）
+let jobView = 'tap';
+let shownView = 'select';
 
-/** 今いる手順。「残す所」と「送信」は同時に開いているが、送れる状態になったら上の表示を「送信」に進める */
-function currentPhase() {
+/** 今出す手順 */
+function currentView() {
   if (state.sent) return 'result';
-  if (state.job) return el.sendBtn.disabled ? 'tap' : 'send';
-  // 今日の回数を使い切ったら、「動画を選ぶ」の欄（使い切った旨の案内がある）に戻す
+  if (state.job) return jobView;
+  // 今日の回数を使い切ったら、「動画を選ぶ」（使い切った旨の案内がある）に戻す
   if (remainingToday === 0) return 'select';
   if (state.durationMs > 0) return 'range';
   return 'select';
 }
 
-/** 手順の欄を「終わった」状態（見出しと1行の要約だけ）にする/戻す */
-function setStepDone(section, done, summary, canChange) {
-  section.classList.toggle('is-done', done);
-  const summaryEl = section.querySelector('[data-summary]');
-  summaryEl.textContent = done ? summary : '';
-  summaryEl.hidden = !done;
-  const changeBtn = section.querySelector('[data-change]');
-  if (changeBtn) changeBtn.hidden = !(done && canChange);
-}
-
-function renderSteps() {
+function renderView() {
   if (!el.stepper || !preview) return;
-  const phase = currentPhase();
-  const index = STEP_ORDER.indexOf(phase);
-  const finishedOk = state.finished && !el.jobDone.hidden;
+  const view = currentView();
+  const index = STEP_ORDER.indexOf(view);
+  el.vpage.dataset.view = view;
 
+  // ステージとパネルの中身は、data-views に今の手順が書いてあるものだけ出す
+  for (const node of el.vpage.querySelectorAll('[data-views]')) {
+    node.hidden = !node.dataset.views.split(' ').includes(view);
+  }
+
+  const finishedOk = state.finished && !el.jobDone.hidden;
   for (const li of el.stepper.querySelectorAll('[data-step]')) {
     const i = STEP_ORDER.indexOf(li.dataset.step);
     const done = i < index || (li.dataset.step === 'result' && finishedOk);
@@ -196,37 +201,33 @@ function renderSteps() {
     else li.removeAttribute('aria-current');
   }
 
-  // 動画は、送信して結果を待っている間以外ならいつでも選び直せる（ジョブを作っていても、送る前なら回数は減らない）
-  const canChangeVideo = !state.creating && !state.sending && !(state.sent && !state.finished) && remainingToday !== 0;
-  setStepDone(
-    el.stepSelect,
-    index > 0 && state.file !== null,
-    state.file ? `${state.file.name}（${formatMs(state.durationMs)}）` : '',
-    canChangeVideo,
-  );
-  const lengthSec = ((state.endMs - state.startMs) / 1000).toFixed(1);
-  setStepDone(el.stepRange, state.job !== null, `${formatMs(state.startMs)}〜${formatMs(state.endMs)}（${lengthSec} 秒）`, false);
-  setStepDone(el.stepPreview, state.sent, `点を打ったフレーム ${preview.frameCount()} 枚`, false);
-  setStepDone(el.stepSend, state.sent, `背景：${BACKGROUND_LABELS[selectedBackground()] || ''}`, false);
-
-  // 次の手順に進んだら、その欄が画面の外なら見える所までスクロールする（送信後の結果は beginPolling がする）
-  if (phase !== shownPhase) {
-    const target = phase === 'range' ? el.stepRange : phase === 'tap' && shownPhase === 'range' ? el.stepPreview : null;
-    shownPhase = phase;
-    if (target && !target.hidden) {
-      const top = target.getBoundingClientRect().top;
-      if (top < 0 || top > window.innerHeight * 0.6) {
-        const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
-      }
+  // 手順が変わったら、スマホでは先頭（進み具合）から見せる（PC は1画面に収まっているので動かない）
+  if (view !== shownView) {
+    shownView = view;
+    if (window.scrollY > 0) {
+      const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      window.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' });
     }
   }
 }
 
-// 終わった「動画を選ぶ」の「変更」= 選び直す（範囲の欄の「動画を選び直す」と同じ）
-el.stepSelect.querySelector('[data-change]').addEventListener('click', () => {
+function chooseAnotherVideo() {
   resetAll();
   el.fileInput.click();
+}
+el.reselectBtn2.addEventListener('click', chooseAnotherVideo);
+
+// 残す所 → 背景色。送れる点の指定ができてから進める
+el.nextBtn.addEventListener('click', () => {
+  if (el.nextBtn.disabled) return;
+  jobView = 'send';
+  renderView();
+});
+// 背景色 → 残す所（送信するまでは戻って点を直せる）
+el.backBtn.addEventListener('click', () => {
+  if (state.sending || state.sent) return;
+  jobView = 'tap';
+  renderView();
 });
 
 // ---------- 1. 動画を選ぶ ----------
@@ -283,8 +284,7 @@ function openVideo(file) {
       el.rangeEnd.max = String(durationMs);
       el.rangeTotal.textContent = formatMs(durationMs);
       setRange(0, MAX_CLIP_MS);
-      el.stepRange.hidden = false;
-      renderSteps();
+      renderView();
     },
     { once: true },
   );
@@ -346,10 +346,7 @@ function updateRangeControls() {
   el.decideBtn.disabled = locked || state.endMs <= state.startMs;
 }
 
-el.reselectBtn.addEventListener('click', () => {
-  resetAll();
-  el.fileInput.click();
-});
+el.reselectBtn.addEventListener('click', chooseAnotherVideo);
 
 el.decideBtn.addEventListener('click', () => createJob());
 
@@ -374,9 +371,7 @@ async function createJob() {
     if (gen !== generation) return;
     state.job = { jobId: job.jobId, uploadUrl: job.uploadUrl };
     setRemaining(job.remainingToday);
-    el.stepUpload.hidden = false;
-    el.stepPreview.hidden = false;
-    el.stepSend.hidden = false;
+    jobView = 'tap';
     // アップロードとプレビューは並行して進める
     startUpload();
     startPreview();
@@ -525,12 +520,18 @@ function updateSendButton() {
   el.addFrameBtn.textContent = preview.isFull() ? '＋ このフレームにも点を打つ（5 枚まで）' : '＋ このフレームにも点を打つ';
 
   const problem = preview.firstProblem();
+  // 「次へ」は、送れる点の指定ができたら押せる（アップロードの完了は送信の手順で待つ）
+  el.nextBtn.disabled = !state.job || !preview.canSend() || pickerOpen() || state.sending || state.sent;
+  let nextHint = '';
+  if (problem?.kind === 'noPoints') nextHint = `${problem.label} のフレームに、残したい所を 1 か所以上タップすると次へ進めます`;
+  else if (problem?.kind === 'missing') nextHint = `${problem.label} のフレームで対象が見つかりません。残したい物の真ん中をタップし直してください`;
+  else if (state.job && !preview.canSend()) nextHint = '切り抜きの見本が出ると次へ進めます';
+  el.nextHint.textContent = nextHint;
+
   let hint = '';
   if (state.sent || state.sending) hint = '';
-  else if (!state.uploadDone) hint = 'アップロードが終わると送信できます';
-  else if (problem?.kind === 'noPoints') hint = `${problem.label} のフレームに、残したい所を 1 か所以上タップすると送信できます`;
-  else if (problem?.kind === 'missing') hint = `${problem.label} のフレームで対象が見つからないため送信できません。点を打ち直してください`;
-  else if (!preview.canSend()) hint = 'プレビューが出ると送信できます';
+  else if (!state.uploadDone) hint = 'アップロードが終わると送信できます（もう少しお待ちください）';
+  else if (!preview.canSend()) hint = '残す所に戻って、点を打ち直してください';
   else hint = '送信すると今日の回数を 1 回使います';
   el.sendHint.textContent = hint;
   updateSelectAvailability();
@@ -584,15 +585,16 @@ function beginPolling(phase) {
   const gen = generation;
   state.sent = true;
   preview.lock();
-  el.stepResult.hidden = false;
   el.jobFailure.hidden = true;
+  el.jobWait.hidden = false;
+  el.resultTitle.textContent = '切り抜いています';
   if (phase) showPhase(phase, null);
   else el.jobStatus.textContent = '送信の結果を確かめています…';
   if (state.poller) state.poller.stop();
   state.poller = pollJob(state.job.jobId, (job) => {
     if (gen === generation) handleJobUpdate(job);
   });
-  el.stepResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  renderView();
 }
 
 /** GET で見たらまだ created（開始の要求がサーバーに届いていなかった）。もう一度送れるように戻す */
@@ -601,7 +603,6 @@ function handleNotStarted() {
   state.poller = null;
   state.sent = false;
   preview.unlock();
-  el.stepResult.hidden = true;
   showToast({ type: 'warning', message: '送信できていませんでした。もう一度「送信して切り抜く」を押してください' });
   updateSendButton();
 }
@@ -633,33 +634,37 @@ function handleJobUpdate(job) {
   }
   if (job.phase === 'done') {
     el.jobDone.hidden = false;
+    el.jobWait.hidden = true;
+    el.resultVideo.hidden = false;
+    el.resultTitle.textContent = '完成しました';
+    el.jobStatus.textContent = ''; // 見出しの「完成しました」と同じことなので出さない
     el.resultVideo.src = job.downloadUrl;
     el.downloadLink.href = job.downloadUrl;
     el.restartBtn.hidden = false;
   } else if (job.phase === 'failed') {
+    el.jobWait.hidden = true;
+    el.resultTitle.textContent = 'うまく切り抜けませんでした';
     el.jobFailure.hidden = false;
     el.jobFailure.textContent = `${failureMessage(job.failureCode)}（${refundMessage(job.quotaRefunded)}）`;
     el.restartBtn.hidden = false;
   }
-  renderSteps(); // 結果の欄を出した後に、上の進み具合（完成の ✓）を描き直す
+  renderView(); // 結果を出した後に、上の進み具合（完成の ✓）を描き直す
 }
 
 function showLost() {
   state.finished = true;
   updateSelectAvailability();
-  el.stepResult.hidden = false;
+  el.jobWait.hidden = true;
+  el.resultTitle.textContent = 'やり直してください';
   el.jobStatus.textContent = '';
   el.jobProgress.hidden = true;
   el.jobFailure.hidden = false;
   el.jobFailure.textContent = SERVER_RESTARTED_MESSAGE;
   el.restartBtn.hidden = false;
-  renderSteps();
+  renderView();
 }
 
-el.restartBtn.addEventListener('click', () => {
-  resetAll();
-  el.stepSelect.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
+el.restartBtn.addEventListener('click', () => resetAll());
 
 // ---------- やり直し ----------
 
@@ -675,15 +680,16 @@ function resetAll() {
   el.video.load();
   el.resultVideo.removeAttribute('src');
   el.resultVideo.load();
+  el.resultVideo.hidden = true;
+  el.jobWait.hidden = false;
+  el.resultTitle.textContent = '切り抜いています';
+  jobView = 'tap';
   el.downloadLink.href = '#';
   preview.reset();
   el.picker.hidden = true;
   el.pickerVideo.removeAttribute('src');
   el.pickerVideo.load();
 
-  for (const step of [el.stepRange, el.stepUpload, el.stepPreview, el.stepSend, el.stepResult]) {
-    step.hidden = true;
-  }
   el.uploadRetryBtn.hidden = true;
   el.previewRetryBtn.hidden = true;
   el.jobFailure.hidden = true;
