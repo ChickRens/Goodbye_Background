@@ -1,0 +1,201 @@
+# master にマージ（push）されたら、Cloud Run にビルド・プッシュ・デプロイする。
+# 初回の準備（GCP 側の権限・モデルの置き場所・GitHub の Variables）は docs/cloud-run-auto-deploy.md。
+#
+# - 認証は Workload Identity 連携（鍵ファイルは使わない）
+# - 画像のモデル（SAM2 の ONNX 3 つ + image_pe.bin）は git 管理外なので GCS から取ってくる
+# - 動画のプレビュー用モデル（SAM2.1 small）はワーカーと同じリビジョン（worker/cutout/models.py の MODEL_REVISION）を
+#   Hugging Face から取ってくる（CLAUDE.md の 16。ワーカーとプレビューでモデルを揃えるため）
+# - 環境変数は --update-env-vars / --update-secrets で毎回入れ直す（今ある DATABASE_URL_POSTGRES などは残る）
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: # Actions の画面から手動でも実行できる
+
+# デプロイは 1 本ずつ。続けてマージしたら、前のが終わってから次を流す（途中で止めない）
+concurrency:
+  group: deploy-cloud-run
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # Workload Identity 連携に必要
+
+env:
+  PROJECT: ${{ vars.GCP_PROJECT }}
+  REGION: ${{ vars.GCP_REGION }}
+  SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+  IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/${{ vars.AR_REPO }}/${{ vars.AR_IMAGE }}:${{ github.sha }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: 設定（GitHub の Variables）が揃っているか確かめる
+        env:
+          GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+          AR_REPO: ${{ vars.AR_REPO }}
+          AR_IMAGE: ${{ vars.AR_IMAGE }}
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_DEPLOY_SA: ${{ vars.GCP_DEPLOY_SA }}
+          MODELS_GCS_URI: ${{ vars.MODELS_GCS_URI }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          MODAL_ENDPOINT_URL: ${{ vars.MODAL_ENDPOINT_URL }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+          TRUSTED_PROXY_HOPS: ${{ vars.TRUSTED_PROXY_HOPS }}
+        run: |
+          missing=()
+          for n in GCP_PROJECT GCP_REGION CLOUD_RUN_SERVICE AR_REPO AR_IMAGE GCP_WIF_PROVIDER GCP_DEPLOY_SA MODELS_GCS_URI \
+                   R2_ACCOUNT_ID R2_BUCKET MODAL_ENDPOINT_URL PUBLIC_BASE_URL TRUSTED_PROXY_HOPS; do
+            [ -n "${!n}" ] || missing+=("$n")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::GitHub の Variables が足りない: ${missing[*]}（docs/cloud-run-auto-deploy.md の手順 4）"
+            exit 1
+          fi
+          # 空のまま入れると動画の API が 503 になるので、数値かどうかもここで見る
+          [[ "$TRUSTED_PROXY_HOPS" =~ ^[0-9]+$ ]] || { echo "::error::TRUSTED_PROXY_HOPS が数値ではない"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      # 本番 DB が適用したマイグレーションは 1 バイトでも違うと起動しない（CLAUDE.md の 13）。
+      # 値は src/analytics/usage_tracking/recorder.rs のテストと同じ
+      - name: マイグレーションが本番と同じバイト列か確かめる
+        run: |
+          cd migrations/postgres
+          sha384sum --check --strict <<'EOF'
+          7d1303a9617d0b615e2f94960ddd2ea5060ab477dbb52ee0261a83b458387ee33bc26e2aa474045b0748b95ed6dcfa4b  20260919032531_usage_records.sql
+          2085933da5d321246556501b6fe2238847a00bce75df957ba24d82e78ef99c8f0b923ac6e0ec88c4335a1eb422d433d0  20261004122625_add_client_id_to_usage_records.sql
+          d7cbb94d73748d77f08c55249b9401e2341af4f92c4cf5f2c3f7d6337e56c2111155a58cbf83ed3a56f5da069ffede63  20261101090000_users_and_login_sessions.sql
+          EOF
+
+      - name: Google Cloud に認証する
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: 画像のモデルを GCS から取ってくる
+        run: |
+          mkdir -p models
+          gcloud storage rsync --recursive "${{ vars.MODELS_GCS_URI }}" models
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: 動画のプレビュー用モデルをキャッシュから戻す
+        uses: actions/cache@v4
+        with:
+          path: models/sam2.1-small-video
+          # MODEL_REVISION が変わったら取り直す
+          key: preview-model-${{ hashFiles('worker/cutout/models.py') }}
+
+      - name: 動画のプレビュー用モデルを取ってくる（取得済みのファイルは飛ばす）
+        working-directory: worker
+        run: uv run python scripts/fetch_preview_models.py
+
+      - name: モデルが揃っているか確かめる
+        run: |
+          missing=()
+          for f in sam2.1_hiera_small_image_encoder.onnx sam2.1_hiera_small_prompt_encoder.onnx \
+                   sam2.1_hiera_small_mask_decoder.onnx image_pe.bin \
+                   sam2.1-small-video/constants.json sam2.1-small-video/onnx/vision_encoder.onnx \
+                   sam2.1-small-video/onnx/mask_decoder.onnx; do
+            [ -s "models/$f" ] || missing+=("models/$f")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::モデルが足りない: ${missing[*]}"
+            exit 1
+          fi
+          du -sh models
+
+      - name: Artifact Registry に docker でログインする
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: ビルドしてプッシュする
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: DockerFile
+          push: true
+          tags: ${{ env.IMAGE }}
+          # 依存クレートのダウンロードなど、変わっていない層を次回に使い回す
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Cloud Run にデプロイする
+        run: |
+          # 秘密ではない値（GitHub の Variables から）
+          ENV_VARS="R2_ACCOUNT_ID=${{ vars.R2_ACCOUNT_ID }}"
+          ENV_VARS+=",R2_BUCKET=${{ vars.R2_BUCKET }}"
+          ENV_VARS+=",MODAL_ENDPOINT_URL=${{ vars.MODAL_ENDPOINT_URL }}"
+          ENV_VARS+=",PUBLIC_BASE_URL=${{ vars.PUBLIC_BASE_URL }}"
+          ENV_VARS+=",TRUSTED_PROXY_HOPS=${{ vars.TRUSTED_PROXY_HOPS }}"
+          # 秘密の値は Secret Manager の名前で参照させるだけ（値は GitHub に置かない）
+          SECRETS="R2_ACCESS_KEY_ID=R2_ACCESS_KEY_ID:latest"
+          SECRETS+=",R2_SECRET_ACCESS_KEY=R2_SECRET_ACCESS_KEY:latest"
+          SECRETS+=",MODAL_KEY=MODAL_KEY:latest"
+          SECRETS+=",MODAL_SECRET=MODAL_SECRET:latest"
+          SECRETS+=",WORKER_CALLBACK_SECRET=WORKER_CALLBACK_SECRET:latest"
+
+          # IP 確認用のログ（LOG_CLIENT_IP_DEBUG）は Variables に 1 を入れたときだけ付ける。
+          # それ以外のデプロイでは外す（CLAUDE.md の 15: 確認が終わったら外す）
+          if [ "${{ vars.LOG_CLIENT_IP_DEBUG }}" = "1" ]; then
+            ENV_VARS+=",LOG_CLIENT_IP_DEBUG=1"
+            DEBUG_ARGS=()
+          else
+            DEBUG_ARGS=(--remove-env-vars LOG_CLIENT_IP_DEBUG)
+          fi
+
+          # --set-env-vars / --clear-env-vars は使わない（今ある DATABASE_URL_POSTGRES などが消える）。
+          # 最大インスタンス数は 1 のまま（CLAUDE.md の 14。動画のジョブがインメモリのため）
+          gcloud run deploy "$SERVICE" \
+            --project "$PROJECT" \
+            --region "$REGION" \
+            --image "$IMAGE" \
+            --max-instances 1 \
+            --update-env-vars "$ENV_VARS" \
+            --update-secrets "$SECRETS" \
+            "${DEBUG_ARGS[@]}" \
+            --quiet
+
+      - name: トップページが開けるか確かめる
+        run: |
+          URL="${{ vars.PUBLIC_BASE_URL }}/"
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$URL" || true)
+            echo "試行 $i: $URL → $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::$URL が 200 を返さない"
+          exit 1
+
+      - name: 起動ログで動画切り抜きが有効か確かめる
+        # ログの閲覧権限が無い・ログの反映が遅いときにデプロイ自体を失敗扱いにしない
+        continue-on-error: true
+        run: |
+          REV=$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" \
+                --format='value(status.latestReadyRevisionName)')
+          echo "新しいリビジョン: $REV"
+          FILTER="resource.type=\"cloud_run_revision\" AND resource.labels.revision_name=\"$REV\" AND textPayload:\"動画切り抜き\""
+          for i in 1 2 3 4 5 6; do
+            LINES=$(gcloud logging read "$FILTER" --project "$PROJECT" --freshness=30m --limit=20 --format='value(textPayload)')
+            if [ -n "$LINES" ]; then
+              echo "$LINES"
+              if echo "$LINES" | grep -q "動画切り抜き: 有効"; then exit 0; fi
+              echo "::warning::動画切り抜きが有効になっていない（上の行に足りない環境変数の名前が出ている）"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "::warning::起動ログがまだ見つからない（Cloud Run のログで「動画切り抜き: 有効」を確かめてください）"
+          exit 1

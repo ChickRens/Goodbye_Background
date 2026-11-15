@@ -28,6 +28,10 @@ ORT_SKIP_DOWNLOAD=1 cargo check --all-targets
 docker compose up --build
 ```
 
+- **本番（Cloud Run）へのデプロイは自動**: `master` に push（PR をマージ）すると `.github/workflows/deploy-cloud-run.yml` が
+  ビルド・プッシュ・デプロイ（環境変数・シークレットの参照の入れ直し込み）をする。初回の準備と失敗時の見方は `docs/cloud-run-auto-deploy.md`。
+  画像のモデルは GCS（Variables の `MODELS_GCS_URI`）から取るので、**モデルを作り直したら GCS にも上げ直す**
+
 - `models/` は git 管理外。起動には以下が必要（無いと `App::new` で panic）:
   `sam2.1_hiera_small_{image_encoder,prompt_encoder,mask_decoder}.onnx`, `image_pe.bin`
   → `scripts/` の Python（SAM2 公式リポジトリを `SAM2/` に置いて実行）で生成する
