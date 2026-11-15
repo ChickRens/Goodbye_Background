@@ -211,15 +211,83 @@
 }
 
 /* 点を打つフレーム */
-.frame-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
+/* 点を打つフレームの列（ラベル・タブ・「＋ フレームを追加」） */
+.frame-bar {
+    width: 100%;
+    display: grid;
     gap: 6px;
 }
 
-.frame-tabs:empty {
+.frame-bar-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.frame-count {
+    margin-left: 4px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+}
+
+.frame-bar-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.frame-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+/* 「＋ フレームを追加」。タブと同じ丸い形で、破線の枠にして「ここに足せる」と見せる */
+.frame-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 36px;
+    padding: 0 14px;
+    border: 1.5px dashed var(--primary);
+    border-radius: 999px;
+    background: var(--blue-soft);
+    color: var(--primary);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.frame-add:hover:not(:disabled) {
+    background: var(--blue-soft-hover);
+    border-style: solid;
+}
+
+.frame-add:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* 背景色の手順では、フレームは見本として見せるだけなので、追加はできない */
+.vpage[data-view="send"] .frame-add {
     display: none;
+}
+
+/* 別の場面にも点を打てることの説明（切り抜きの手順のパネル） */
+.vframes-tip {
+    display: grid;
+    gap: 4px;
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--blue-soft);
+}
+
+.vframes-tip-title {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 700;
 }
 
 .frame-tab {
@@ -302,7 +370,7 @@
 
 /* 2 枚目以降のフレームを選んでいる間は、フレームとタブの代わりに選ぶ画面を出す */
 .vstage-frames:has(#frame-picker:not([hidden])) .frame-panels,
-.vstage-frames:has(#frame-picker:not([hidden])) .frame-tabs {
+.vstage-frames:has(#frame-picker:not([hidden])) .frame-bar {
     display: none;
 }
 
@@ -310,6 +378,12 @@
     width: 100%;
     display: grid;
     gap: var(--space-2);
+}
+
+.frame-picker-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
 }
 
 .frame-picker input[type="range"] {
@@ -581,32 +655,6 @@
     color: var(--primary);
 }
 
-/* 腕が欠ける・カットがあるとき（普段は畳んでおく） */
-.vmore {
-    border: 1px solid var(--line);
-    border-radius: var(--radius-md);
-    padding: var(--space-2) var(--space-3);
-}
-
-.vmore summary {
-    cursor: pointer;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    min-height: 32px;
-    display: flex;
-    align-items: center;
-}
-
-.vmore[open] {
-    display: grid;
-    gap: var(--space-2);
-}
-
-.vmore .ghost-btn {
-    justify-self: start;
-}
-
 /* 背景色 */
 .bg-options {
     margin: 0;
@@ -727,7 +775,7 @@
     }
 
     .frame-panel canvas {
-        max-height: calc(100dvh - 290px); /* ヘッダー・タブ・下の操作バーの分を引く */
+        max-height: calc(100dvh - 320px); /* ヘッダー・フレームの列・下の操作バーの分を引く */
     }
 
     /* PC では左の列の一番下（フレームの真下）に置く。固定はしない */

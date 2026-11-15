@@ -24,7 +24,7 @@ import { takeVideo } from '../handoff.js?v=1.6.0';
 import { showToast } from '../toast.js?v=1.6.0';
 import { clampRange, captureFrame, formatMs, MAX_CLIP_MS } from './range.js?v=1.6.0';
 import { createFrameSet } from './frame_set.js?v=1.6.0';
-import { formatFrameTime } from './frames.js?v=1.6.0';
+import { formatFrameTime, MAX_FRAMES } from './frames.js?v=1.6.0';
 import { putWithProgress } from './upload.js?v=1.6.0';
 import { toJobTime, trimForUpload } from './trim.js?v=1.6.0';
 import { pollJob } from './job.js?v=1.6.0';
@@ -83,6 +83,8 @@ const el = {
   stepPreview: $('step-preview'),
   previewRetryBtn: $('preview-retry-btn'),
   addFrameBtn: $('add-frame-btn'),
+  addFrameText: document.querySelector('#add-frame-btn .frame-add-text'),
+  frameCount: $('frame-count'),
   picker: $('frame-picker'),
   pickerVideo: $('picker-video'),
   pickerTime: $('picker-time'),
@@ -519,7 +521,8 @@ function updateSendButton() {
   el.backgroundField.disabled = state.sending || state.sent;
   el.addFrameBtn.disabled =
     !state.job || !preview.hasFrames() || preview.isFull() || pickerOpen() || state.sending || state.sent;
-  el.addFrameBtn.textContent = preview.isFull() ? '＋ このフレームにも点を打つ（5 枚まで）' : '＋ このフレームにも点を打つ';
+  el.addFrameText.textContent = preview.isFull() ? '5 枚まで追加しました' : 'フレームを追加';
+  el.frameCount.textContent = preview.hasFrames() ? `${preview.frameCount()} / ${MAX_FRAMES} 枚` : '';
 
   const problem = preview.firstProblem();
   // 「次へ」は、送れる点の指定ができたら押せる（アップロードの完了は送信の手順で待つ）

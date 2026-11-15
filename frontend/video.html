@@ -72,7 +72,18 @@
 
       <!-- 切り抜き・背景色（点を打つフレーム。背景色の手順では、仕上がりの確認用に表示だけする） -->
       <div class="vstage-item vstage-frames" data-views="tap send">
-        <div id="frame-tabs" class="frame-tabs" role="tablist" aria-label="点を打つフレーム"></div>
+        <!-- 点を打つフレームの列。今のフレームのタブの横に「＋ フレームを追加」を常に出し、
+             フレームを複数指定できることがその場で分かるようにする（最大 5 枚。#frame-count に枚数） -->
+        <div class="frame-bar">
+          <span class="frame-bar-label">点を打つフレーム <span id="frame-count" class="frame-count"></span></span>
+          <div class="frame-bar-row">
+            <div id="frame-tabs" class="frame-tabs" role="tablist" aria-label="点を打つフレーム"></div>
+            <button id="add-frame-btn" type="button" class="frame-add" disabled>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+              <span class="frame-add-text">フレームを追加</span>
+            </button>
+          </div>
+        </div>
         <div id="frame-panels" class="frame-panels"></div>
         <template id="frame-panel-template">
           <div class="frame-panel">
@@ -85,6 +96,7 @@
         </template>
         <!-- 2 枚目以降のフレームを選ぶ（最大 5 枚）。開いている間はフレームの代わりにここを出す -->
         <div id="frame-picker" class="frame-picker" hidden>
+          <p class="frame-picker-title">点を打つ場面を選んでください</p>
           <video id="picker-video" class="vplayer" playsinline muted preload="auto"></video>
           <input id="picker-time" type="range" step="1" aria-label="点を打つフレームの位置" />
           <p id="picker-label" class="vnote"></p>
@@ -154,11 +166,11 @@
         <p class="vnote">開始位置のフレームに、残したい人や物をタップします。タップした所から切り抜く範囲が決まり、動画の最後まで追いかけます。消したい所は、下の「消す」に切り替えてタップします。</p>
         <p id="next-hint" class="vhint"></p>
         <button id="preview-retry-btn" type="button" class="ghost-btn" hidden>プレビューをやり直す</button>
-        <details class="vmore">
-          <summary>腕が欠ける・カットがある動画のとき</summary>
-          <p class="vnote">カットのある動画は、カットの少し後のフレームにも点を打ってください。腕が欠ける所は、そのフレームに点を打つと直ることがあります（最大 5 枚）。</p>
-          <button id="add-frame-btn" type="button" class="ghost-btn" disabled>＋ 別のフレームにも点を打つ</button>
-        </details>
+        <!-- 別のフレームにも点を打てること。ボタンはフレームの上の列（#add-frame-btn）にある -->
+        <div class="vframes-tip">
+          <p class="vframes-tip-title">別の場面にも点を打てます（5 枚まで）</p>
+          <p class="vnote">動画の途中で切り抜きが崩れるときは、フレームの上の「＋ フレームを追加」で、その場面を選んで点を打ってください。カットがある動画は、カットの少し後の場面に、腕が欠ける所はその場面に打つと直ることがあります。</p>
+        </div>
         <button id="reselect-btn-2" type="button" class="vtext-btn">別の動画にする</button>
       </div>
 
