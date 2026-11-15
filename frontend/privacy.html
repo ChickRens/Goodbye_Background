@@ -12,16 +12,21 @@
 <link rel="icon" type="image/png" href="assets/favicon-48.png" sizes="48x48" />
 <link rel="icon" type="image/png" href="assets/favicon-192.png" sizes="192x192" />
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
-<link rel="stylesheet" href="css/tokens.css?v=1.5.3" />
-<link rel="stylesheet" href="css/checker-colors.css?v=1.5.3" />
-<link rel="stylesheet" href="css/site.css?v=1.5.3" />
+<link rel="stylesheet" href="css/tokens.css?v=1.6.0" />
+<link rel="stylesheet" href="css/checker-colors.css?v=1.6.0" />
+<link rel="stylesheet" href="css/site.css?v=1.6.0" />
+<link rel="stylesheet" href="css/kind-switch.css?v=1.6.0" />
 </head>
 <body>
 <header class="site-header">
   <div class="wrap">
     <a class="wordmark" href="index.html">Goodbye Background</a>
     <nav class="header-nav" aria-label="ヘッダー">
-      <a href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
+      <div class="kind-switch" role="group" aria-label="切り抜くもの">
+        <a href="app.html">写真</a>
+        <a href="video.html">動画</a>
+      </div>
+      <a class="contact-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer" aria-label="お問い合わせ"><svg class="contact-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h16v12H4zM4 7l8 6 8-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span class="contact-text">お問い合わせ</span></a>
     </nav>
   </div>
 </header>

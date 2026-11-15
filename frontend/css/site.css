@@ -220,7 +220,8 @@ h1, h2, h3 {
 }
 
 @media (min-width: 720px) {
-    .feature-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
+    /* 写真の特徴3つ + 動画の1つ。幅に合わせて 2〜4 列に並べる */
+    .feature-list { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 32px; }
 }
 
 .feature-list li {
@@ -277,7 +278,7 @@ h1, h2, h3 {
 .start h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); }
 .start h1 + p { margin: 8px 0 24px; }
 
-/* 写真の選択エリア。アプリのドロップエリアと同じ見た目にして「ここに写真を入れる」と一目で分かるようにする。
+/* 写真・動画の選択エリア。アプリのドロップエリアと同じ見た目にして「ここに入れる」と一目で分かるようにする。
    エリア全体が <label> なので、どこを押してもファイル選択が開く。ドラッグ＆ドロップも受け付ける(js/home.js) */
 .start-zone {
     display: flex;
@@ -328,17 +329,39 @@ h1, h2, h3 {
 
 .start-zone:hover .start-zone-title { background: var(--blue-hover); }
 
-.start-zone-sub {
+.start-zone-drop {
     color: var(--ink-muted);
     font-size: 0.875rem;
-    margin-top: 8px;
+    margin-top: 6px;
 }
 
 /* PC ではドラッグ＆ドロップもできることを書く。タッチ端末では出さない */
 .start-zone-drop { display: none; }
 
 @media (hover: hover) and (pointer: fine) {
-    .start-zone-drop { display: inline; }
+    .start-zone-drop { display: block; }
+}
+
+/* 写真と動画の制限。どちらを選べばよいかで迷わないよう、種類ごとに1行ずつ分けて書く */
+.start-zone-limits {
+    display: grid;
+    gap: 2px;
+    margin-top: 12px;
+    color: var(--ink-muted);
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+
+.start-zone-limits > span {
+    /* 左に「写真」「動画」の札、右に制限。折り返しても札の列がそろうように2列で組む */
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 0.6em;
+    text-align: left;
+}
+
+.start-zone-limits strong {
+    color: var(--ink);
 }
 
 .start-zone.is-busy { cursor: progress; opacity: 0.7; }
@@ -371,13 +394,59 @@ h1, h2, h3 {
     font-weight: 700;
 }
 
-.start-sample {
+/* 切り抜きの例（写真・動画）。それぞれ「前 → 後」を1行に並べ、何が残ってどう仕上がるかを見せる */
+.examples {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 20px;
 }
 
-.start-sample .photo { aspect-ratio: 4 / 5; }
+.example {
+    margin: 0;
+}
+
+.example-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 0.875rem;
+    color: var(--ink-muted);
+}
+
+/* 「写真」「動画」の札。ヘッダーの切り替えと同じ言葉にして、どちらの例かをすぐ分かるようにする */
+.example-kind {
+    padding: 1px 10px;
+    border-radius: 999px;
+    background: var(--blue-soft);
+    color: var(--blue);
+    font-weight: 700;
+}
+
+.example-pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+}
+
+.example-arrow {
+    color: var(--ink-muted);
+}
+
+#example-photo .photo { aspect-ratio: 4 / 5; }
+
+/* 動画の例の枠。縦長(スマホ撮影)の動画を想定して 4:5 で切り取る。横長の動画にしたときは 16 / 9 などに変える */
+.example-video-frame {
+    aspect-ratio: 4 / 5;
+    background: var(--surface);
+}
+
+.example-video-frame video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
 
 /* ==========================================================
    プライバシーポリシー (privacy.html)

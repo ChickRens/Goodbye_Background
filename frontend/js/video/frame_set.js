@@ -7,9 +7,9 @@
  * 仕様: docs/superpowers/specs/2026-11-09-video-multi-frame-prompts-design.md §6
  */
 
-import { createFramePreview } from './preview.js?v=1.5.3';
-import { MAX_FRAMES, allFramesReady, buildPrompts, canAddFrame, formatFrameTime } from './frames.js?v=1.5.3';
-import { toJobTime } from './trim.js?v=1.5.3';
+import { createFramePreview } from './preview.js?v=1.6.0';
+import { MAX_FRAMES, allFramesReady, buildPrompts, canAddFrame, formatFrameTime } from './frames.js?v=1.6.0';
+import { toJobTime } from './trim.js?v=1.6.0';
 
 /**
  * @param {Object} opts
@@ -43,7 +43,8 @@ export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeSwitchEl, 
       undoBtn,
       redoBtn,
       statusEl: panel.querySelector('.edit-status'),
-      warningEl: panel.querySelector('.video-alert'),
+      // 見た目のクラス名に頼らないよう、専用の目印で探す（video.html のテンプレート）
+      warningEl: panel.querySelector('[data-frame-warning]'),
       onChange: () => {
         renderTabs();
         onChange();
@@ -200,6 +201,7 @@ export function createFrameSet({ tabsEl, panelsEl, panelTemplate, modeSwitchEl, 
     canAdd: (timeMs) => !locked && jobId !== null && canAddFrame(times(), timeMs, startMs, endMs),
     isFull: () => frames.length >= MAX_FRAMES,
     hasFrames: () => frames.length > 0,
+    frameCount: () => frames.length,
     canSend: () => allFramesReady(frames.map((f) => ({ canSend: f.preview.canSend() }))),
     activeCanSendOrMissing: () => !!active && (active.preview.canSend() || active.preview.objectMissing()),
     firstProblem,

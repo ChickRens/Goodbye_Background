@@ -6,12 +6,12 @@
  * 起動時に、リロード前の写真をブラウザ内の保存(js/persist.js)から復元し、
  * ホーム画面で選ばれた写真があれば strip に流し込む。各モジュールの詳細は frontend/README.md を参照。
  */
-import { createStore } from './store.js?v=1.5.3';
-import { initStrip } from './strip.js?v=1.5.3';
-import { initEditor } from './editor.js?v=1.5.3';
-import { takeFiles } from './handoff.js?v=1.5.3';
-import { showToast } from './toast.js?v=1.5.3';
-import { loadSaved, startAutoSave, isLikelyExpired } from './persist.js?v=1.5.3';
+import { createStore } from './store.js?v=1.6.0';
+import { initStrip } from './strip.js?v=1.6.0';
+import { initEditor } from './editor.js?v=1.6.0';
+import { takeFiles } from './handoff.js?v=1.6.0';
+import { showToast } from './toast.js?v=1.6.0';
+import { loadSaved, startAutoSave, isLikelyExpired } from './persist.js?v=1.6.0';
 
 const store = createStore();
 
