@@ -1,0 +1,74 @@
+/*
+ * 「写真｜動画」の切り替え（index.html / app.html / video.html のヘッダー）。
+ * どちらの画面にいるのかを常に見せ、もう一方へすぐ移れるようにする。
+ * 今いる画面のリンクには aria-current="page" を付ける（その項目だけ塗る）。
+ * 色は tokens.css の変数を使う。
+ */
+.kind-switch {
+    display: inline-flex;
+    flex-shrink: 0;
+    padding: 3px;
+    gap: 2px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--bg);
+}
+
+.kind-switch a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 14px;
+    border-radius: 999px;
+    color: var(--ink-muted);
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.kind-switch a:hover {
+    color: var(--ink);
+    background: var(--blue-soft);
+}
+
+.kind-switch a[aria-current="page"] {
+    background: var(--blue);
+    color: var(--on-blue);
+}
+
+/* 押せる高さは 32px だが、ヘッダーの中なので周りの余白と合わせて指で押せる大きさになる。
+   狭い画面では、ロゴ・切り替え・お問い合わせを1行に収めるために少し詰める */
+@media (max-width: 420px) {
+    .kind-switch a {
+        padding: 0 10px;
+        font-size: 0.8rem;
+    }
+}
+
+/* お問い合わせのリンク（ヘッダーの右端）。普段は文字、狭い画面では封筒のアイコンだけにして、
+   ロゴ・写真｜動画の切り替えと1行に収める（読み上げは aria-label の「お問い合わせ」） */
+.contact-link {
+    display: inline-flex;
+    align-items: center;
+}
+
+.contact-icon {
+    display: none;
+}
+
+@media (max-width: 400px) {
+    .contact-link {
+        min-width: 32px;
+        min-height: 32px;
+        justify-content: center;
+    }
+
+    .contact-icon {
+        display: block;
+    }
+
+    .contact-text {
+        display: none;
+    }
+}

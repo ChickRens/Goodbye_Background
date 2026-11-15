@@ -7,10 +7,11 @@
 <title>動画の切り抜き｜Goodbye Background</title>
 <!-- app.html と同じ理由で検索結果には出さない（紹介ページに評価を集める） -->
 <meta name="robots" content="noindex, follow" />
-<link rel="stylesheet" href="css/tokens.css?v=1.5.3" />
-<link rel="stylesheet" href="css/checker-colors.css?v=1.5.3" />
-<link rel="stylesheet" href="css/style.css?v=1.5.3" />
-<link rel="stylesheet" href="css/video.css?v=1.5.3" />
+<link rel="stylesheet" href="css/tokens.css?v=1.6.0" />
+<link rel="stylesheet" href="css/checker-colors.css?v=1.6.0" />
+<link rel="stylesheet" href="css/style.css?v=1.6.0" />
+<link rel="stylesheet" href="css/kind-switch.css?v=1.6.0" />
+<link rel="stylesheet" href="css/video.css?v=1.6.0" />
 <link rel="icon" type="image/png" href="video-favicon.png" />
 <link rel="apple-touch-icon" href="video-favicon.png" />
 </head>
@@ -20,8 +21,12 @@
   <header class="app-header">
     <h1><a class="app-home-link" href="index.html">Goodbye Background</a></h1>
     <nav class="app-header-nav" aria-label="ヘッダー">
-      <a class="app-header-link" href="app.html">画像の切り抜き</a>
-      <a class="app-header-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
+      <!-- 写真と動画の画面の切り替え（index.html / app.html と共通。css/kind-switch.css） -->
+      <div class="kind-switch" role="group" aria-label="切り抜くもの">
+        <a href="app.html">写真</a>
+        <a href="video.html" aria-current="page">動画</a>
+      </div>
+      <a class="app-header-link contact-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer" aria-label="お問い合わせ"><svg class="contact-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h16v12H4zM4 7l8 6 8-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span class="contact-text">お問い合わせ</span></a>
     </nav>
   </header>
 
@@ -31,9 +36,22 @@
       <p id="remaining" class="video-remaining" role="status" aria-live="polite">1日3回まで</p>
     </div>
 
-    <!-- 1. 動画を選ぶ -->
+    <!-- 今どの手順にいるか。終わった手順には ✓、今の手順は強調（js/video/page.js の renderSteps） -->
+    <ol id="stepper" class="video-stepper" aria-label="手順">
+      <li data-step="select"><span class="video-stepper-dot" aria-hidden="true"></span>動画を選ぶ</li>
+      <li data-step="range"><span class="video-stepper-dot" aria-hidden="true"></span>範囲</li>
+      <li data-step="tap"><span class="video-stepper-dot" aria-hidden="true"></span>残す所</li>
+      <li data-step="send"><span class="video-stepper-dot" aria-hidden="true"></span>送信</li>
+      <li data-step="result"><span class="video-stepper-dot" aria-hidden="true"></span>完成</li>
+    </ol>
+
+    <!-- 1. 動画を選ぶ。終わった手順は見出しと1行の要約(data-summary)だけに縮める（.is-done） -->
     <section id="step-select" class="video-step">
-      <h3 class="video-step-title"><span class="video-step-no">1</span>動画を選ぶ</h3>
+      <div class="video-step-head">
+        <h3 class="video-step-title"><span class="video-step-no" aria-hidden="true">1</span>動画を選ぶ</h3>
+        <p class="video-step-summary" data-summary hidden></p>
+        <button type="button" class="video-step-change" data-change hidden>変更</button>
+      </div>
       <input id="video-file" type="file" accept="video/*" hidden />
       <button id="select-btn" type="button" class="video-select">
         <span class="video-select-title">動画を選ぶ</span>
@@ -46,8 +64,14 @@
 
     <!-- 2. 範囲を選ぶ -->
     <section id="step-range" class="video-step" hidden>
-      <h3 class="video-step-title"><span class="video-step-no">2</span>範囲を選ぶ（10 秒まで）</h3>
+      <div class="video-step-head">
+        <h3 class="video-step-title"><span class="video-step-no" aria-hidden="true">2</span>範囲を選ぶ（10 秒まで）</h3>
+        <p class="video-step-summary" data-summary hidden></p>
+      </div>
       <video id="source-video" class="video-player" playsinline muted controls preload="auto"></video>
+      <!-- 動画全体のうち、選んでいる範囲に色を付けた帯。スライダーだけでは全体のどこかが分かりにくいため -->
+      <div class="range-bar" aria-hidden="true"><div id="range-bar-fill" class="range-bar-fill"></div></div>
+      <div class="range-bar-scale" aria-hidden="true"><span>0:00.0</span><span id="range-total"></span></div>
       <div class="range-field">
         <label for="range-start">開始 <output id="range-start-label">0:00.0</output></label>
         <input id="range-start" type="range" min="0" max="0" step="100" value="0" />
@@ -63,17 +87,19 @@
       </div>
     </section>
 
-    <!-- 3. アップロード（決めたら自動で始まる） -->
-    <section id="step-upload" class="video-step" hidden>
-      <h3 class="video-step-title"><span class="video-step-no">3</span>アップロード</h3>
-      <progress id="upload-progress" class="video-progress" max="1" value="0"></progress>
-      <p id="upload-status" class="video-note" role="status" aria-live="polite"></p>
-      <button id="upload-retry-btn" type="button" class="ghost-btn" hidden>アップロードをやり直す</button>
-    </section>
-
-    <!-- 4. 残す所をタップ（アップロードと並行して、開始位置のフレームを登録し、本番と同じモデルでプレビューする） -->
+    <!-- 3. 残す所をタップ（アップロードと並行して、開始位置のフレームを登録し、本番と同じモデルでプレビューする） -->
     <section id="step-preview" class="video-step" hidden>
-      <h3 class="video-step-title"><span class="video-step-no">4</span>残す所をタップ</h3>
+      <div class="video-step-head">
+        <h3 class="video-step-title"><span class="video-step-no" aria-hidden="true">3</span>残す所をタップ</h3>
+        <p class="video-step-summary" data-summary hidden></p>
+      </div>
+      <!-- アップロードは「範囲で決める」と自動で始まり、裏で進む（利用者の操作は要らないので手順にはしない）。
+           失敗したときだけ「アップロードをやり直す」を出す -->
+      <div id="step-upload" class="upload-line" hidden>
+        <p id="upload-status" class="video-note" role="status" aria-live="polite"></p>
+        <progress id="upload-progress" class="video-progress" max="1" value="0"></progress>
+        <button id="upload-retry-btn" type="button" class="ghost-btn" hidden>アップロードをやり直す</button>
+      </div>
       <p class="video-note">開始位置のフレームから始めます。点を打ったフレームで残った所が、仕上がりのそのフレームになります。</p>
       <div id="frame-tabs" class="frame-tabs" role="tablist" aria-label="点を打つフレーム"></div>
       <div id="frame-panels"></div>
@@ -121,9 +147,12 @@
       <p class="video-note">カットのある動画は、カットの少し後のフレームにも点を打ってください。腕が欠ける所は、そのフレームに点を打つと直ることがあります（最大 5 枚）。</p>
     </section>
 
-    <!-- 5. 背景色を選んで送信 -->
+    <!-- 4. 背景色を選んで送信 -->
     <section id="step-send" class="video-step" hidden>
-      <h3 class="video-step-title"><span class="video-step-no">5</span>背景色を選んで送信</h3>
+      <div class="video-step-head">
+        <h3 class="video-step-title"><span class="video-step-no" aria-hidden="true">4</span>背景色を選んで送信</h3>
+        <p class="video-step-summary" data-summary hidden></p>
+      </div>
       <fieldset id="background-field" class="bg-options">
         <legend class="video-note">切り抜いた後の背景色</legend>
         <label class="bg-option"><input type="radio" name="background" value="green" checked /><span class="bg-swatch bg-green"></span>グリーン</label>
@@ -134,9 +163,12 @@
       <p id="send-hint" class="video-note"></p>
     </section>
 
-    <!-- 6. 結果 -->
+    <!-- 完成（結果） -->
     <section id="step-result" class="video-step" hidden>
-      <h3 class="video-step-title"><span class="video-step-no">6</span>結果</h3>
+      <div class="video-step-head">
+        <h3 class="video-step-title">仕上がり</h3>
+        <p class="video-step-summary" data-summary hidden></p>
+      </div>
       <p id="job-status" class="video-job-status" role="status" aria-live="polite"></p>
       <progress id="job-progress" class="video-progress" max="1" hidden></progress>
       <p id="job-failure" class="video-alert" role="alert" hidden></p>
@@ -150,6 +182,6 @@
   </main>
 </div>
 
-<script type="module" src="js/video/page.js?v=1.5.3"></script>
+<script type="module" src="js/video/page.js?v=1.6.0"></script>
 </body>
 </html>

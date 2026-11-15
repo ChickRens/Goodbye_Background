@@ -1,6 +1,6 @@
-import { uploadImage } from './api.js?v=1.5.3';
-import { createLocalId } from './id.js?v=1.5.3';
-import { showToast } from './toast.js?v=1.5.3';
+import { uploadImage } from './api.js?v=1.6.0';
+import { createLocalId } from './id.js?v=1.6.0';
+import { showToast } from './toast.js?v=1.6.0';
 
 /**
  * アップロードの入口は2つある。
@@ -133,7 +133,12 @@ export function initStrip({
   return { handleFiles, select: setActive };
 
   function handleFiles(fileList) {
-    const files = Array.from(fileList || []).filter((f) => f.type.startsWith('image/'));
+    const all = Array.from(fileList || []);
+    const files = all.filter((f) => f.type.startsWith('image/'));
+    // 動画が混ざっていたら、黙って無視せずに行き先を伝える（写真の画面は写真だけを扱う）
+    if (all.some((f) => f.type.startsWith('video/') || /\.(mp4|m4v|mov)$/i.test(f.name || ''))) {
+      showToast({ type: 'info', message: '動画は、上の「動画」の画面で切り抜けます' });
+    }
     if (files.length === 0) return;
 
     const batch = { order: [], pending: new Set(), succeeded: new Set() };

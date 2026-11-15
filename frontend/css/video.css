@@ -35,25 +35,6 @@
     font-weight: 600;
 }
 
-/* ヘッダーの右側のリンク（画像の切り抜き・お問い合わせ）。並べて置く */
-.app-header-nav {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    flex-shrink: 0;
-}
-
-/* スマホ幅でもロゴとリンクを1行に収める（ロゴが2行に折れないようにする） */
-.app-header:has(.app-header-nav) h1 {
-    white-space: nowrap;
-}
-
-@media (max-width: 400px) {
-    .app-header-nav { gap: var(--space-2); }
-    .app-header-nav .app-header-link { font-size: 0.8rem; }
-    .app-header:has(.app-header-nav) h1 { font-size: 0.95rem; }
-}
-
 .video-step {
     background: var(--bg-light);
     border: 1px solid var(--border-muted);
@@ -62,6 +43,209 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+}
+
+/* ---------- 進み具合（動画を選ぶ → 範囲 → 残す所 → 送信 → 完成） ---------- */
+.video-stepper {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.video-stepper li {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    position: relative;
+}
+
+/* 丸と丸をつなぐ線（最初の項目以外、自分の左側に引く） */
+.video-stepper li + li::before {
+    content: "";
+    position: absolute;
+    top: 9px;
+    right: 50%;
+    width: 100%;
+    height: 2px;
+    background: var(--border-muted);
+    z-index: 0;
+}
+
+.video-stepper li.is-done + li::before,
+.video-stepper li.is-done + li.is-current::before {
+    background: var(--primary);
+}
+
+.video-stepper-dot {
+    position: relative;
+    z-index: 1;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--bg-light);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.video-stepper li.is-current {
+    color: var(--text);
+    font-weight: 700;
+}
+
+.video-stepper li.is-current .video-stepper-dot {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px var(--blue-soft);
+}
+
+.video-stepper li.is-done .video-stepper-dot {
+    border-color: var(--primary);
+    background: var(--primary);
+}
+
+/* 終わった手順の丸の中のチェック */
+.video-stepper li.is-done .video-stepper-dot::after {
+    content: "";
+    width: 5px;
+    height: 9px;
+    border: solid var(--on-blue);
+    border-width: 0 2px 2px 0;
+    transform: translateY(-1px) rotate(45deg);
+}
+
+/* ---------- 手順の欄の見出し・終わった手順の要約 ---------- */
+.video-step {
+    scroll-margin-top: 80px; /* スクロールで見せるとき、固定のヘッダーの下に隠れないように */
+}
+
+.video-step-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px var(--space-3);
+}
+
+.video-step-summary {
+    margin: 0;
+    flex: 1 1 12em;
+    min-width: 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}
+
+.video-step-change {
+    margin-left: auto;
+    min-height: 36px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--primary);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.video-step-change:hover {
+    border-color: var(--primary);
+}
+
+/* 終わった手順は、見出しと要約だけを残して中身を隠す。番号の丸はチェックにする。
+   見出しは「左: 見出しと要約（2行） / 右: 変更ボタン」に並べ、スマホでも1つの欄が低く収まるようにする */
+.video-step.is-done .video-step-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: var(--space-3);
+    row-gap: 2px;
+}
+
+.video-step.is-done .video-step-title { grid-column: 1; }
+.video-step.is-done .video-step-summary { grid-column: 1; padding-left: 32px; }
+.video-step.is-done .video-step-change { grid-column: 2; grid-row: 1 / span 2; margin-left: 0; }
+
+.video-step.is-done {
+    padding-top: var(--space-3);
+    padding-bottom: var(--space-3);
+    background: transparent;
+}
+
+.video-step.is-done > :not(.video-step-head) {
+    display: none;
+}
+
+.video-step.is-done .video-step-title {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.video-step.is-done .video-step-no {
+    font-size: 0;
+    position: relative;
+}
+
+.video-step.is-done .video-step-no::after {
+    content: "";
+    width: 5px;
+    height: 9px;
+    border: solid var(--on-blue);
+    border-width: 0 2px 2px 0;
+    transform: translateY(-1px) rotate(45deg);
+}
+
+/* ---------- 範囲の帯（動画全体のうち選んでいる所） ---------- */
+.range-bar {
+    position: relative;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--border-muted);
+    overflow: hidden;
+}
+
+.range-bar-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    border-radius: 999px;
+    background: var(--primary);
+}
+
+.range-bar-scale {
+    display: flex;
+    justify-content: space-between;
+    margin-top: calc(var(--space-2) * -1);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- アップロード（「残す所」の手順の中の1行） ---------- */
+.upload-line {
+    display: grid;
+    gap: 6px;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--blue-soft);
+}
+
+.upload-line .video-progress {
+    height: 6px;
+}
+
+.upload-line .ghost-btn {
+    justify-self: start;
 }
 
 .video-step-title {
@@ -222,8 +406,13 @@
     min-height: 120px;
 }
 
-#frame-canvas {
+/* 点を打つフレーム。canvas は動画の実寸(例: 幅 640px〜)で描かれるので、必ず枠の幅に縮めて表示する。
+   以前は #frame-canvas を指定していたが、フレームを <template> から作るようになって id が無くなり、
+   スマホで画面からはみ出していた（ページが横にスクロールし、下の送信ボタンに重なって押せなくなる） */
+.frame-panel canvas {
+    display: block;
     max-width: 100%;
+    height: auto;
     max-height: 60vh;
     touch-action: none; /* スマホでのスクロール/ズーム誤爆を防ぐ */
     border-radius: var(--radius-sm);

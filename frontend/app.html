@@ -8,9 +8,10 @@
 <!-- 編集画面は中身が動的で検索に出す価値が薄いので、検索結果には出さず、紹介ページ(index.html)に評価を集める。
      noindex を効かせるには検索ロボットがこのページを読めることが必要なので、robots.txt では禁止しない -->
 <meta name="robots" content="noindex, follow" />
-<link rel="stylesheet" href="css/tokens.css?v=1.5.3" />
-<link rel="stylesheet" href="css/checker-colors.css?v=1.5.3" />
-<link rel="stylesheet" href="css/style.css?v=1.5.3" />
+<link rel="stylesheet" href="css/tokens.css?v=1.6.0" />
+<link rel="stylesheet" href="css/checker-colors.css?v=1.6.0" />
+<link rel="stylesheet" href="css/style.css?v=1.6.0" />
+<link rel="stylesheet" href="css/kind-switch.css?v=1.6.0" />
 <link rel="icon" href="/favicon.ico" sizes="48x48" />
 <link rel="icon" type="image/png" href="assets/favicon-48.png" sizes="48x48" />
 <link rel="icon" type="image/png" href="assets/favicon-192.png" sizes="192x192" />
@@ -22,7 +23,14 @@
 <div id="app">
   <header class="app-header">
     <h1><a class="app-home-link" href="index.html">Goodbye Background</a></h1>
-    <a class="app-header-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
+    <nav class="app-header-nav" aria-label="ヘッダー">
+      <!-- 写真と動画の画面の切り替え（index.html / video.html と共通。css/kind-switch.css） -->
+      <div class="kind-switch" role="group" aria-label="切り抜くもの">
+        <a href="app.html" aria-current="page">写真</a>
+        <a href="video.html">動画</a>
+      </div>
+      <a class="app-header-link contact-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer" aria-label="お問い合わせ"><svg class="contact-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h16v12H4zM4 7l8 6 8-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span class="contact-text">お問い合わせ</span></a>
+    </nav>
   </header>
 
   <input id="file-input" type="file" accept="image/*" multiple hidden />
@@ -84,6 +92,6 @@
   </section>
 </div>
 
-<script type="module" src="js/app.js?v=1.5.3"></script>
+<script type="module" src="js/app.js?v=1.6.0"></script>
 </body>
 </html>

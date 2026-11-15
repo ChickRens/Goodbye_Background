@@ -11,15 +11,20 @@
  * ジョブを作った後は範囲を変えさせない（ジョブの範囲はサーバーに登録済みのため）。
  * 残り回数は POST /video-jobs と GET の応答の remaining_today で更新する（それより前は「1日3回まで」）。
  * 0 になったら動画の選択で止める。
+ *
+ * 見た目は「1ステップずつ進む」形（renderSteps）。上の進み具合(#stepper)で今の手順を強調し、
+ * 終わった手順は見出しと1行の要約だけに縮める。アップロードは手順にせず、「残す所」の手順の中に1行で出す。
+ * ホーム画面で動画が選ばれていれば、起動時に受け取って範囲の選択から始める（js/handoff.js）。
  */
-import { createVideoJob, startVideoJob } from '../api.js?v=1.5.3';
-import { showToast } from '../toast.js?v=1.5.3';
-import { clampRange, captureFrame, formatMs, MAX_CLIP_MS } from './range.js?v=1.5.3';
-import { createFrameSet } from './frame_set.js?v=1.5.3';
-import { formatFrameTime } from './frames.js?v=1.5.3';
-import { putWithProgress } from './upload.js?v=1.5.3';
-import { toJobTime, trimForUpload } from './trim.js?v=1.5.3';
-import { pollJob } from './job.js?v=1.5.3';
+import { createVideoJob, startVideoJob } from '../api.js?v=1.6.0';
+import { takeVideo } from '../handoff.js?v=1.6.0';
+import { showToast } from '../toast.js?v=1.6.0';
+import { clampRange, captureFrame, formatMs, MAX_CLIP_MS } from './range.js?v=1.6.0';
+import { createFrameSet } from './frame_set.js?v=1.6.0';
+import { formatFrameTime } from './frames.js?v=1.6.0';
+import { putWithProgress } from './upload.js?v=1.6.0';
+import { toJobTime, trimForUpload } from './trim.js?v=1.6.0';
+import { pollJob } from './job.js?v=1.6.0';
 import {
   apiErrorMessage,
   failureMessage,
@@ -27,7 +32,7 @@ import {
   refundMessage,
   remainingMessage,
   SERVER_RESTARTED_MESSAGE,
-} from './messages.js?v=1.5.3';
+} from './messages.js?v=1.6.0';
 
 /** アップロードの上限（サーバーの MAX_INPUT_BYTES と同じ 200MB） */
 const MAX_INPUT_BYTES = 209_715_200;
@@ -55,6 +60,9 @@ const el = {
   rangeStartLabel: $('range-start-label'),
   rangeEndLabel: $('range-end-label'),
   rangeLength: $('range-length'),
+  rangeBarFill: $('range-bar-fill'),
+  rangeTotal: $('range-total'),
+  stepper: $('stepper'),
   reselectBtn: $('reselect-btn'),
   decideBtn: $('decide-btn'),
   stepUpload: $('step-upload'),
@@ -134,6 +142,8 @@ function setRemaining(value) {
   if (typeof value !== 'number') return;
   remainingToday = value;
   el.remaining.textContent = remainingMessage(value);
+  // ジョブを作る前に使い切ったら、範囲の欄は閉じる（決めても作れないため）。作った後なら送信まで続けられる
+  if (value === 0 && !state.job) el.stepRange.hidden = true;
   updateSelectAvailability();
 }
 
@@ -142,7 +152,82 @@ function updateSelectAvailability() {
   const exhausted = remainingToday === 0;
   el.quotaOut.hidden = !exhausted;
   el.selectBtn.disabled = exhausted || state.creating || state.sending || (state.sent && !state.finished);
+  renderSteps();
 }
+
+// ---------- 手順の表示（1ステップずつ進む見た目） ----------
+
+const STEP_ORDER = ['select', 'range', 'tap', 'send', 'result'];
+const BACKGROUND_LABELS = { green: 'グリーン', blue: 'ブルー', magenta: 'マゼンタ' };
+let shownPhase = 'select';
+
+/** 今いる手順。「残す所」と「送信」は同時に開いているが、送れる状態になったら上の表示を「送信」に進める */
+function currentPhase() {
+  if (state.sent) return 'result';
+  if (state.job) return el.sendBtn.disabled ? 'tap' : 'send';
+  // 今日の回数を使い切ったら、「動画を選ぶ」の欄（使い切った旨の案内がある）に戻す
+  if (remainingToday === 0) return 'select';
+  if (state.durationMs > 0) return 'range';
+  return 'select';
+}
+
+/** 手順の欄を「終わった」状態（見出しと1行の要約だけ）にする/戻す */
+function setStepDone(section, done, summary, canChange) {
+  section.classList.toggle('is-done', done);
+  const summaryEl = section.querySelector('[data-summary]');
+  summaryEl.textContent = done ? summary : '';
+  summaryEl.hidden = !done;
+  const changeBtn = section.querySelector('[data-change]');
+  if (changeBtn) changeBtn.hidden = !(done && canChange);
+}
+
+function renderSteps() {
+  if (!el.stepper || !preview) return;
+  const phase = currentPhase();
+  const index = STEP_ORDER.indexOf(phase);
+  const finishedOk = state.finished && !el.jobDone.hidden;
+
+  for (const li of el.stepper.querySelectorAll('[data-step]')) {
+    const i = STEP_ORDER.indexOf(li.dataset.step);
+    const done = i < index || (li.dataset.step === 'result' && finishedOk);
+    li.classList.toggle('is-done', done);
+    li.classList.toggle('is-current', i === index && !done);
+    if (i === index && !done) li.setAttribute('aria-current', 'step');
+    else li.removeAttribute('aria-current');
+  }
+
+  // 動画は、送信して結果を待っている間以外ならいつでも選び直せる（ジョブを作っていても、送る前なら回数は減らない）
+  const canChangeVideo = !state.creating && !state.sending && !(state.sent && !state.finished) && remainingToday !== 0;
+  setStepDone(
+    el.stepSelect,
+    index > 0 && state.file !== null,
+    state.file ? `${state.file.name}（${formatMs(state.durationMs)}）` : '',
+    canChangeVideo,
+  );
+  const lengthSec = ((state.endMs - state.startMs) / 1000).toFixed(1);
+  setStepDone(el.stepRange, state.job !== null, `${formatMs(state.startMs)}〜${formatMs(state.endMs)}（${lengthSec} 秒）`, false);
+  setStepDone(el.stepPreview, state.sent, `点を打ったフレーム ${preview.frameCount()} 枚`, false);
+  setStepDone(el.stepSend, state.sent, `背景：${BACKGROUND_LABELS[selectedBackground()] || ''}`, false);
+
+  // 次の手順に進んだら、その欄が画面の外なら見える所までスクロールする（送信後の結果は beginPolling がする）
+  if (phase !== shownPhase) {
+    const target = phase === 'range' ? el.stepRange : phase === 'tap' && shownPhase === 'range' ? el.stepPreview : null;
+    shownPhase = phase;
+    if (target && !target.hidden) {
+      const top = target.getBoundingClientRect().top;
+      if (top < 0 || top > window.innerHeight * 0.6) {
+        const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
+      }
+    }
+  }
+}
+
+// 終わった「動画を選ぶ」の「変更」= 選び直す（範囲の欄の「動画を選び直す」と同じ）
+el.stepSelect.querySelector('[data-change]').addEventListener('click', () => {
+  resetAll();
+  el.fileInput.click();
+});
 
 // ---------- 1. 動画を選ぶ ----------
 
@@ -163,6 +248,10 @@ function detectContentType(file) {
 
 function openVideo(file) {
   if (remainingToday === 0) return;
+  if (file.type.startsWith('image/')) {
+    showToast({ type: 'info', message: '写真は、上の「写真」の画面で切り抜けます' });
+    return;
+  }
   const contentType = detectContentType(file);
   if (!contentType) {
     showToast({ type: 'warning', message: 'この形式の動画には対応していません（MP4 / MOV のみ）' });
@@ -192,8 +281,10 @@ function openVideo(file) {
       state.durationMs = durationMs;
       el.rangeStart.max = String(durationMs);
       el.rangeEnd.max = String(durationMs);
+      el.rangeTotal.textContent = formatMs(durationMs);
       setRange(0, MAX_CLIP_MS);
       el.stepRange.hidden = false;
+      renderSteps();
     },
     { once: true },
   );
@@ -221,6 +312,11 @@ function setRange(startMs, endMs) {
   el.rangeStartLabel.textContent = formatMs(range.startMs);
   el.rangeEndLabel.textContent = formatMs(range.endMs);
   el.rangeLength.textContent = `長さ ${((range.endMs - range.startMs) / 1000).toFixed(1)} 秒（10 秒まで）`;
+  // 動画全体のうち選んでいる範囲に色を付ける
+  if (state.durationMs > 0) {
+    el.rangeBarFill.style.left = `${(range.startMs / state.durationMs) * 100}%`;
+    el.rangeBarFill.style.width = `${((range.endMs - range.startMs) / state.durationMs) * 100}%`;
+  }
   updateRangeControls();
 }
 
@@ -306,13 +402,13 @@ async function startUpload() {
   el.uploadProgress.value = 0;
   // 送る大きさも出す（選んだ範囲だけ切り出せたかが分かるように）
   const sizeLabel = `${(state.uploadBlob.size / 1_000_000).toFixed(1)} MB`;
-  el.uploadStatus.textContent = `アップロード中 0%（${sizeLabel}）`;
+  el.uploadStatus.textContent = `裏でアップロード中 0%（${sizeLabel}）。その間に、残す所をタップできます`;
   try {
     // Content-Type は POST /video-jobs で申告したもの（state.contentType）と同じでなければ署名が合わない
     state.upload = putWithProgress(state.job.uploadUrl, state.uploadBlob, state.contentType, (ratio) => {
       if (gen !== generation) return;
       el.uploadProgress.value = ratio;
-      el.uploadStatus.textContent = `アップロード中 ${Math.floor(ratio * 100)}%（${sizeLabel}）`;
+      el.uploadStatus.textContent = `裏でアップロード中 ${Math.floor(ratio * 100)}%（${sizeLabel}）。その間に、残す所をタップできます`;
     });
     await state.upload.promise;
     if (gen !== generation) return;
@@ -545,6 +641,7 @@ function handleJobUpdate(job) {
     el.jobFailure.textContent = `${failureMessage(job.failureCode)}（${refundMessage(job.quotaRefunded)}）`;
     el.restartBtn.hidden = false;
   }
+  renderSteps(); // 結果の欄を出した後に、上の進み具合（完成の ✓）を描き直す
 }
 
 function showLost() {
@@ -556,6 +653,7 @@ function showLost() {
   el.jobFailure.hidden = false;
   el.jobFailure.textContent = SERVER_RESTARTED_MESSAGE;
   el.restartBtn.hidden = false;
+  renderSteps();
 }
 
 el.restartBtn.addEventListener('click', () => {
@@ -603,3 +701,12 @@ function resetAll() {
 
 el.remaining.textContent = remainingMessage(remainingToday);
 resetAll();
+
+// ホーム画面で選ばれた動画があれば、そのまま範囲の選択から始める（js/handoff.js）
+takeVideo().then((file) => {
+  if (file) openVideo(file);
+});
+if (new URLSearchParams(location.search).get('handoff') === 'failed') {
+  showToast({ type: 'warning', message: 'ホーム画面で選んだ動画を受け取れませんでした。ここでもう一度選んでください。' });
+  history.replaceState(null, '', location.pathname);
+}

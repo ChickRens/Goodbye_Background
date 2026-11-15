@@ -4,8 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="color-scheme" content="light dark" />
-<title>Goodbye Background｜タップするだけの背景除去・画像切り抜きツール</title>
-<meta name="description" content="写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の解像度のまま保存できる画像切り抜きツール。" />
+<title>Goodbye Background｜タップするだけで写真・動画の背景を消す切り抜きツール</title>
+<meta name="description" content="写真や動画の残したい部分をタップするだけで背景を除去。写真は残したい対象ごとに何パターンでも切り抜けて、元の解像度のまま保存。10秒までの動画は、背景を単色に置き換えて書き出せます。" />
 <!-- 公開URLが変わったら、ここと og:url / JSON-LD の url / robots.txt / sitemap.xml の5か所を揃えること -->
 <link rel="canonical" href="https://chickren.goodbye-background.com/" />
 <meta name="robots" content="index, follow, max-image-preview:large" />
@@ -19,16 +19,16 @@
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Goodbye Background" />
 <meta property="og:locale" content="ja_JP" />
-<meta property="og:title" content="Goodbye Background｜タップするだけの背景除去・画像切り抜きツール" />
-<meta property="og:description" content="写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の解像度のまま保存できる画像切り抜きツール。" />
+<meta property="og:title" content="Goodbye Background｜タップするだけで写真・動画の背景を消す切り抜きツール" />
+<meta property="og:description" content="写真や動画の残したい部分をタップするだけで背景を除去。写真は残したい対象ごとに何パターンでも切り抜けて、元の解像度のまま保存。10秒までの動画は、背景を単色に置き換えて書き出せます。" />
 <meta property="og:url" content="https://chickren.goodbye-background.com/" />
 <!-- TODO: assets/og.png (1200x630, 元画像→切り抜き結果を並べたもの) を用意すること。無い間は共有時に画像なしになる -->
 <meta property="og:image" content="https://chickren.goodbye-background.com/assets/og.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="Goodbye Background｜タップするだけの背景除去・画像切り抜きツール" />
-<meta name="twitter:description" content="写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の解像度のまま保存できる画像切り抜きツール。" />
+<meta name="twitter:title" content="Goodbye Background｜タップするだけで写真・動画の背景を消す切り抜きツール" />
+<meta name="twitter:description" content="写真や動画の残したい部分をタップするだけで背景を除去。写真は残したい対象ごとに何パターンでも切り抜けて、元の解像度のまま保存。10秒までの動画は、背景を単色に置き換えて書き出せます。" />
 <meta name="twitter:image" content="https://chickren.goodbye-background.com/assets/og.png" />
 
 <!-- 検索エンジンにアプリの種類を伝える構造化データ -->
@@ -38,23 +38,28 @@
   "@type": "WebApplication",
   "name": "Goodbye Background",
   "url": "https://chickren.goodbye-background.com/",
-  "description": "写真の残したい部分をタップするだけで背景を除去。同じ写真から、残したい対象ごとに何パターンでも切り抜きを作れます。Undo/Redo対応、元の解像度のまま保存できる画像切り抜きツール。",
+  "description": "写真や動画の残したい部分をタップするだけで背景を除去。写真は残したい対象ごとに何パターンでも切り抜けて、元の解像度のまま保存。10秒までの動画は、背景を単色に置き換えて書き出せます。",
   "applicationCategory": "MultimediaApplication",
   "operatingSystem": "Web",
   "inLanguage": "ja"
 }
 </script>
-<link rel="stylesheet" href="css/tokens.css?v=1.5.3" />
-<link rel="stylesheet" href="css/checker-colors.css?v=1.5.3" />
-<link rel="stylesheet" href="css/site.css?v=1.5.3" />
+<link rel="stylesheet" href="css/tokens.css?v=1.6.0" />
+<link rel="stylesheet" href="css/checker-colors.css?v=1.6.0" />
+<link rel="stylesheet" href="css/site.css?v=1.6.0" />
+<link rel="stylesheet" href="css/kind-switch.css?v=1.6.0" />
 </head>
 <body>
 <header class="site-header">
   <div class="wrap">
     <a class="wordmark" href="index.html">Goodbye Background</a>
     <nav class="header-nav" aria-label="ヘッダー">
-      <a href="video.html">動画の切り抜き</a>
-      <a href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer">お問い合わせ</a>
+      <!-- 写真と動画の画面の切り替え（app.html / video.html と共通。css/kind-switch.css） -->
+      <div class="kind-switch" role="group" aria-label="切り抜くもの">
+        <a href="app.html">写真</a>
+        <a href="video.html">動画</a>
+      </div>
+      <a class="contact-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer" aria-label="お問い合わせ"><svg class="contact-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h16v12H4zM4 7l8 6 8-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span class="contact-text">お問い合わせ</span></a>
     </nav>
   </div>
 </header>
@@ -63,25 +68,55 @@
   <section class="start">
     <div class="wrap start-grid">
       <div class="start-main">
-        <h1>写真の背景を、タップで消す。</h1>
+        <h1>写真も動画も、背景をタップで消す。</h1>
         <p class="muted">残したいところをタップするだけ。登録はいりません。</p>
         <!-- エリア全体が label なので、どこを押してもファイル選択が開く。ドロップも受け付ける(js/home.js)。
-             選んだ写真はブラウザ内に一時保存してアプリ画面へ渡す(js/handoff.js) -->
+             写真なら app.html、動画なら video.html へ、ブラウザ内に一時保存して渡す(js/handoff.js) -->
         <label class="start-zone" id="start-zone">
-          <input class="start-input" id="start-input" type="file" accept="image/*" multiple />
-          <span class="start-zone-title">写真を選んで始める</span>
-          <span class="start-zone-sub"><span class="start-zone-drop">ここにドラッグ＆ドロップもできます。<br /></span>JPEG・PNG・WebP など／10MB・縦横8000pxまで／複数枚OK</span>
+          <input class="start-input" id="start-input" type="file" accept="image/*,video/mp4,video/quicktime,.mp4,.m4v,.mov" multiple />
+          <span class="start-zone-title">写真・動画を選んで始める</span>
+          <span class="start-zone-drop">ここにドラッグ＆ドロップもできます</span>
+          <span class="start-zone-limits">
+            <span><strong>写真</strong>JPEG・PNG・WebP など／10MB・縦横8000pxまで／複数枚OK</span>
+            <span><strong>動画</strong>MP4・MOV／200MB・切り抜けるのは10秒まで／1日3回まで</span>
+          </span>
         </label>
         <p class="start-error" id="start-error" role="alert" hidden></p>
         <ol class="start-flow" aria-label="使い方">
-          <li>写真を選ぶ</li>
+          <li>写真か動画を選ぶ</li>
           <li>残したいところをタップ</li>
           <li>保存</li>
         </ol>
       </div>
-      <div class="start-sample" aria-label="切り抜きの例">
-        <figure class="photo photo-before"><img src="assets/before.png" alt="切り抜き前の写真" /></figure>
-        <figure class="photo checker"><img src="assets/after1.png" alt="切り抜き後: 1つの対象だけが残り、背景が透明になった写真" /></figure>
+
+      <!-- 切り抜きの例。写真と動画で仕上がりが違う（写真は透明、動画は単色の背景）ので、両方を並べて見せる -->
+      <div class="examples" aria-label="切り抜きの例">
+        <figure class="example" id="example-photo">
+          <figcaption class="example-head"><span class="example-kind">写真</span>背景を透明にして保存</figcaption>
+          <div class="example-pair">
+            <div class="photo photo-before"><img src="assets/before.png" alt="切り抜き前の写真" /></div>
+            <svg class="example-arrow" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div class="photo checker"><img src="assets/after1.png" alt="切り抜き後: 1つの対象だけが残り、背景が透明になった写真" /></div>
+          </div>
+        </figure>
+        <!-- 例の動画は git 管理外（assets/example-video-before.mp4 / example-video-after.mp4）。
+             無い・再生できないときは js/home.js がこの例ごと隠す。前後の2本は再生位置をそろえて流す -->
+        <figure class="example" id="example-video">
+          <figcaption class="example-head"><span class="example-kind">動画</span>背景を単色に置き換えて書き出し</figcaption>
+          <div class="example-pair">
+            <div class="photo example-video-frame">
+              <video autoplay muted loop playsinline preload="auto" aria-label="切り抜き前の動画">
+                <source src="assets/example-video-before.mp4" type="video/mp4" />
+              </video>
+            </div>
+            <svg class="example-arrow" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div class="photo example-video-frame">
+              <video autoplay muted loop playsinline preload="auto" aria-label="切り抜き後の動画: 人物だけが残り、背景がグリーンに置き換わっている">
+                <source src="assets/example-video-after.mp4" type="video/mp4" />
+              </video>
+            </div>
+          </div>
+        </figure>
       </div>
     </div>
   </section>
@@ -90,11 +125,11 @@
     <div class="wrap">
       <ul class="feature-list">
         <li><strong>何通りでも切り抜ける</strong><span>同じ写真から、残したい対象ごとに別々の切り抜きを作れます。</span></li>
-        <li><strong>何度でもやり直せる</strong><span>Undo/Redoで1タップ前に戻せるので、気軽に試せます。</span></li>
-        <li><strong>元の解像度で保存</strong><span>編集中は軽いプレビューで操作し、保存するときは元の大きさで書き出します。</span></li>
+        <li><strong>何度でもやり直せる</strong><span>元に戻す・やり直すで1タップ前に戻せるので、気軽に試せます。</span></li>
+        <li><strong>元の解像度で保存</strong><span>写真は、編集中は軽いプレビューで操作し、保存するときに元の大きさで書き出します。</span></li>
+        <li><strong>10秒までの動画も</strong><span>最初のフレームで残したいものをタップすると、動画の最後まで追いかけて切り抜きます。1日3回まで。</span></li>
       </ul>
-      <p>動画（10 秒まで）の背景を消すなら、<a href="video.html">動画の切り抜き</a>へ。</p>
-      <p class="small muted">アップロードした画像の扱いは<a href="privacy.html">プライバシーポリシー</a>をご覧ください。</p>
+      <p class="small muted">アップロードした写真・動画の扱いは<a href="privacy.html">プライバシーポリシー</a>をご覧ください。</p>
     </div>
   </section>
 </main>
@@ -105,6 +140,6 @@
     <a href="privacy.html">プライバシーポリシー</a>
   </div>
 </footer>
-<script type="module" src="js/home.js?v=1.5.3"></script>
+<script type="module" src="js/home.js?v=1.6.0"></script>
 </body>
 </html>
