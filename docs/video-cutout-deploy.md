@@ -785,3 +785,29 @@ https://chickren.goodbye-background.com/video.html で、カットのある動�
 - [ ] 点を打ったフレームで、出来上がった動画の範囲がプレビューで見た範囲と同じ
 
 結果はチャットに貼ってください。
+
+## 13. 点を 1 点ずつ積み上げる（マスクデコーダの差し替え。2026-11-16 の更新）
+
+手順 4 で離れた所に点を打つと（例: マイクのスタンド・袈裟・ケーブル）、人物が消えてマイクだけ残ることがありました。
+点を打つたびに前回のマスクを渡して積み上げる（画像の切り抜きと同じ）ように、**マスクデコーダだけ**を自前で書き出したものに替えます
+（仕様 `docs/superpowers/specs/2026-11-16-video-prompt-mask-input-design.md`）。新しいファイルは Modal Volume に置きます。
+
+### 13-1. 新しいマスクデコーダを Modal Volume に置く（初回のみ）
+
+チャットで受け取った `mask_decoder_with_mask_v1.onnx`（約 22MB）を使います。まず中身が正しいか確かめます:
+
+```powershell
+Get-FileHash <受け取ったファイル> -Algorithm SHA256
+```
+
+**確認**: `BA8862FDBA8CB0027F7314BFB649FE18C16852A792AD6CA0DC76818AACAC6BA6` と一致する（違ったら置かずにチャットで知らせる）。
+
+```powershell
+modal volume create goodbye-background-models
+modal volume put goodbye-background-models <受け取ったファイル> sam2/mask_decoder_with_mask_v1.onnx
+modal volume ls goodbye-background-models sam2
+```
+
+**確認**: `mask_decoder_with_mask_v1.onnx` が一覧に出る。
+
+（参考）ファイルは `worker/scripts/export_mask_decoder_with_mask.py` で作り直せます。同じ版の torch・transformers なら同じバイト列になります（2026-11-16 に 2 回書き出して一致を確認）。
