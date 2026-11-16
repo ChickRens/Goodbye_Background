@@ -5,8 +5,12 @@
 //! - `constants.json`（`image_mean` / `image_std` / `image_size`）
 //! - `onnx/vision_encoder.onnx`: `pixel_values` [1,3,S,S] → `feats0` [1,32,S/4,S/4], `feats1` [1,64,S/8,S/8],
 //!   `feats2_no_mem` [1,256,S/16,S/16] ほか
-//! - `onnx/mask_decoder.onnx`: `feats0`, `feats1`, `feats2_cond`, `input_points` [1,1,N,2], `input_labels` [1,1,N]
-//!   → `high_res_mask` [1,1,S,S] ほか
+//! - `onnx/mask_decoder_with_mask_v1.onnx`（自前で書き出したもの。SHA-256 で固定。`MASK_DECODER_SHA256`）:
+//!   `feats0`, `feats1`, `feats2_cond`, `input_points` [1,1,N,2], `input_labels` [1,1,N], `mask_input` [1,1,256,256], `has_mask` [1]
+//!   → `high_res_mask` [1,1,S,S], `low_res_mask` [1,1,256,256] ほか
+//!
+//! 点は打った順に 1 点ずつ、前回の `low_res_mask`（-32〜32 に丸めたもの）を渡して積み上げる
+//! （仕様 `docs/superpowers/specs/2026-11-16-video-prompt-mask-input-design.md`。ワーカーの `worker/cutout/prompt_decode.py` と同じ）。
 //!
 //! ワーカーは記憶の選び方に DAM4SAM を使うが、それは 2 枚目以降の話で、プレビュー（1 枚目）は変わらない。
 //!
@@ -35,11 +39,51 @@ use crate::video_cutout::{
 };
 
 /// モデルのディレクトリの中で必要なファイル（`config.rs` の起動時の確認にも使う）。
+/// マスクデコーダは diffusionstudio のものではなく、前回のマスク（`mask_input` / `has_mask`）を受け取る自前のもの
+/// （`worker/scripts/export_mask_decoder_with_mask.py`。Modal Volume から `worker/scripts/fetch_preview_models.py` で取得する）。
 pub const PREVIEW_MODEL_FILES: [&str; 3] = [
     "constants.json",
     "onnx/vision_encoder.onnx",
-    "onnx/mask_decoder.onnx",
+    "onnx/mask_decoder_with_mask_v1.onnx",
 ];
+
+/// 自前のマスクデコーダの SHA-256。ワーカー（`worker/cutout/models.py` の `MASK_DECODER_SHA256`）と同じファイルであることを固定する
+/// （プレビューとワーカーでモデルが違うと、プレビューで見えた範囲と出力が食い違う。CLAUDE.md 前提 16）。
+pub const MASK_DECODER_SHA256: &str =
+    "ba8862fdba8cb0027f7314bfb649fe18c16852a792ad6ca0dc76818aacac6ba6";
+
+/// 前回の low_res_mask を -32〜32 に丸めて次に渡す（公式の SAM2 と同じ。`worker/cutout/prompt_decode.py` の `MASK_INPUT_CLIP`）。
+const MASK_INPUT_CLIP: f32 = 32.0;
+/// low_res_mask の一辺（デコーダの出力・`mask_input` の大きさ）。
+const LOW_RES: usize = 256;
+
+/// `path` の SHA-256 が `expected` でなければ `ModelLoad`（別のファイルを黙って使わないため）。
+pub fn verify_sha256(path: &Path, expected: &str) -> Result<(), PreviewError> {
+    use sha2::{Digest, Sha256};
+    let bytes = fs::read(path)
+        .map_err(|e| PreviewError::ModelLoad(format!("{}: {e}", path.display())))?;
+    let actual = hex::encode(Sha256::digest(&bytes));
+    if actual != expected {
+        return Err(PreviewError::ModelLoad(format!(
+            "{} の SHA-256 が違う（実際 {actual}、期待 {expected}）",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+/// 点の列の先頭 1 個, 2 個, …, n 個（打った順に 1 点ずつ積み上げるため。`worker/cutout/prompt_decode.py` の `decode_points` と同じ順）。
+pub fn point_prefixes(points: &Points) -> Vec<Points> {
+    let all = points.as_slice();
+    (1..=all.len())
+        .map(|i| Points::new(all[..i].to_vec()).expect("先頭 i 個は元の点の列の検証を満たす"))
+        .collect()
+}
+
+/// 前回の low_res_mask を次の `mask_input` にする（-32〜32 に丸める。被写体なしの -1024 も -32 になる）。
+pub fn clip_mask_input(low_res: &Array4<f32>) -> Array4<f32> {
+    low_res.mapv(|v| v.clamp(-MASK_INPUT_CLIP, MASK_INPUT_CLIP))
+}
 
 /// フレームを s x s にバイリニアで引き伸ばし（余白なし）、0〜1 → mean/std で正規化した CHW `[1,3,s,s]`。
 /// `tracker.py` の `to_pixel_values` と同じ。
@@ -103,9 +147,11 @@ impl Sam2PreviewSegmenter {
             .map_err(|e| PreviewError::ModelLoad(format!("{}: {e}", constants_path.display())))?;
         let constants: Constants = serde_json::from_str(&text)
             .map_err(|e| PreviewError::ModelLoad(format!("{}: {e}", constants_path.display())))?;
+        let mask_decoder_path = model_dir.join(PREVIEW_MODEL_FILES[2]);
+        verify_sha256(&mask_decoder_path, MASK_DECODER_SHA256)?;
         Ok(Self {
-            vision_encoder: OnnxGraph::load(&model_dir.join("onnx/vision_encoder.onnx"))?,
-            mask_decoder: OnnxGraph::load(&model_dir.join("onnx/mask_decoder.onnx"))?,
+            vision_encoder: OnnxGraph::load(&model_dir.join(PREVIEW_MODEL_FILES[1]))?,
+            mask_decoder: OnnxGraph::load(&mask_decoder_path)?,
             image_mean: constants.image_mean,
             image_std: constants.image_std,
             image_size: constants.image_size,
@@ -146,20 +192,41 @@ impl PreviewSegmenter for Sam2PreviewSegmenter {
         features: &PreviewFeatures,
         points: &Points,
     ) -> Result<PreviewDecoded, PreviewError> {
-        let (coords, labels) = point_inputs(points, self.image_size);
-        let mut out = self.mask_decoder.run(
-            vec![
-                ("feats0", Feed::F16(features.feats0.clone().into_dyn())),
-                ("feats1", Feed::F16(features.feats1.clone().into_dyn())),
-                (
-                    "feats2_cond",
-                    Feed::F16(features.feats2_no_mem.clone().into_dyn()),
-                ),
-                ("input_points", Feed::F32(coords.into_dyn())),
-                ("input_labels", Feed::I32(labels.into_dyn())),
-            ],
-            &["high_res_mask", "object_score_logits"],
-        )?;
+        // 点を打った順に 1 点ずつ、前回の low_res_mask を渡して積み上げる（公式の SAM2 と同じ。
+        // worker/cutout/prompt_decode.py の decode_points と同じ計算。仕様 2026-11-16 §2.2）。結果は最後の出力
+        let mut prev: Option<Array4<f32>> = None;
+        let mut last = None;
+        for prefix in point_prefixes(points) {
+            let (coords, labels) = point_inputs(&prefix, self.image_size);
+            let (mask_input, has_mask) = match &prev {
+                None => (Array4::<f32>::zeros((1, 1, LOW_RES, LOW_RES)), 0.0f32),
+                Some(p) => (clip_mask_input(p), 1.0f32),
+            };
+            let mut out = self.mask_decoder.run(
+                vec![
+                    ("feats0", Feed::F16(features.feats0.clone().into_dyn())),
+                    ("feats1", Feed::F16(features.feats1.clone().into_dyn())),
+                    (
+                        "feats2_cond",
+                        Feed::F16(features.feats2_no_mem.clone().into_dyn()),
+                    ),
+                    ("input_points", Feed::F32(coords.into_dyn())),
+                    ("input_labels", Feed::I32(labels.into_dyn())),
+                    ("mask_input", Feed::F32(mask_input.into_dyn())),
+                    ("has_mask", Feed::F32(ArrayD::from_elem(vec![1], has_mask))),
+                ],
+                &["high_res_mask", "low_res_mask", "object_score_logits"],
+            )?;
+            let low = out
+                .remove("low_res_mask")
+                .expect("run が名前を全部返す")
+                .into_f32()
+                .into_dimensionality::<Ix4>()
+                .map_err(|e| PreviewError::Inference(format!("low_res_mask: {e}")))?;
+            prev = Some(low);
+            last = Some(out);
+        }
+        let mut out = last.expect("Points は 1 点以上");
         let mask = out
             .remove("high_res_mask")
             .expect("run が名前を全部返す")
@@ -389,6 +456,56 @@ mod segmenter_sam2_test {
     }
 
     #[test]
+    fn point_prefixes_grow_in_tap_order() {
+        let points = Points::new(vec![
+            NormalizedPoint::new(0.1, 0.1, PointLabel::Include).unwrap(),
+            NormalizedPoint::new(0.2, 0.2, PointLabel::Include).unwrap(),
+            NormalizedPoint::new(0.3, 0.3, PointLabel::Exclude).unwrap(),
+        ])
+        .unwrap();
+        let prefixes = point_prefixes(&points);
+        assert_eq!(
+            prefixes.iter().map(|p| p.as_slice().len()).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+        assert_eq!(prefixes[0].as_slice()[0], points.as_slice()[0]);
+        assert_eq!(prefixes[2].as_slice()[2].label(), PointLabel::Exclude);
+    }
+
+    #[test]
+    fn clip_mask_input_clamps_to_32() {
+        let low = Array4::from_shape_vec((1, 1, 1, 4), vec![-1024.0f32, -5.0, 5.0, 100.0]).unwrap();
+        assert_eq!(
+            clip_mask_input(&low).iter().copied().collect::<Vec<_>>(),
+            vec![-32.0, -5.0, 5.0, 32.0]
+        );
+    }
+
+    #[test]
+    fn verify_sha256_accepts_and_rejects() {
+        let path = std::env::temp_dir().join(format!("gb-sha256-test-{}.bin", std::process::id()));
+        fs::write(&path, b"abc").unwrap();
+        // sha256("abc")
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert!(verify_sha256(&path, abc).is_ok());
+        assert!(matches!(
+            verify_sha256(&path, &"0".repeat(64)),
+            Err(PreviewError::ModelLoad(_))
+        ));
+        fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn mask_decoder_is_pinned_to_the_worker_file() {
+        // worker/cutout/models.py の MASK_DECODER_FILE / MASK_DECODER_SHA256 と同じ値（仕様 2026-11-16 §2.1）
+        assert_eq!(PREVIEW_MODEL_FILES[2], "onnx/mask_decoder_with_mask_v1.onnx");
+        assert_eq!(
+            MASK_DECODER_SHA256,
+            "ba8862fdba8cb0027f7314bfb649fe18c16852a792ad6ca0dc76818aacac6ba6"
+        );
+    }
+
+    #[test]
     fn features_round_trip_through_f16_within_its_precision() {
         let values = vec![1.0f32, 0.1, -3.3333, 1000.5, 1e-3, 0.0];
         let stored =
@@ -431,5 +548,15 @@ mod segmenter_sam2_test {
         assert_eq!(decoded.logits.dim(), (s, s));
         assert!(decoded.logits.iter().all(|v| v.is_finite()));
         assert!(decoded.object_score.is_finite());
+        // 3 点（前回のマスクを渡して 1 点ずつ積み上げる）でも動く
+        let three = Points::new(vec![
+            NormalizedPoint::new(0.5, 0.5, PointLabel::Include).unwrap(),
+            NormalizedPoint::new(0.3, 0.7, PointLabel::Include).unwrap(),
+            NormalizedPoint::new(0.1, 0.1, PointLabel::Exclude).unwrap(),
+        ])
+        .unwrap();
+        let decoded = segmenter.decode(&features, &three).unwrap();
+        assert_eq!(decoded.logits.dim(), (s, s));
+        assert!(decoded.logits.iter().all(|v| v.is_finite()));
     }
 }
