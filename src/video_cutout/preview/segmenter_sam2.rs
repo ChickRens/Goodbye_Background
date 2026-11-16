@@ -559,4 +559,43 @@ mod segmenter_sam2_test {
         assert_eq!(decoded.logits.dim(), (s, s));
         assert!(decoded.logits.iter().all(|v| v.is_finite()));
     }
+
+    /// 実モデルで、実際のフレームと点のプレビューのロジットを書き出す（ワーカーとの一致の確認用）と、点 1・4・8 個の decode の時間。
+    /// 環境変数: `SAM2_PREVIEW_MODEL_DIR`・`SAM2_PREVIEW_FRAME`（PNG）・`SAM2_PREVIEW_POINTS`（`x,y,include;x,y,exclude;…`。0〜1）・
+    /// `SAM2_PREVIEW_DUMP`（書き出し先。S×S の f32 リトルエンディアン）。時間は `--release` で測ること。
+    /// 例: `cargo test --release -- --ignored preview_dump_and_timing --nocapture`
+    #[test]
+    #[ignore]
+    fn preview_dump_and_timing() {
+        let var = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} を指定して実行すること"));
+        let segmenter = Sam2PreviewSegmenter::new(Path::new(&var("SAM2_PREVIEW_MODEL_DIR"))).unwrap();
+        let frame = image::open(var("SAM2_PREVIEW_FRAME")).unwrap().to_rgb8();
+        let points = Points::new(
+            var("SAM2_PREVIEW_POINTS")
+                .split(';')
+                .map(|p| {
+                    let v: Vec<&str> = p.split(',').collect();
+                    let label = if v[2] == "include" { PointLabel::Include } else { PointLabel::Exclude };
+                    NormalizedPoint::new(v[0].parse().unwrap(), v[1].parse().unwrap(), label).unwrap()
+                })
+                .collect(),
+        )
+        .unwrap();
+        let features = segmenter.encode(&frame).unwrap();
+        let decoded = segmenter.decode(&features, &points).unwrap();
+        let bytes: Vec<u8> = decoded.logits.iter().flat_map(|v| v.to_le_bytes()).collect();
+        fs::write(var("SAM2_PREVIEW_DUMP"), bytes).unwrap();
+        println!("object_score {}", decoded.object_score);
+        for n in [1usize, 4, 8] {
+            let grid = Points::new(
+                (0..n)
+                    .map(|i| NormalizedPoint::new(0.2 + 0.07 * i as f32, 0.5, PointLabel::Include).unwrap())
+                    .collect(),
+            )
+            .unwrap();
+            let t = std::time::Instant::now();
+            segmenter.decode(&features, &grid).unwrap();
+            println!("decode {n} 点: {} ms", t.elapsed().as_millis());
+        }
+    }
 }
