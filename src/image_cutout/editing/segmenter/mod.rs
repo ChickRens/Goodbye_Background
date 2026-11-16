@@ -6,12 +6,11 @@
 //!    → 256x256 マスク（ロジット）
 //! 3. `mask_resizer`: 256x256 → 出力サイズへバイリニア補間（ロジットのまま）。
 //!    出力サイズは segment/undo/redo ならプレビュー解像度、save なら元画像サイズ
-//! 4. `mask_activation`: sigmoid でロジット → 0〜1 の確率
-//! 5. （save 時のみ）`mask_smoother`: ガイデッドフィルタでエッジを元画像に沿わせる
-//! 6. `mask_applier`: 確率 × 255 を元画像のアルファチャンネルに書き込む
+//! 4. （save 時のみ）`mask_smoother`: 境界付近だけガイデッドフィルタでエッジを元画像に沿わせる
+//! 5. `mask_applier`: clamp(ロジット × 255) を元画像のアルファチャンネルに書き込む
+//!    （= ロジット 0 付近の狭い帯以外は完全に透明 / 不透明。sigmoid は掛けないこと）
 
 pub mod error;
-pub mod mask_activation;
 pub mod mask_applier;
 pub mod mask_resizer;
 pub mod mask_smoother;
