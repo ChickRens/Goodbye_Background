@@ -15,8 +15,8 @@ use crate::{
         ErrorType::{self, Internal, InvalidInput},
         ErrorTypeProvider,
     },
-    image::image::error::ImageIdError,
-    session::error::SessionIdError,
+    image_cutout::image::image::error::ImageIdError,
+    image_cutout::session::error::SessionIdError,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]

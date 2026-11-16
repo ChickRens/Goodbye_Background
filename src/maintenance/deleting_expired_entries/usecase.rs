@@ -14,14 +14,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::{
-    image::{
+    image_cutout::image::{
         completed::storage::storage::CompletedImageRepository,
         original::original_repository::repository::OriginalImageRepository,
         preview::storage::storage::PreviewStorage,
         segmenter_input::storage::storage::SegmenterInputImageStorage,
     },
     maintenance::deleting_expired_entries::repository::DeleteExpiredRepository,
-    session::repository::repository::SessionRepository,
+    image_cutout::session::repository::repository::SessionRepository,
 };
 
 pub trait ExpiringOriginalImageRepository:
@@ -111,7 +111,7 @@ mod delete_expired_entries_usecase_test {
 
     use super::DeleteExpiredEntriesUseCase;
     use crate::{
-        editing::{
+        image_cutout::editing::{
             segmenter::sam2_data::{SAM2InferenceContext, SAM2StaticContext},
             session::{
                 inference_context_history::InferenceContextHistory,
@@ -123,15 +123,15 @@ mod delete_expired_entries_usecase_test {
                 session::CommonEditingSession,
             },
         },
-        image::{
+        image_cutout::image::{
             completed::storage::storage_impl::CompletedRepositoryInMemory,
             original::original_repository::repository_impl::OriginalImageRepositoryInMemory,
             preview::storage::storage_impl::PreviewStorageInMemory,
             segmenter_input::storage::storage_impl::SegmenterInputStorageInMemory,
         },
         maintenance::deleting_expired_entries::clock::clock_impl::FakeClock,
-        point::point_history::PointHistory,
-        session::{id::SessionId, repository::repository_impl::SessionRepositoryInMemory},
+        image_cutout::point::point_history::PointHistory,
+        image_cutout::session::{id::SessionId, repository::repository_impl::SessionRepositoryInMemory},
     };
 
     #[test]

@@ -1,0 +1,17 @@
+//! redo の出力。新しく発行されたプレビューの image_id。
+
+use crate::image_cutout::image::image::id::ImageId;
+
+pub struct RedoOutput {
+    image_id: ImageId,
+}
+
+impl RedoOutput {
+    pub fn new(image_id: ImageId) -> Self {
+        Self { image_id }
+    }
+
+    pub fn image_id(self) -> ImageId {
+        self.image_id
+    }
+}

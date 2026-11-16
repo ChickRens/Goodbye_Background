@@ -33,7 +33,8 @@ export function createStore() {
         localId,
         sessionId: null, // /upload のレスポンスが来るまで null（undo/redoの対象）
         imageId: null, // 現在表示すべきスナップショットのポインタ（get-preview用）
-        status: 'uploading', // uploading | ready | editing | saving | saved | error
+        // expired: サーバー側で期限切れ（リロード後に復元した写真など）。開くと自動で送り直す（editor.js）
+        status: 'uploading', // uploading | ready | editing | saving | saved | error | expired
         // マーカー表示用のローカルなポイント履歴。
         // 注意: undo/redoはサーバーがpointsを返さないため、
         // 「1回のundo/redo = 1点」という前提のベストエフォート同期でしかない。
@@ -52,6 +53,10 @@ export function createStore() {
         naturalHeight: 0,
         error: null,
         file: null,
+        // サーバーの編集状態の寿命が延びる操作(upload/segment/undo/redo/save)を最後にした時刻。
+        // リロード後に期限切れかどうかを見積もるのに使う（js/persist.js）
+        touchedAt: null,
+        createdAt: Date.now(),
         ...extra,
       });
       notify();

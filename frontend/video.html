@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<title>動画の切り抜き｜Goodbye Background</title>
+<!-- app.html と同じ理由で検索結果には出さない（紹介ページに評価を集める） -->
+<meta name="robots" content="noindex, follow" />
+<link rel="stylesheet" href="css/tokens.css?v=1.6.0" />
+<link rel="stylesheet" href="css/checker-colors.css?v=1.6.0" />
+<link rel="stylesheet" href="css/style.css?v=1.6.0" />
+<link rel="stylesheet" href="css/kind-switch.css?v=1.6.0" />
+<link rel="stylesheet" href="css/video.css?v=1.6.0" />
+<link rel="icon" type="image/png" href="video-favicon.png" />
+<link rel="apple-touch-icon" href="video-favicon.png" />
+</head>
+<body>
+<div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+<div id="app">
+  <header class="app-header">
+    <h1><a class="app-home-link" href="index.html">Goodbye Background</a></h1>
+    <nav class="app-header-nav" aria-label="ヘッダー">
+      <!-- 写真と動画の画面の切り替え（index.html / app.html と共通。css/kind-switch.css） -->
+      <div class="kind-switch" role="group" aria-label="切り抜くもの">
+        <a href="app.html">写真</a>
+        <a href="video.html" aria-current="page">動画</a>
+      </div>
+      <a class="app-header-link contact-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfGTllBqUqgMQONJN0Z6diWyRyo_NMfHVU4IFzEvZrPnRtuVQ/viewform" target="_blank" rel="noopener noreferrer" aria-label="お問い合わせ"><svg class="contact-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h16v12H4zM4 7l8 6 8-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span class="contact-text">お問い合わせ</span></a>
+    </nav>
+  </header>
+
+  <!--
+    動画の切り抜き。表示するのは「今の手順」だけ（data-view。js/video/page.js の renderView が決める）。
+    - PC（横長）: 左にステージ（動画・フレーム・結果）、右に操作パネル（進み具合・説明・ボタン）。1画面に収める
+    - スマホ（縦長）: 進み具合 → ステージ → 操作パネルの順に縦に並べ、進むボタンは画面の下に固定する
+    ステージとパネルの中身は data-views="..." に書いた手順のときだけ表示する。
+  -->
+  <main id="vpage" class="vpage" data-view="select">
+
+    <!-- 進み具合 -->
+    <div class="vpage-head">
+      <div class="vpage-title-row">
+        <h2 class="vpage-title">動画の切り抜き</h2>
+        <p id="remaining" class="vpage-remaining" role="status" aria-live="polite">1日3回まで</p>
+      </div>
+      <ol id="stepper" class="vstepper" aria-label="手順">
+        <li data-step="select"><span class="vstepper-dot" aria-hidden="true"></span><span class="vstepper-label">動画</span></li>
+        <li data-step="range"><span class="vstepper-dot" aria-hidden="true"></span><span class="vstepper-label">範囲</span></li>
+        <li data-step="tap"><span class="vstepper-dot" aria-hidden="true"></span><span class="vstepper-label">切り抜き</span></li>
+        <li data-step="send"><span class="vstepper-dot" aria-hidden="true"></span><span class="vstepper-label">背景色</span></li>
+        <li data-step="result"><span class="vstepper-dot" aria-hidden="true"></span><span class="vstepper-label">完成</span></li>
+      </ol>
+    </div>
+
+    <!-- ステージ（大きく見せるもの） -->
+    <section class="vstage" aria-label="プレビュー">
+      <!-- 動画を選ぶ -->
+      <div class="vstage-item" data-views="select">
+        <input id="video-file" type="file" accept="video/mp4,video/quicktime,.mp4,.m4v,.mov" hidden />
+        <button id="select-btn" type="button" class="vselect">
+          <svg class="vselect-icon" viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><rect x="3" y="5" width="13" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m16 10 5-3v10l-5-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          <span class="vselect-title">動画を選ぶ</span>
+          <span class="vselect-note">MP4・MOV／200MB まで</span>
+        </button>
+      </div>
+
+      <!-- 範囲 -->
+      <div class="vstage-item" data-views="range">
+        <video id="source-video" class="vplayer" playsinline muted controls preload="auto"></video>
+      </div>
+
+      <!-- 切り抜き・背景色（点を打つフレーム。背景色の手順では、仕上がりの確認用に表示だけする） -->
+      <div class="vstage-item vstage-frames" data-views="tap send">
+        <!-- 点を打つフレームの列。今のフレームのタブの横に「＋ フレームを追加」を常に出し、
+             フレームを複数指定できることがその場で分かるようにする（最大 5 枚。#frame-count に枚数） -->
+        <div class="frame-bar">
+          <span class="frame-bar-label">点を打つフレーム <span id="frame-count" class="frame-count"></span></span>
+          <div class="frame-bar-row">
+            <div id="frame-tabs" class="frame-tabs" role="tablist" aria-label="点を打つフレーム"></div>
+            <button id="add-frame-btn" type="button" class="frame-add" disabled>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+              <span class="frame-add-text">フレームを追加</span>
+            </button>
+          </div>
+        </div>
+        <div id="frame-panels" class="frame-panels"></div>
+        <template id="frame-panel-template">
+          <div class="frame-panel">
+            <div class="vcanvas-wrap">
+              <canvas role="img" aria-label="点を打つフレーム。タップした位置を残す／消す対象として指定できます"></canvas>
+            </div>
+            <p class="edit-status" role="status" aria-live="polite"></p>
+            <p class="valert" data-frame-warning role="alert" hidden>この点では切り抜く対象が見つかりませんでした。このまま送ると失敗するので、残したい物の真ん中をタップし直してください。</p>
+          </div>
+        </template>
+        <!-- 2 枚目以降のフレームを選ぶ（最大 5 枚）。開いている間はフレームの代わりにここを出す -->
+        <div id="frame-picker" class="frame-picker" hidden>
+          <p class="frame-picker-title">点を打つ場面を選んでください</p>
+          <video id="picker-video" class="vplayer" playsinline muted preload="auto"></video>
+          <input id="picker-time" type="range" step="1" aria-label="点を打つフレームの位置" />
+          <p id="picker-label" class="vnote"></p>
+          <div class="vactions">
+            <button id="picker-cancel" type="button" class="ghost-btn">やめる</button>
+            <button id="picker-decide" type="button" class="primary-btn">このフレームに決める</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 完成 -->
+      <div class="vstage-item vstage-result" data-views="result">
+        <div id="job-wait" class="vwait">
+          <span class="vwait-spinner" aria-hidden="true"></span>
+          <!-- 処理の割合が分かる間(tracking)は値を、分からない間（準備中など）は値なしの動き続けるメーターを出す -->
+          <div class="vmeter">
+            <progress id="job-progress" class="vmeter-bar" max="1" aria-label="切り抜きの進み具合"></progress>
+            <span id="job-meter-label" class="vmeter-label"></span>
+          </div>
+          <p class="vwait-text">切り抜いています。このページを開いたままお待ちください</p>
+        </div>
+        <video id="result-video" class="vplayer" playsinline controls muted hidden></video>
+      </div>
+    </section>
+
+    <!-- 操作パネル（今の手順の説明とボタン） -->
+    <section class="vpanel" aria-live="polite">
+
+      <!-- 動画を選ぶ -->
+      <div id="step-select" class="vpanel-step" data-views="select">
+        <h3 class="vpanel-title">動画を選んでください</h3>
+        <ul class="vlimits">
+          <li>MP4・MOV、200MB まで</li>
+          <li>切り抜けるのは、動画の中の 10 秒まで</li>
+          <li>1日3回まで（送信したときに 1 回使います）</li>
+        </ul>
+        <p class="vnote">きれいに切り抜けるのは、背景がすっきりしていて、切り抜く人に他の人が重ならない動画です。手を速く振る所や、同じ服の人と重なる所は、腕や手が欠けることがあります。</p>
+        <p class="vnote">送った動画の扱いは<a href="privacy.html">プライバシーポリシー</a>をご覧ください。</p>
+        <p id="quota-out" class="valert" hidden>今日の回数を使い切りました（1日3回まで）。明日また試してください。</p>
+      </div>
+
+      <!-- 範囲 -->
+      <div id="step-range" class="vpanel-step" data-views="range">
+        <h3 class="vpanel-title">切り抜く範囲を選んでください</h3>
+        <p class="vnote">10 秒まで選べます。動画を再生して、場面を確かめながら決められます。</p>
+        <!-- 動画全体のうち、選んでいる範囲に色を付けた帯 -->
+        <div class="range-bar" aria-hidden="true"><div id="range-bar-fill" class="range-bar-fill"></div></div>
+        <div class="range-bar-scale" aria-hidden="true"><span>0:00.0</span><span id="range-total"></span></div>
+        <div class="range-field">
+          <label for="range-start">開始 <output id="range-start-label">0:00.0</output></label>
+          <input id="range-start" type="range" min="0" max="0" step="100" value="0" />
+        </div>
+        <div class="range-field">
+          <label for="range-end">終了 <output id="range-end-label">0:00.0</output></label>
+          <input id="range-end" type="range" min="0" max="0" step="100" value="0" />
+        </div>
+        <p id="range-length" class="vrange-length"></p>
+        <div class="vpanel-actions">
+          <button id="reselect-btn" type="button" class="ghost-btn">別の動画にする</button>
+          <button id="decide-btn" type="button" class="primary-btn">この範囲で決める</button>
+        </div>
+      </div>
+
+      <!-- 切り抜き（残したい所をタップ）。残す／消す・元に戻す・やり直す・次へ は下のツールバー(.vtools)にまとめる -->
+      <div id="step-preview" class="vpanel-step" data-views="tap">
+        <h3 class="vpanel-title">残したい所をタップしてください</h3>
+        <p class="vnote">開始位置のフレームに、残したい人や物をタップします。タップした所から切り抜く範囲が決まり、動画の最後まで追いかけます。消したい所は、下の「消す」に切り替えてタップします。</p>
+        <p id="next-hint" class="vhint"></p>
+        <button id="preview-retry-btn" type="button" class="ghost-btn" hidden>プレビューをやり直す</button>
+        <!-- 別のフレームにも点を打てること。ボタンはフレームの上の列（#add-frame-btn）にある -->
+        <div class="vframes-tip">
+          <p class="vframes-tip-title">別の場面にも点を打てます（5 枚まで）</p>
+          <p class="vnote">動画の途中で切り抜きが崩れるときは、フレームの上の「＋ フレームを追加」で、その場面を選んで点を打ってください。カットがある動画は、カットの少し後の場面に、腕が欠ける所はその場面に打つと直ることがあります。</p>
+        </div>
+        <button id="reselect-btn-2" type="button" class="vtext-btn">別の動画にする</button>
+      </div>
+
+      <!-- 背景色を選んで送信 -->
+      <div id="step-send" class="vpanel-step" data-views="send">
+        <h3 class="vpanel-title">背景色を選んで送信してください</h3>
+        <!-- アップロードは「この範囲で決める」で自動で始まり、裏で進んでいる。進み具合はここで初めて見せる
+             （送信にはアップロードの完了が要るため）。失敗したときだけ「やり直す」を出す -->
+        <div id="step-upload" class="upload-line">
+          <p id="upload-status" class="vnote" role="status" aria-live="polite"></p>
+          <progress id="upload-progress" class="vprogress" max="1" value="0"></progress>
+          <button id="upload-retry-btn" type="button" class="ghost-btn" hidden>アップロードをやり直す</button>
+        </div>
+        <p class="vnote">切り抜いた後の背景を、この色で塗って書き出します。編集アプリで、この色の部分を好きな背景に差し替えられます。残したいものに近い色は避けてください。</p>
+        <fieldset id="background-field" class="bg-options">
+          <legend class="visually-hidden">切り抜いた後の背景色</legend>
+          <label class="bg-option"><input type="radio" name="background" value="green" checked /><span class="bg-swatch bg-green"></span>グリーン</label>
+          <label class="bg-option"><input type="radio" name="background" value="blue" /><span class="bg-swatch bg-blue"></span>ブルー</label>
+          <label class="bg-option"><input type="radio" name="background" value="magenta" /><span class="bg-swatch bg-magenta"></span>マゼンタ</label>
+        </fieldset>
+        <div class="vpanel-actions">
+          <button id="back-btn" type="button" class="ghost-btn">切り抜きに戻る</button>
+          <button id="send-btn" type="button" class="primary-btn" disabled>送信して切り抜く</button>
+        </div>
+        <p id="send-hint" class="vhint"></p>
+      </div>
+
+      <!-- 完成 -->
+      <div id="step-result" class="vpanel-step" data-views="result">
+        <h3 class="vpanel-title" id="result-title">切り抜いています</h3>
+        <p id="job-status" class="vjob-status" role="status" aria-live="polite"></p>
+        <p id="job-failure" class="valert" role="alert" hidden></p>
+        <div id="job-done" class="vdone" hidden>
+          <a id="download-link" class="primary-btn vdownload" href="#" download target="_blank" rel="noopener">ダウンロード</a>
+          <p class="vnote">ダウンロードできるのは 10 分間です。</p>
+        </div>
+        <div class="vpanel-actions">
+          <button id="restart-btn" type="button" class="ghost-btn" hidden>別の動画を切り抜く</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 切り抜きの操作（写真のアプリと同じく下にまとめる）。スマホは画面の下に固定、PC はフレームの真下 -->
+    <div class="vtools" data-views="tap">
+      <!-- タップしたところを「残す」か「消す」か。画像のアプリ(app.html)と同じ2択のスイッチ -->
+      <div id="mode-switch" class="mode-switch" data-mode="positive" role="group" aria-label="タップしたところを">
+        <button type="button" class="mode-btn" data-mode="positive" aria-pressed="true">
+          <span class="mode-dot" aria-hidden="true"></span>残す
+        </button>
+        <button type="button" class="mode-btn" data-mode="negative" aria-pressed="false">
+          <span class="mode-dot" aria-hidden="true"></span>消す
+        </button>
+      </div>
+      <button id="undo-btn" type="button" class="icon-btn history-btn" aria-label="元に戻す" title="元に戻す" disabled>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 14 4 9l5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="btn-label">元に戻す</span>
+      </button>
+      <button id="redo-btn" type="button" class="icon-btn history-btn" aria-label="やり直す" title="やり直す" disabled>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="m15 14 5-5-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="btn-label">やり直す</span>
+      </button>
+      <span class="spacer"></span>
+      <button id="next-btn" type="button" class="primary-btn" disabled>次へ</button>
+    </div>
+  </main>
+</div>
+
+<script type="module" src="js/video/page.js?v=1.6.0"></script>
+</body>
+</html>

@@ -11,7 +11,7 @@ use crate::{
     analytics::usage_tracking::usage_recorder::UsageRecorder,
     application::error::ApplicationError,
     config::{MAX_HISTORY, TTL_SEC},
-    editing::{
+    image_cutout::editing::{
         prepare_segment::{input::PrepareSegmentInput, usecase::PrepareSegmentUseCase},
         redo::{input::RedoInput, output::RedoOutput, usecase::RedoUseCase},
         save::{input::SaveInput, output::SaveOutput, usecase::SaveUseCase},
@@ -26,7 +26,7 @@ use crate::{
         },
         undo::{input::UndoInput, output::UndoOutput, usecase::UndoUseCase},
     },
-    image::{
+    image_cutout::image::{
         completed::{
             completed_service::{CompletedService, CompletedServiceImpl},
             generator::generator::WebPCompletedImageGenerator,
@@ -43,7 +43,7 @@ use crate::{
             storage::storage_impl::SegmenterInputStorageInMemory,
         },
     },
-    image_io::{
+    image_cutout::image_io::{
         get_completed::{
             input::GetCompletedInput, output::GetCompletedOutput, usecase::GetCompletedUseCase,
         },
@@ -64,7 +64,7 @@ use crate::{
             ExpiringSessionRepository,
         },
     },
-    session::repository::repository_impl::SessionRepositoryInMemory,
+    image_cutout::session::repository::repository_impl::SessionRepositoryInMemory,
 };
 
 /// アプリ全体のファサード。axum の `State<Arc<App>>` として全ハンドラに渡される。

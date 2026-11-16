@@ -4,16 +4,22 @@
 //! 新しいユースケースを追加したら、ここにも variant を足すこと（足さないと `?` が通らない）。
 
 use crate::{
-    editing::{
+    image_cutout::editing::{
         prepare_segment::error::PrepareSegmentUseCaseError, redo::error::RedoUseCaseError,
         save::error::SaveUseCaseError, segment::error::SegmentUseCaseError,
         undo::error::UndoUseCaseError,
     },
-    image_io::{
+    image_cutout::image_io::{
         get_completed::error::GetCompletedUseCaseError, get_preview::error::GetPreviewUseCaseError,
         upload::error::UploadUseCaseError,
     },
     parent_error,
+    video_cutout::{
+        create_job::error::CreateVideoJobError, error::VideoCutoutError,
+        get_job::error::GetVideoJobError, preview_mask::error::PreviewMaskError,
+        report_event::error::ReportVideoJobEventError,
+        set_preview_frame::error::SetPreviewFrameError, start_job::error::StartVideoJobError,
+    },
 };
 
 parent_error!(
@@ -26,5 +32,12 @@ parent_error!(
         SaveUseCase(SaveUseCaseError),
         GetCompletedUseCase(GetCompletedUseCaseError),
         PrepareSegmentUseCase(PrepareSegmentUseCaseError),
+        CreateVideoJobUseCase(CreateVideoJobError),
+        StartVideoJobUseCase(StartVideoJobError),
+        GetVideoJobUseCase(GetVideoJobError),
+        ReportVideoJobEventUseCase(ReportVideoJobEventError),
+        SetPreviewFrameUseCase(SetPreviewFrameError),
+        PreviewMaskUseCase(PreviewMaskError),
+        VideoCutout(VideoCutoutError),
     }
 );
