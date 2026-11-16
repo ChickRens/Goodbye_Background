@@ -811,3 +811,53 @@ modal volume ls goodbye-background-models sam2
 **確認**: `mask_decoder_with_mask_v1.onnx` が一覧に出る。
 
 （参考）ファイルは `worker/scripts/export_mask_decoder_with_mask.py` で作り直せます。同じ版の torch・transformers なら同じバイト列になります（2026-11-16 に 2 回書き出して一致を確認）。
+
+### 13-2. プレビュー用のモデルを取得する
+
+13-1 の後で、Modal の CLI にログインした状態で:
+
+```powershell
+cd <Goodbye_Background のフォルダ>
+git switch claude/vigilant-fermi-corpjf
+git pull
+
+cd worker
+uv sync
+uv run python scripts/fetch_preview_models.py
+cd ..
+Get-ChildItem -Recurse models\sam2.1-small-video
+```
+
+**確認**: `models\sam2.1-small-video\` に `constants.json`・`onnx\vision_encoder.onnx`（約 84MB）・`onnx\mask_decoder_with_mask_v1.onnx`（約 22MB）がある。
+SHA-256 が違うと「SHA-256 が違う」と出て止まる（13-1 のファイルを確かめ直す）。
+
+古い `onnx\mask_decoder.onnx` は使わなくなりました。消しておくと Docker イメージが約 9MB 軽くなります:
+
+```powershell
+Remove-Item models\sam2.1-small-video\onnx\mask_decoder.onnx
+```
+
+### 13-3. デプロイ
+
+**順番が大事です**（手順 11 と同じ理由）。Modal と Cloud Run を続けて行い、間に動画を送らないでください。
+
+```powershell
+modal deploy worker/modal_app.py
+```
+
+続けて、手順 4-1 の「マイグレーションのファイルの確認」（`Get-FileHash` の 3 行）をしてから、手順 5 の後の **「以後のデプロイ」のコマンド**で
+Cloud Run をビルド・デプロイします。
+
+**確認**: 新しいリビジョンの起動ログに `動画切り抜き: 有効` がある。`プレビューのモデルを読めない`（または SHA-256 の行）が出たら、13-2 のファイルが無い・違う状態でビルドしています。
+Modal のログに `mask_decoder_with_mask_v1.onnx の SHA-256 が違う` や Volume が見つからないエラーが出たら、13-1 をやり直してください。
+
+### 13-4. iPhone での確認
+
+https://chickren.goodbye-background.com/video.html で、今回の動画（マイクのある動画）を選び:
+
+- [ ] 手順 4 で、マイクのスタンド → 袈裟 → ケーブルの順に「残す」を打つと、人物とマイクが両方残る（以前はマイクだけ）
+- [ ] 「元に戻す」で 1 点戻すと、その前の見た目に戻る。「やり直す」で戻る
+- [ ] 送信すると、出来上がった動画の 1 フレーム目がプレビューと同じ範囲
+- [ ] 1 点だけ（人物の真ん中）打ったときは、以前と同じ見た目
+
+結果はチャットに貼ってください。

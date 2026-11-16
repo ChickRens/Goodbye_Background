@@ -31,7 +31,8 @@ docker compose up --build
 - `models/` は git 管理外。起動には以下が必要（無いと `App::new` で panic）:
   `sam2.1_hiera_small_{image_encoder,prompt_encoder,mask_decoder}.onnx`, `image_pe.bin`
   → `scripts/` の Python（SAM2 公式リポジトリを `SAM2/` に置いて実行）で生成する
-- 動画切り抜きのプレビューには `models/sam2.1-small-video/`（`constants.json`, `onnx/{vision_encoder,mask_decoder}.onnx`）も必要。
+- 動画切り抜きのプレビューには `models/sam2.1-small-video/`（`constants.json`, `onnx/vision_encoder.onnx`, `onnx/mask_decoder_with_mask_v1.onnx`）も必要
+  （`cd worker && uv run python scripts/fetch_preview_models.py`。マスクデコーダは Modal Volume から取る）。
   無いと動画機能ごと無効（503。起動ログに足りないファイル名が出る）。画像機能は動く
 - `cargo test` は ONNX Runtime のリンクが必要。テストは models/ 無しでも動く（Sam2Segmenter::new を呼ばない）。
   ort-sys のダウンロードが通らない環境では、PyPI の `onnxruntime==1.24.2` の wheel から
@@ -142,6 +143,12 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
     入力の大きさは両方とも `constants.json` の `image_size` から決める（512 の決め打ちはしない）。
     ワーカーの記憶の選び方は **DAM4SAM**（`worker/cutout/tracker_variants.py` の `PRODUCTION_POLICY`）。
     2 枚目以降の話なので、プレビュー（1 枚目）は SAM2 そのままの計算でワーカーと一致する（マスクの IoU 0.9999 を確認）。
+    **マスクデコーダだけは自前で書き出したもの**（`mask_decoder_with_mask_v1.onnx`。前回のマスク `mask_input`/`has_mask` を受け取る。
+    `worker/scripts/export_mask_decoder_with_mask.py`。Modal Volume `goodbye-background-models` に置き、ワーカー（`cutout/models.py`）と
+    Rust（`segmenter_sam2.rs`）の `MASK_DECODER_SHA256` で同じファイルに固定。ほかの 4 グラフは diffusionstudio のまま）。
+    点を打ったフレームでは、点を打った順に 1 点ずつ前回の `low_res_mask`（-32〜32 に丸める）を渡して積み上げる
+    （`worker/cutout/prompt_decode.py` と `segmenter_sam2.rs` の `decode`。両方同じ計算にすること。仕様
+    `docs/superpowers/specs/2026-11-16-video-prompt-mask-input-design.md`）。まとめて 1 回で渡すと離れた点で人物が消える（2026-11-16）
     特徴量は 1 枚約 8MB（f16）を (ジョブ, 時刻) ごとにメモリに置き、開始・削除・期限切れで消す。全体で最大 16 枚（LRU。約 128MB）、
     1 ジョブ最大 5 枚（6 枚目はそのジョブの最も古い 1 枚を捨てる）、フレームの登録は同時 2 件まで（超えたら 503 `PREVIEW_BUSY`）
 17. **点は複数のフレームに打てる（`prompts = [{time_ms, points}]`、最大 5 枚。1 つ目は範囲の開始）**（仕様
