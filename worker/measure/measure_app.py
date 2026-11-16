@@ -31,6 +31,9 @@ MEASURE_MODELS = ["small"]
 MEASURE_POLICIES = ["sam2", "dam4sam", "samurai"]
 MODEL_ROOT = Path("/models")
 VOLUME_DIR = Path("/vol")  # Modal Volume（cutout.models.MODELS_VOLUME）のマウント先
+# 名前は cutout.models.MODELS_VOLUME と同じ（tests/test_models.py が確かめる）
+MODELS_VOLUME = modal.Volume.from_name("goodbye-background-models")
+VOLUMES = {str(VOLUME_DIR): MODELS_VOLUME}
 
 
 def model_dir(name: str) -> Path:
@@ -254,15 +257,15 @@ class _Measure:
         }
 
 
-@app.cls(image=cuda_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60)
+@app.cls(image=cuda_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60, volumes=VOLUMES)
 class MeasureCuda(_Measure):
-    model: str = modal.parameter(default="tiny")
+    model: str = modal.parameter(default="small")
     policy: str = modal.parameter(default="sam2")
 
 
-@app.cls(image=slim_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60)
+@app.cls(image=slim_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60, volumes=VOLUMES)
 class MeasureSlim(_Measure):
-    model: str = modal.parameter(default="tiny")
+    model: str = modal.parameter(default="small")
     policy: str = modal.parameter(default="sam2")
 
 
@@ -295,13 +298,13 @@ def probe_gpu_tiny_image() -> dict:
     return {"imported_at": _MODULE_IMPORTED_AT, "gpu_name": _gpu_name(), "note": ""}
 
 
-@app.function(image=cuda_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
+@app.function(image=cuda_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S, volumes=VOLUMES)
 def probe_gpu_cuda_image() -> dict:
     """1 回目の計測と同じ CUDA イメージで GPU を取り、モデルを CUDA で読む（最小イメージとの差 = このイメージの上乗せ）。"""
     return _probe_load_models()
 
 
-@app.function(image=slim_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
+@app.function(image=slim_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S, volumes=VOLUMES)
 def probe_gpu_slim_image() -> dict:
     """軽いイメージで GPU を取り、モデルを CUDA で読む（= 軽いイメージで本番どおり動くことの確認と、その上乗せ）。"""
     return _probe_load_models()
@@ -366,7 +369,7 @@ def main(
     runs: int = 2,
     out: str = "measure_out",
     image: str = "cuda",
-    model: str = "tiny",
+    model: str = "small",
     policy: str = "sam2",
 ) -> None:
     """video を runs 回つづけて処理する（1 回目 = コールド、2 回目以降 = ウォーム）。x, y は 1 枚目の被写体の位置（0〜1）。

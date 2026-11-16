@@ -26,6 +26,18 @@ def test_graph_names_exclude_mask_decoder():
     assert len(GRAPH_NAMES) == 4
 
 
+def test_modal_apps_mount_the_models_volume():
+    # modal_app.py / measure_app.py は cutout をトップレベルで import しないので、Volume の名前を文字列で書いている。
+    # cutout.models.MODELS_VOLUME と食い違わないことを確かめる
+    from pathlib import Path
+
+    from cutout.models import MODELS_VOLUME
+
+    worker = Path(__file__).resolve().parents[1]
+    for rel in ("modal_app.py", "measure/measure_app.py"):
+        assert f'modal.Volume.from_name("{MODELS_VOLUME}")' in (worker / rel).read_text(), rel
+
+
 def test_mask_decoder_is_pinned_to_the_validated_file():
     # Rust の segmenter_sam2.rs の MASK_DECODER_SHA256 と同じ値（仕様 2026-11-16 §2.1）
     assert MASK_DECODER_FILE == "mask_decoder_with_mask_v1.onnx"

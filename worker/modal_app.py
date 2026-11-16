@@ -20,6 +20,8 @@ CUTOUT_DIR = HERE / "cutout"  # worker/cutout（リポジトリのどこから d
 REMOTE_CUTOUT_DIR = "/root/cutout"
 MODEL_DIR = Path("/models")
 VOLUME_DIR = Path("/vol")  # Modal Volume（cutout.models.MODELS_VOLUME）のマウント先。自前のマスクデコーダを置く
+# 名前は cutout.models.MODELS_VOLUME と同じ（tests/test_models.py が確かめる）。置き方は docs/video-cutout-deploy.md の 13-1
+MODELS_VOLUME = modal.Volume.from_name("goodbye-background-models")
 LOGO_PATH = Path(REMOTE_CUTOUT_DIR) / "assets" / "logo.png"
 
 APP_NAME = "goodbye-background-video"
@@ -76,6 +78,7 @@ app = modal.App(APP_NAME)
     retries=0,
     scaledown_window=60,
     secrets=[modal.Secret.from_name(SECRET_NAME, required_keys=[SECRET_KEY])],
+    volumes={str(VOLUME_DIR): MODELS_VOLUME},
 )
 class Worker:
     @modal.enter()
