@@ -2,9 +2,11 @@
 
 環境変数:
   BENCH_PY       bench.py（使い捨てスパイク）のパス。必須
-  SAM2_MODEL_DIR fetch_models で取得済みのモデルディレクトリ（constants.json と onnx/）。必須
+  SAM2_MODEL_DIR fetch_models で取得済みのモデルディレクトリ（constants.json と onnx/。基準用に diffusionstudio の
+                 onnx/mask_decoder.onnx も要る: fetch_models(..., graphs=[..., "mask_decoder"])）。必須
+  SAM2_MASK_DECODER 自前のマスクデコーダ（models.MASK_DECODER_FILE）。必須
   BENCH_VIDEO    入力動画。無ければ ffmpeg でテスト用の短い動画を作る
-実行: BENCH_PY=... SAM2_MODEL_DIR=... uv run pytest -m slow tests/test_tracker_parity.py -v
+実行: BENCH_PY=... SAM2_MODEL_DIR=... SAM2_MASK_DECODER=... uv run pytest -m slow tests/test_tracker_parity.py -v
 """
 
 import importlib.util
@@ -86,9 +88,13 @@ def _iou(a: np.ndarray, b: np.ndarray) -> float:
 def test_low_res_masks_match_bench(tmp_path):
     bench_py = Path(_require_env("BENCH_PY"))
     model_dir = Path(_require_env("SAM2_MODEL_DIR"))
+    mask_decoder = Path(_require_env("SAM2_MASK_DECODER"))
     if not bench_py.exists():
         pytest.skip(f"BENCH_PY が存在しない: {bench_py}")
-    missing = [p for p in ["constants.json", *[f"onnx/{g}.onnx" for g in GRAPH_NAMES]]
+    # 基準の bench.py は diffusionstudio のマスクデコーダ（onnx/mask_decoder.onnx）を使う。
+    # 1 点だけなら自前のデコーダと同じ結果（仕様 2026-11-16 §2.1: マスク IoU 0.9999）なので、基準はそのまま
+    bench_graphs = [*GRAPH_NAMES, "mask_decoder"]
+    missing = [p for p in ["constants.json", *[f"onnx/{g}.onnx" for g in bench_graphs]]
                if not (model_dir / p).exists()]
     if missing:
         pytest.skip(f"SAM2_MODEL_DIR にモデルが無い: {missing}")
@@ -102,7 +108,7 @@ def test_low_res_masks_match_bench(tmp_path):
     tpos = np.array(consts["memory_temporal_positional_encoding"], np.float32)
 
     # 基準: bench.py の track（fp16 のまま CPU、全フレーム推論）
-    graphs = {g: bench.Graph(model_dir / "onnx" / f"{g}.onnx", os.cpu_count()) for g in GRAPH_NAMES}
+    graphs = {g: bench.Graph(model_dir / "onnx" / f"{g}.onnx", os.cpu_count()) for g in bench_graphs}
     pts = [(POINT[0] * bench.S, POINT[1] * bench.S, 1)]
     expected, _, _ = bench.track(
         graphs, frames, pts, tpos, consts["image_mean"], consts["image_std"], stride=1
@@ -117,7 +123,7 @@ def test_low_res_masks_match_bench(tmp_path):
         pytest.skip(msg)
 
     # 検証対象: Sam2VideoTracker（入力は RGB なので BGR から変換する）
-    tracker = Sam2VideoTracker(load_sessions(model_dir, "cpu"), consts, total_frames=FRAMES)
+    tracker = Sam2VideoTracker(load_sessions(model_dir, "cpu", mask_decoder), consts, total_frames=FRAMES)
     for i, bgr in enumerate(frames):
         pts_in = [NormalizedPoint(POINT[0], POINT[1], "include")] if i == 0 else None
         tracker.process(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), pts_in)

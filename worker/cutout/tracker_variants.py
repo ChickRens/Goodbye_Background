@@ -13,7 +13,7 @@ tracker.py（Sam2VideoTracker）は SAM2 そのままの選び方（policy="sam2
   カルマンフィルタで予測し、候補マスクの選択と、記憶に使うフレームの選別（確からしさ・被写体らしさ・動きの一致）に使う
 
 必要な値: マスクデコーダが内部で計算している候補マスク 4 つ（0 番 = 単一出力用、1〜3 番 = 複数出力用）と
-その IoU の予測。グラフの途中のテンソル（CANDIDATE_OUTPUTS）を出力に足して取り出す（models.with_extra_outputs）。
+その IoU の予測。自前で書き出したマスクデコーダ（models.MASK_DECODER_FILE）の名前の付いた出力（CANDIDATE_OUTPUTS）から読む。
 点の無い追跡中のフレームでは、デコーダの出力は 1〜3 番のうち IoU の予測が最大のもの（= 本番と同じ）。
 
 論文の実装との違い（ONNX の制約。結果の比較では、この違いを差し引いて見る）:
@@ -40,9 +40,10 @@ Policy = Literal["sam2", "dam4sam", "samurai"]
 POLICIES: tuple[Policy, ...] = ("sam2", "dam4sam", "samurai")
 PRODUCTION_POLICY: Policy = "dam4sam"  # 本番のワーカー（modal_app.py）が使う
 
-# マスクデコーダの途中のテンソル: 候補マスク [1,4,h,w]（fp16）と IoU の予測 [1,4]（fp16）。
-# diffusionstudio の tiny / small / base-plus / large で同じ名前（2026-11-08 に確認）
-CANDIDATE_OUTPUTS = ["/Gather_8_output_0", "/Gather_6_output_0"]
+# マスクデコーダの出力: 候補マスク [1,4,256,256]（object score で打ち消す前）と IoU の予測 [1,4]。
+# 以前は diffusionstudio のグラフの途中のテンソル（/Gather_8_output_0・/Gather_6_output_0）を出力に足して読んでいた。
+# 2026-11-16 から自前で書き出したデコーダの名前の付いた出力（worker/scripts/export_mask_decoder_with_mask.py）
+CANDIDATE_OUTPUTS = ["candidate_masks", "candidate_ious"]
 NO_OBJ_LOGIT = -1024.0  # SAM2 が「被写体なし」のマスクに入れる値
 
 # 何フレーム前まで記憶の候補として持っておくか（DAM4SAM の 5 フレームおきの探索・SAMURAI の 15 個の選別に足りる長さ）。
@@ -173,7 +174,7 @@ def select_closest_cond(t: int, cond: list[int], max_n: int) -> list[int]:
 
 class VariantTracker:
     """Sam2VideoTracker と同じ使い方（process を 1 フレームずつ）。sessions のマスクデコーダは
-    CANDIDATE_OUTPUTS を出力に足したもの（load_sessions(..., decoder_extra_outputs=CANDIDATE_OUTPUTS)）。"""
+    CANDIDATE_OUTPUTS を出力に持つもの（models.load_sessions が読む models.MASK_DECODER_FILE）。"""
 
     def __init__(self, sessions: Sam2Sessions, constants: dict, total_frames: int, policy: Policy):
         if policy not in POLICIES:

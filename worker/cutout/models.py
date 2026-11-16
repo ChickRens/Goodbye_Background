@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,7 +27,16 @@ VIDEO_MODELS = {
     "base-plus": ("diffusionstudio/sam2.1-base-plus-video-onnx-fp16", "386b83e09a774fe2782d86fd1b8cb5aaf718aa9d"),  # 1024。156MB
     "large": ("diffusionstudio/sam2.1-large-video-onnx-fp16", "98dbd222d9b3f75d15fe63a5c2a22b0b0029eea1"),  # 1024。447MB
 }
-GRAPH_NAMES = ["vision_encoder", "mask_decoder", "memory_encoder", "memory_attention", "pointer_tpos"]
+# Hugging Face（diffusionstudio）から取るグラフ。マスクデコーダは自前で書き出したもの（下の MASK_DECODER_*）を使う
+GRAPH_NAMES = ["vision_encoder", "memory_encoder", "memory_attention", "pointer_tpos"]
+
+# 前回のマスク（mask_input / has_mask）を受け取るマスクデコーダ。worker/scripts/export_mask_decoder_with_mask.py で書き出し、
+# Modal Volume に置く（仕様 docs/superpowers/specs/2026-11-16-video-prompt-mask-input-design.md）。
+# プレビュー（Rust の src/video_cutout/preview/segmenter_sam2.rs の MASK_DECODER_SHA256）と同じファイルであることを SHA-256 で固定する
+MASK_DECODER_FILE = "mask_decoder_with_mask_v1.onnx"
+MASK_DECODER_SHA256 = "ba8862fdba8cb0027f7314bfb649fe18c16852a792ad6ca0dc76818aacac6ba6"
+MODELS_VOLUME = "goodbye-background-models"
+MASK_DECODER_VOLUME_PATH = f"sam2/{MASK_DECODER_FILE}"
 
 _NP_TYPES = {
     "tensor(float)": np.float32,
@@ -78,7 +88,6 @@ class OnnxGraph:
         path: Path,
         device: Literal["cpu", "cuda"],
         threads: int | None = None,
-        extra_outputs: list[str] | None = None,
     ):
         so = ort.SessionOptions()
         if threads:
@@ -89,8 +98,7 @@ class OnnxGraph:
             ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
         )
         self.name = path.stem
-        model = str(path) if not extra_outputs else with_extra_outputs(path, extra_outputs)
-        self._s = ort.InferenceSession(model, so, providers=providers)
+        self._s = ort.InferenceSession(str(path), so, providers=providers)
         if device == "cuda" and self._s.get_providers()[0] != "CUDAExecutionProvider":
             raise RuntimeError(f"{self.name}: CUDA を使えない（使えたのは {self._s.get_providers()}）")
         self._inputs = {i.name: i for i in self._s.get_inputs()}
@@ -108,22 +116,15 @@ class OnnxGraph:
         return {n: (o.astype(np.float32) if o.dtype == np.float16 else o) for n, o in zip(self._out_names, out)}
 
 
-def with_extra_outputs(path: Path, names: list[str]) -> bytes:
-    """グラフの途中のテンソルを出力に足した ONNX（バイト列）を返す。名前が無ければ例外。
-
-    tracker_variants.py（本番の DAM4SAM）が、マスクデコーダが内部で計算している候補のマスク 4 つと
-    その IoU の予測を取り出すのに使う。
-    """
-    import onnx
-
-    model = onnx.load(str(path))
-    produced = {o for n in model.graph.node for o in n.output}
-    missing = [n for n in names if n not in produced]
-    if missing:
-        raise ValueError(f"{path.name} に {missing} が無い（書き出し方の違うモデル）")
-    for n in names:
-        model.graph.output.append(onnx.helper.make_empty_tensor_value_info(n))
-    return model.SerializeToString()
+def verify_sha256(path: Path, expected: str) -> None:
+    """path の SHA-256 が expected でなければ ValueError（別のファイルを黙って使わないため）。"""
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    actual = h.hexdigest()
+    if actual != expected:
+        raise ValueError(f"{path.name} の SHA-256 が違う（実際 {actual}、期待 {expected}）")
 
 
 @dataclass
@@ -135,22 +136,13 @@ class Sam2Sessions:
     pointer_tpos: OnnxGraph
 
 
-def load_sessions(
-    model_dir: Path, device: Literal["cpu", "cuda"], decoder_extra_outputs: list[str] | None = None
-) -> Sam2Sessions:
+def load_sessions(model_dir: Path, device: Literal["cpu", "cuda"], mask_decoder_path: Path) -> Sam2Sessions:
     """5 グラフを読み込む。device="cuda" で CUDA EP が使えなければ例外。
 
-    decoder_extra_outputs: マスクデコーダに足す出力（tracker_variants.CANDIDATE_OUTPUTS。本番の DAM4SAM が使う）。
+    model_dir の onnx/ から GRAPH_NAMES の 4 つ、mask_decoder_path からマスクデコーダ（MASK_DECODER_SHA256 と照合してから）。
     """
+    verify_sha256(mask_decoder_path, MASK_DECODER_SHA256)
     if device == "cuda" and hasattr(ort, "preload_dlls"):
         ort.preload_dlls()
-    return Sam2Sessions(
-        **{
-            g: OnnxGraph(
-                model_dir / "onnx" / f"{g}.onnx",
-                device,
-                extra_outputs=decoder_extra_outputs if g == "mask_decoder" else None,
-            )
-            for g in GRAPH_NAMES
-        }
-    )
+    graphs = {g: OnnxGraph(model_dir / "onnx" / f"{g}.onnx", device) for g in GRAPH_NAMES}
+    return Sam2Sessions(mask_decoder=OnnxGraph(mask_decoder_path, device), **graphs)

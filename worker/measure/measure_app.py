@@ -25,10 +25,12 @@ CUTOUT_DIR = HERE.parent / "cutout"  # worker/cutout（リポジトリのどこ�
 
 # 計測で選べるモデル（cutout.models.VIDEO_MODELS の名前）。どれもリビジョン固定でイメージに焼き込む。
 # small は案 C（大きいモデル）の時間と費用を GPU で測るため（2026-11-08。CPU では tiny の約 7 倍だった）
-MEASURE_MODELS = ["tiny", "small", "base-plus"]
+# 自前のマスクデコーダ（前回のマスクを受け取るもの）は small 専用なので、計測も small だけ（2026-11-16）
+MEASURE_MODELS = ["small"]
 # 記憶の選び方（cutout.tracker_variants.POLICIES）。sam2 = 本番の追跡（tracker.py）をそのまま使う
 MEASURE_POLICIES = ["sam2", "dam4sam", "samurai"]
 MODEL_ROOT = Path("/models")
+VOLUME_DIR = Path("/vol")  # Modal Volume（cutout.models.MODELS_VOLUME）のマウント先
 
 
 def model_dir(name: str) -> Path:
@@ -120,15 +122,13 @@ class _Measure:
         from cutout.models import load_constants, load_sessions
 
         # device="cuda" は CUDA EP が先頭でなければ例外になる（= CPU に落ちていないことの確認）
-        from cutout.tracker_variants import CANDIDATE_OUTPUTS
+        from cutout.models import MASK_DECODER_VOLUME_PATH
 
         if self.model not in MEASURE_MODELS:
             raise ValueError(f"model は {' / '.join(MEASURE_MODELS)} のどれか: {self.model!r}")
         if self.policy not in MEASURE_POLICIES:
             raise ValueError(f"policy は {' / '.join(MEASURE_POLICIES)} のどれか: {self.policy!r}")
-        # sam2 は本番と同じ読み込み方（候補マスクの出力を足さない = 本番と同じ速さ）
-        extra = None if self.policy == "sam2" else CANDIDATE_OUTPUTS
-        self.sessions = load_sessions(model_dir(self.model), "cuda", decoder_extra_outputs=extra)
+        self.sessions = load_sessions(model_dir(self.model), "cuda", VOLUME_DIR / MASK_DECODER_VOLUME_PATH)
         self.constants = load_constants(model_dir(self.model))
         self.model_load_s = time.time() - t0
         self.import_to_ready_s = time.time() - _MODULE_IMPORTED_AT
@@ -279,10 +279,10 @@ def _probe_load_models() -> dict:
     """GPU 上で ONNX のセッションを CUDA で作る（CUDA / cuDNN のライブラリを実際に読ませる）。"""
     imported_at = _MODULE_IMPORTED_AT  # 読み込みの前に控える（呼び出し→起動にモデル読込を混ぜない）
     t0 = time.time()
-    from cutout.models import load_sessions
+    from cutout.models import MASK_DECODER_VOLUME_PATH, load_sessions
 
     # device="cuda" は CUDA EP が先頭でなければ例外になる（= CUDA / cuDNN が読めていることの確認）
-    load_sessions(model_dir("tiny"), "cuda")
+    load_sessions(model_dir("small"), "cuda", VOLUME_DIR / MASK_DECODER_VOLUME_PATH)
     model_load_s = time.time() - t0
     ffmpeg_version, zscale = _ffmpeg_info()
     note = f"モデル読込 {model_load_s:.1f} 秒 / zscale {'あり' if zscale else 'なし'} / {ffmpeg_version}"

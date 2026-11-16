@@ -140,19 +140,18 @@ def test_sam2_policy_matches_production_tracker_on_real_model():
     from cutout.contract import NormalizedPoint
     from cutout.models import load_constants, load_sessions
     from cutout.tracker import Sam2VideoTracker
-    from cutout.tracker_variants import CANDIDATE_OUTPUTS
 
-    d = os.environ.get("SAM2_MODEL_DIR")
-    if not d:
-        pytest.skip("SAM2_MODEL_DIR が無い")
-    d = Path(d)
+    d, dec = os.environ.get("SAM2_MODEL_DIR"), os.environ.get("SAM2_MASK_DECODER")
+    if not d or not dec:
+        pytest.skip("SAM2_MODEL_DIR（4 グラフ）と SAM2_MASK_DECODER（自前のマスクデコーダ）が要る")
+    d, dec = Path(d), Path(dec)
     c = load_constants(d)
     rng = np.random.default_rng(0)
     base = np.clip(rng.normal(120, 30, (360, 240, 3)), 0, 255).astype(np.uint8)
     frames = [np.roll(base, 3 * i, axis=1) for i in range(12)]
     pts = [NormalizedPoint(0.5, 0.5, "include")]
-    a = Sam2VideoTracker(load_sessions(d, "cpu"), c, 12)
-    b = VariantTracker(load_sessions(d, "cpu", decoder_extra_outputs=CANDIDATE_OUTPUTS), c, 12, "sam2")
+    a = Sam2VideoTracker(load_sessions(d, "cpu", dec), c, 12)
+    b = VariantTracker(load_sessions(d, "cpu", dec), c, 12, "sam2")
     for i, f in enumerate(frames):
         ra, rb = a.process(f, pts if i == 0 else None), b.process(f, pts if i == 0 else None)
         assert ra.object_present == rb.object_present
