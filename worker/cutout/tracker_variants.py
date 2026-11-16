@@ -34,6 +34,7 @@ import numpy as np
 
 from cutout.contract import NormalizedPoint
 from cutout.memory import COND_ROW, MAX_PTRS, MEM_FRAMES, MemoryEntry, pointer_pos_tokens, pointer_tokens
+from cutout.prompt_decode import decode_points, decode_tracking
 from cutout.tracker import DEFAULT_IMAGE_SIZE, FrameResult, Sam2Sessions, chw_to_tokens, to_pixel_values
 
 Policy = Literal["sam2", "dam4sam", "samurai"]
@@ -387,9 +388,8 @@ class VariantTracker:
         enc = self._s.vision_encoder.run(pixel_values=to_pixel_values(frame_rgb, self._mean, self._std, S))
         dam = None
         if init:
-            feats_cond = enc["feats2_no_mem"]
-            coords = np.array([[[[p.x * S, p.y * S] for p in points]]], np.float32)
-            labels = np.array([[[1 if p.label == "include" else 0 for p in points]]], np.int32)
+            # 点は 1 点ずつ前回のマスクを渡して積み上げる（cutout.prompt_decode。プレビューと同じ計算）
+            dec = decode_points(self._s.mask_decoder, enc["feats0"], enc["feats1"], enc["feats2_no_mem"], points, S)
         else:
             if self._policy == "dam4sam":
                 blocks, selected, unselected = self._blocks_dam4sam(t)
@@ -411,12 +411,7 @@ class VariantTracker:
                 memory=mem[:, None, :],
                 memory_pos=pos[:, None, :],
             )["conditioned_feats"]
-            coords = np.zeros((1, 1, 1, 2), np.float32)
-            labels = np.full((1, 1, 1), -1, np.int32)
-        dec = self._s.mask_decoder.run(
-            feats0=enc["feats0"], feats1=enc["feats1"], feats2_cond=feats_cond,
-            input_points=coords, input_labels=labels,
-        )
+            dec = decode_tracking(self._s.mask_decoder, enc["feats0"], enc["feats1"], feats_cond)
         score = float(np.asarray(dec["object_score_logits"]).reshape(-1)[0])
         cand_all = np.asarray(dec[CANDIDATE_OUTPUTS[0]], np.float32).reshape(4, *dec[CANDIDATE_OUTPUTS[0]].shape[-2:])
         ious_all = np.asarray(dec[CANDIDATE_OUTPUTS[1]], np.float32).reshape(4)
