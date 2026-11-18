@@ -140,23 +140,28 @@ def test_sam2_policy_matches_production_tracker_on_real_model():
     from cutout.contract import NormalizedPoint
     from cutout.models import load_constants, load_sessions
     from cutout.tracker import Sam2VideoTracker
-    from cutout.tracker_variants import CANDIDATE_OUTPUTS
 
-    d = os.environ.get("SAM2_MODEL_DIR")
-    if not d:
-        pytest.skip("SAM2_MODEL_DIR が無い")
-    d = Path(d)
+    d, dec = os.environ.get("SAM2_MODEL_DIR"), os.environ.get("SAM2_MASK_DECODER")
+    if not d or not dec:
+        pytest.skip("SAM2_MODEL_DIR（4 グラフ）と SAM2_MASK_DECODER（自前のマスクデコーダ）が要る")
+    d, dec = Path(d), Path(dec)
     c = load_constants(d)
     rng = np.random.default_rng(0)
     base = np.clip(rng.normal(120, 30, (360, 240, 3)), 0, 255).astype(np.uint8)
     frames = [np.roll(base, 3 * i, axis=1) for i in range(12)]
     pts = [NormalizedPoint(0.5, 0.5, "include")]
-    a = Sam2VideoTracker(load_sessions(d, "cpu"), c, 12)
-    b = VariantTracker(load_sessions(d, "cpu", decoder_extra_outputs=CANDIDATE_OUTPUTS), c, 12, "sam2")
+    a = Sam2VideoTracker(load_sessions(d, "cpu", dec), c, 12)
+    b = VariantTracker(load_sessions(d, "cpu", dec), c, 12, "sam2")
     for i, f in enumerate(frames):
         ra, rb = a.process(f, pts if i == 0 else None), b.process(f, pts if i == 0 else None)
         assert ra.object_present == rb.object_present
-        assert np.abs(ra.high_res_logits - rb.high_res_logits).max() < 1e-4
+        # マスクの一致で見る。Sam2VideoTracker はデコーダの high_res_mask、VariantTracker は候補を cv2.resize したものを
+        # memory_encoder（fp16）に渡すので、約 1e-6 の差が fp16 の丸めで 1 ulp ずれる画素が出る（2026-11-16: 1 枚目で 48 画素）。
+        # 以前の diffusionstudio のデコーダは出力が fp16 だったので両方が同じ値になり 1e-4 で比べられた。
+        # 自前のデコーダ（fp32）ではロジットが最大約 0.005 ずれるが、マスクの IoU は 0.99999 以上
+        x, y = ra.high_res_logits > 0, rb.high_res_logits > 0
+        assert (x & y).sum() / max(1, (x | y).sum()) >= 0.9999, f"フレーム {i}"
+        assert np.abs(ra.high_res_logits - rb.high_res_logits).max() < 0.02, f"フレーム {i}"
 
 
 # ---- 途中のフレームへの点（複数フレームの点の指定。仕様 2026-11-09 §4）----

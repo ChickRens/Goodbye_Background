@@ -241,11 +241,14 @@ mod config_test {
             missing,
             vec![
                 dir.join("onnx/vision_encoder.onnx").display().to_string(),
-                dir.join("onnx/mask_decoder.onnx").display().to_string(),
+                dir.join("onnx/mask_decoder_with_mask_v1.onnx").display().to_string(),
             ]
         );
         std::fs::write(dir.join("onnx/vision_encoder.onnx"), "x").unwrap();
+        // 古い diffusionstudio のマスクデコーダがあっても、自前のもの（mask_decoder_with_mask_v1.onnx）が無ければ足りない
         std::fs::write(dir.join("onnx/mask_decoder.onnx"), "x").unwrap();
+        assert_eq!(missing_preview_model_files(&dir).len(), 1);
+        std::fs::write(dir.join("onnx/mask_decoder_with_mask_v1.onnx"), "x").unwrap();
         assert!(missing_preview_model_files(&dir).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }

@@ -69,14 +69,14 @@ def test_main_writes_three_panel_video_and_csv(tmp_path, monkeypatch):
     monkeypatch.setattr(m, "Sam2VideoTracker", FakeTracker)
 
     out = tmp_path / "out"
-    assert m.main([str(src), "--point", "0.5,0.5", "--model", "tiny", "--policy", "sam2", "--out-dir", str(out)]) == 0
+    assert m.main([str(src), "--point", "0.5,0.5", "--model", "small", "--policy", "sam2", "--out-dir", str(out)]) == 0
 
     size = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(out / "diagnose-tiny.mp4")],
+        ["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(out / "diagnose-small.mp4")],
         capture_output=True, text=True, check=True,
     ).stdout.strip()
     assert size == "192,96"  # 3 枚横並び
-    rows = list(csv.reader((out / "diagnose-tiny.csv").open()))
+    rows = list(csv.reader((out / "diagnose-small.csv").open()))
     assert rows[0] == ["frame", "present", "area_gt_0", "area_gt_-1", "area_gt_-2", "area_gt_-4", "removed_px"]
     assert len(rows) == 1 + 10
     assert rows[1][2:] == ["10000", "10000", str(512 * 512), str(512 * 512), "0"]

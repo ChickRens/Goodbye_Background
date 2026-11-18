@@ -33,9 +33,9 @@ from cutout.compositor import EDGE_SHARPNESS, alpha_from_logits, composite, shri
 from cutout.contract import NormalizedPoint, Prompt  # noqa: E402
 from cutout.pipeline import prompt_frames  # noqa: E402
 from cutout.postprocess import VISIBLE_ALPHA, keep_largest_region  # noqa: E402
-from cutout.models import VIDEO_MODELS, fetch_models, load_constants, load_sessions  # noqa: E402
+from cutout.models import MASK_DECODER_FILE, VIDEO_MODELS, fetch_models, load_constants, load_sessions  # noqa: E402
 from cutout.tracker import Sam2VideoTracker  # noqa: E402
-from cutout.tracker_variants import CANDIDATE_OUTPUTS, POLICIES, PRODUCTION_POLICY, VariantTracker  # noqa: E402
+from cutout.tracker_variants import POLICIES, PRODUCTION_POLICY, VariantTracker  # noqa: E402
 from cutout.video_io import MAX_FRAMES, FrameReader, Mp4Writer, output_geometry, probe  # noqa: E402
 
 # worker/models/ は git 管理外かつ Docker イメージに入らない（ルートの models/ に置くとイメージが太る）
@@ -111,7 +111,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--point", type=parse_point, action="append", required=True)
     ap.add_argument("--prompt", type=parse_prompt, action="append", default=[], help="2 枚目以降のフレームの点")
     ap.add_argument("--start-ms", type=int, default=0)
-    ap.add_argument("--model", choices=list(VIDEO_MODELS), default="small", help="比べるモデル（既定は本番と同じ small）")
+    # 自前のマスクデコーダ（前回のマスクを受け取るもの）は small 専用（2026-11-16）
+    ap.add_argument("--model", choices=["small"], default="small", help="モデル（自前のマスクデコーダが small 専用なので small だけ）")
+    ap.add_argument("--mask-decoder", type=Path, default=ROOT / "models" / "sam2.1-small-video" / "onnx" / MASK_DECODER_FILE,
+                    help="自前のマスクデコーダ（省略時はプレビュー用に取得した場所。scripts/fetch_preview_models.py）")
     ap.add_argument("--model-dir", type=Path, default=None, help="省略時は worker/models/sam2.1-<model>-video-full")
     ap.add_argument("--policy", choices=list(POLICIES), default=PRODUCTION_POLICY, help="記憶の選び方（既定は本番と同じ dam4sam）")
     ap.add_argument("--frames", type=int, default=None, help="先頭から何フレームだけ処理するか（速さを測るとき）")
@@ -125,7 +128,7 @@ def main(argv: list[str]) -> int:
     repo, revision = VIDEO_MODELS[args.model]
     model_dir = args.model_dir or MODELS_ROOT / f"sam2.1-{args.model}-video-full"
     fetch_models(model_dir, revision, repo=repo)  # 全グラフ。取得済みは飛ばす
-    sessions = load_sessions(model_dir, "cpu", decoder_extra_outputs=None if args.policy == "sam2" else CANDIDATE_OUTPUTS)
+    sessions = load_sessions(model_dir, "cpu", args.mask_decoder)
     constants = load_constants(model_dir)
 
     info = probe(args.video)

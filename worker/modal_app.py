@@ -19,6 +19,9 @@ HERE = Path(__file__).resolve().parent
 CUTOUT_DIR = HERE / "cutout"  # worker/cutout（リポジトリのどこから deploy しても解決できるようにする）
 REMOTE_CUTOUT_DIR = "/root/cutout"
 MODEL_DIR = Path("/models")
+VOLUME_DIR = Path("/vol")  # Modal Volume（cutout.models.MODELS_VOLUME）のマウント先。自前のマスクデコーダを置く
+# 名前は cutout.models.MODELS_VOLUME と同じ（tests/test_models.py が確かめる）。置き方は docs/video-cutout-deploy.md の 13-1
+MODELS_VOLUME = modal.Volume.from_name("goodbye-background-models")
 LOGO_PATH = Path(REMOTE_CUTOUT_DIR) / "assets" / "logo.png"
 
 APP_NAME = "goodbye-background-video"
@@ -75,6 +78,7 @@ app = modal.App(APP_NAME)
     retries=0,
     scaledown_window=60,
     secrets=[modal.Secret.from_name(SECRET_NAME, required_keys=[SECRET_KEY])],
+    volumes={str(VOLUME_DIR): MODELS_VOLUME},
 )
 class Worker:
     @modal.enter()
@@ -84,14 +88,13 @@ class Worker:
 
         from cutout.compositor import LogoBadge
         from cutout.logging_setup import configure_logging
-        from cutout.models import load_constants, load_sessions
-        from cutout.tracker_variants import CANDIDATE_OUTPUTS
+        from cutout.models import MASK_DECODER_VOLUME_PATH, load_constants, load_sessions
         from cutout.transfer import HttpTransfer
 
         configure_logging()  # httpx が署名付き URL を INFO で出さないようにする
         # device="cuda" は CUDA EP が先頭でなければ例外になる（= CPU に落ちて遅くなるのを防ぐ）
-        # DAM4SAM は選ばれなかった候補マスクも使うので、マスクデコーダに出力を足して読む
-        self.sessions = load_sessions(MODEL_DIR, "cuda", decoder_extra_outputs=CANDIDATE_OUTPUTS)
+        # マスクデコーダは Modal Volume の自前のもの（SHA-256 を照合してから読む。DAM4SAM の候補マスクも出力に持つ）
+        self.sessions = load_sessions(MODEL_DIR, "cuda", VOLUME_DIR / MASK_DECODER_VOLUME_PATH)
         self.constants = load_constants(MODEL_DIR)
         self.logo = LogoBadge.load(LOGO_PATH)
         self.transfer = HttpTransfer()

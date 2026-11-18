@@ -25,10 +25,15 @@ CUTOUT_DIR = HERE.parent / "cutout"  # worker/cutout（リポジトリのどこ�
 
 # 計測で選べるモデル（cutout.models.VIDEO_MODELS の名前）。どれもリビジョン固定でイメージに焼き込む。
 # small は案 C（大きいモデル）の時間と費用を GPU で測るため（2026-11-08。CPU では tiny の約 7 倍だった）
-MEASURE_MODELS = ["tiny", "small", "base-plus"]
+# 自前のマスクデコーダ（前回のマスクを受け取るもの）は small 専用なので、計測も small だけ（2026-11-16）
+MEASURE_MODELS = ["small"]
 # 記憶の選び方（cutout.tracker_variants.POLICIES）。sam2 = 本番の追跡（tracker.py）をそのまま使う
 MEASURE_POLICIES = ["sam2", "dam4sam", "samurai"]
 MODEL_ROOT = Path("/models")
+VOLUME_DIR = Path("/vol")  # Modal Volume（cutout.models.MODELS_VOLUME）のマウント先
+# 名前は cutout.models.MODELS_VOLUME と同じ（tests/test_models.py が確かめる）
+MODELS_VOLUME = modal.Volume.from_name("goodbye-background-models")
+VOLUMES = {str(VOLUME_DIR): MODELS_VOLUME}
 
 
 def model_dir(name: str) -> Path:
@@ -120,15 +125,13 @@ class _Measure:
         from cutout.models import load_constants, load_sessions
 
         # device="cuda" は CUDA EP が先頭でなければ例外になる（= CPU に落ちていないことの確認）
-        from cutout.tracker_variants import CANDIDATE_OUTPUTS
+        from cutout.models import MASK_DECODER_VOLUME_PATH
 
         if self.model not in MEASURE_MODELS:
             raise ValueError(f"model は {' / '.join(MEASURE_MODELS)} のどれか: {self.model!r}")
         if self.policy not in MEASURE_POLICIES:
             raise ValueError(f"policy は {' / '.join(MEASURE_POLICIES)} のどれか: {self.policy!r}")
-        # sam2 は本番と同じ読み込み方（候補マスクの出力を足さない = 本番と同じ速さ）
-        extra = None if self.policy == "sam2" else CANDIDATE_OUTPUTS
-        self.sessions = load_sessions(model_dir(self.model), "cuda", decoder_extra_outputs=extra)
+        self.sessions = load_sessions(model_dir(self.model), "cuda", VOLUME_DIR / MASK_DECODER_VOLUME_PATH)
         self.constants = load_constants(model_dir(self.model))
         self.model_load_s = time.time() - t0
         self.import_to_ready_s = time.time() - _MODULE_IMPORTED_AT
@@ -254,15 +257,15 @@ class _Measure:
         }
 
 
-@app.cls(image=cuda_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60)
+@app.cls(image=cuda_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60, volumes=VOLUMES)
 class MeasureCuda(_Measure):
-    model: str = modal.parameter(default="tiny")
+    model: str = modal.parameter(default="small")
     policy: str = modal.parameter(default="sam2")
 
 
-@app.cls(image=slim_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60)
+@app.cls(image=slim_image, gpu=GPU_FALLBACK, timeout=600, scaledown_window=60, volumes=VOLUMES)
 class MeasureSlim(_Measure):
-    model: str = modal.parameter(default="tiny")
+    model: str = modal.parameter(default="small")
     policy: str = modal.parameter(default="sam2")
 
 
@@ -279,10 +282,10 @@ def _probe_load_models() -> dict:
     """GPU 上で ONNX のセッションを CUDA で作る（CUDA / cuDNN のライブラリを実際に読ませる）。"""
     imported_at = _MODULE_IMPORTED_AT  # 読み込みの前に控える（呼び出し→起動にモデル読込を混ぜない）
     t0 = time.time()
-    from cutout.models import load_sessions
+    from cutout.models import MASK_DECODER_VOLUME_PATH, load_sessions
 
     # device="cuda" は CUDA EP が先頭でなければ例外になる（= CUDA / cuDNN が読めていることの確認）
-    load_sessions(model_dir("tiny"), "cuda")
+    load_sessions(model_dir("small"), "cuda", VOLUME_DIR / MASK_DECODER_VOLUME_PATH)
     model_load_s = time.time() - t0
     ffmpeg_version, zscale = _ffmpeg_info()
     note = f"モデル読込 {model_load_s:.1f} 秒 / zscale {'あり' if zscale else 'なし'} / {ffmpeg_version}"
@@ -295,13 +298,13 @@ def probe_gpu_tiny_image() -> dict:
     return {"imported_at": _MODULE_IMPORTED_AT, "gpu_name": _gpu_name(), "note": ""}
 
 
-@app.function(image=cuda_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
+@app.function(image=cuda_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S, volumes=VOLUMES)
 def probe_gpu_cuda_image() -> dict:
     """1 回目の計測と同じ CUDA イメージで GPU を取り、モデルを CUDA で読む（最小イメージとの差 = このイメージの上乗せ）。"""
     return _probe_load_models()
 
 
-@app.function(image=slim_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S)
+@app.function(image=slim_image, gpu=GPU_FALLBACK, timeout=300, scaledown_window=_PROBE_SCALEDOWN_S, volumes=VOLUMES)
 def probe_gpu_slim_image() -> dict:
     """軽いイメージで GPU を取り、モデルを CUDA で読む（= 軽いイメージで本番どおり動くことの確認と、その上乗せ）。"""
     return _probe_load_models()
@@ -366,7 +369,7 @@ def main(
     runs: int = 2,
     out: str = "measure_out",
     image: str = "cuda",
-    model: str = "tiny",
+    model: str = "small",
     policy: str = "sam2",
 ) -> None:
     """video を runs 回つづけて処理する（1 回目 = コールド、2 回目以降 = ウォーム）。x, y は 1 枚目の被写体の位置（0〜1）。

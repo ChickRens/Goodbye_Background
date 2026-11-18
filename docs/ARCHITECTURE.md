@@ -340,13 +340,20 @@ Modal ワーカー ──POST /internal/video-jobs/{id}/events（HMAC 署名）�
 （オーナー判断。ワーカーの記憶の選び方は DAM4SAM。`docs/video-cutout-measurements.md` の案 C）。
 同じ形式の ONNX なので、コードは `constants.json` の `image_size` から大きさを決めるだけで両方に対応する。
 
-- モデル: `models/sam2.1-small-video/`（git 管理外。`constants.json`・`onnx/vision_encoder.onnx`・`onnx/mask_decoder.onnx`。
-  `diffusionstudio/sam2.1-small-video-onnx-fp16` のワーカーと同じリビジョン）。カレントディレクトリからの相対パス
+- モデル: `models/sam2.1-small-video/`（git 管理外。`constants.json`・`onnx/vision_encoder.onnx` は
+  `diffusionstudio/sam2.1-small-video-onnx-fp16` のワーカーと同じリビジョン、`onnx/mask_decoder_with_mask_v1.onnx` は自前で書き出した
+  マスクデコーダ（Modal Volume `goodbye-background-models`。SHA-256 をワーカーと同じ値で照合）。カレントディレクトリからの相対パス
+- **点は 1 点ずつ積み上げる**（2026-11-16。仕様 `docs/superpowers/specs/2026-11-16-video-prompt-mask-input-design.md`）:
+  点の列の先頭 1 個, 2 個, …, n 個で順にデコードし、前回の `low_res_mask` を -32〜32 に丸めて `mask_input` に渡す（公式の SAM2 の
+  動画 predictor・画像の切り抜きと同じ）。以前は全部の点をまとめて 1 回で渡していて、離れた点（マイクのスタンド・袈裟・ケーブル）を
+  1 つの物として解釈し人物が消えた。diffusionstudio のデコーダにはマスクの入力が無いので、`transformers` から書き出し直した
+  （`worker/scripts/export_mask_decoder_with_mask.py`。前回のマスク無しなら diffusionstudio 版とマスク IoU 0.9986〜1.0）。
+  ワーカーの `worker/cutout/prompt_decode.py` も同じ計算（今回の動画のフレーム 0 でプレビューとワーカーの alpha の IoU 1.0）
 - `video_cutout/preview/`: `PreviewSegmenter`（trait）と `Sam2PreviewSegmenter`（ort。グラフごとに `Mutex<Session>`）。
   入力の型はモデルの宣言に合わせ（fp16 なら変換）、fp16 の出力は f32 にする（`worker/cutout/models.py` の `OnnxGraph` と同じ）
 - 計算は `worker/cutout/tracker.py` の 1 枚目と `compositor.py` の `alpha_from_logits` と同じ:
   S×S（small は 1024）に引き伸ばし → mean/std で正規化 → `vision_encoder` → `feats2_no_mem` を `feats2_cond` に、点は ×S・include=1 / exclude=0
-  → `mask_decoder` の `high_res_mask` → フレームの大きさにバイリニア拡大 → ±50 → ×16 → ±50 → sigmoid → グレースケール PNG。
+  → マスクデコーダ（上の積み上げ）の最後の `high_res_mask` → フレームの大きさにバイリニア拡大 → ±50 → ×16 → ±50 → sigmoid → グレースケール PNG。
   バイリニアは `preview/image_math.rs` が OpenCV の `cv2.resize(INTER_LINEAR)` をなぞる（uint8 は完全一致を確認済み）
 - フレームの登録時に 1 回だけエンコードし（開発環境の 4 コアで約 2.5 秒。デコードは約 0.09 秒）、特徴量（`feats0`/`feats1`/`feats2_no_mem` を f16 で約 8MB。モデルが fp16 なので
   f32 で持つのと結果は同じ）とフレームの大きさを `PreviewFeatureStore` にジョブごとに置く。点が変わるたびにデコーダだけを回す

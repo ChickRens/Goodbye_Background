@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from cutout.contract import NormalizedPoint
+from cutout.prompt_decode import decode_points, decode_tracking
 from cutout.memory import (
     MAX_PTRS,
     MEM_FRAMES,
@@ -95,10 +96,10 @@ class Sam2VideoTracker:
             pixel_values=to_pixel_values(frame_rgb, self._mean, self._std, self._size)
         )
         if first:
-            feats_cond = enc["feats2_no_mem"]
-            s = self._size
-            coords = np.array([[[[p.x * s, p.y * s] for p in points]]], np.float32)
-            labels = np.array([[[1 if p.label == "include" else 0 for p in points]]], np.int32)
+            # 点は 1 点ずつ前回のマスクを渡して積み上げる（cutout.prompt_decode）
+            dec = decode_points(
+                self._s.mask_decoder, enc["feats0"], enc["feats1"], enc["feats2_no_mem"], points, self._size
+            )
         else:
             mem, pos = assemble_memory(t, self._cond, self._recent, self._tpos)
             ptrs, diffs = pointer_list(t, self._total, self._cond_ptr, self._recent_ptrs)
@@ -111,15 +112,7 @@ class Sam2VideoTracker:
                 memory=mem[:, None, :],
                 memory_pos=pos[:, None, :],
             )["conditioned_feats"]
-            coords = np.zeros((1, 1, 1, 2), np.float32)
-            labels = np.full((1, 1, 1), -1, np.int32)
-        dec = self._s.mask_decoder.run(
-            feats0=enc["feats0"],
-            feats1=enc["feats1"],
-            feats2_cond=feats_cond,
-            input_points=coords,
-            input_labels=labels,
-        )
+            dec = decode_tracking(self._s.mask_decoder, enc["feats0"], enc["feats1"], feats_cond)
         score = float(np.asarray(dec["object_score_logits"]).reshape(-1)[0])
         me = self._s.memory_encoder.run(
             feats2=enc["feats2"],

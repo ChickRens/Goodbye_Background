@@ -71,7 +71,9 @@ def test_exclude_label_is_zero():
     s = RecordingSessions(object_score=1.0)
     pts = [NormalizedPoint(0.5, 0.5, "include"), NormalizedPoint(0.1, 0.2, "exclude")]
     Sam2VideoTracker(s, CONSTANTS, total_frames=1).process(rgb(), pts)
-    assert s.calls["mask_decoder"][0]["input_labels"].tolist() == [[[1, 0]]]
+    # 1 点ずつ積み上げる（cutout.prompt_decode）ので、2 回目の呼び出しに 2 点とも入る
+    assert [c["input_labels"].tolist() for c in s.calls["mask_decoder"]] == [[[[1]]], [[[1, 0]]]]
+    assert np.asarray(s.calls["mask_decoder"][1]["has_mask"]).tolist() == [1.0]
 
 
 def test_second_frame_uses_memory_attention_and_pad_point():
