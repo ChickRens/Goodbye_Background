@@ -487,8 +487,13 @@ gcloud run deploy $SERVICE --image $IMAGE --region $REGION --max-instances 1
 ワーカーの追跡（`cutout/tracker.py`）が、スパイクの `bench.py` と同じマスクを出すことを確かめる遅いテストです。
 Hugging Face からモデルを取得するので、開発のセッションでは実行できませんでした。自分の PC で一度だけ実行してください。
 
+> **2026-11-18 の注記**: スパイク（旧 `goodbye-background-tmp`）はこのリポジトリの `tools/sam2-bench/` に取り込みました。
+> `BENCH_PY` は指定しなくても `tools/sam2-bench/bench.py` を使います。ただし `bench.py` は tiny（入力 512）専用なので、
+> 本番を small（1024）に切り替えた手順 11 以降は、このテストは「`bench.py は入力 512 専用`」でスキップされます
+> （下の手順は tiny の頃の記録）。
+
 前提: `uv` と **`ffmpeg`**（PATH が通っていること。テスト用の短い動画を作るのに使う）が入っている。
-`goodbye-background-tmp` フォルダ（`bench.py` と、それが読み込む `convert.py` がある）が手元にある。
+`bench.py` と、それが読み込む `convert.py` は `tools/sam2-bench/` にある。
 
 ```powershell
 cd <Goodbye_Background のフォルダ>\worker
@@ -497,9 +502,7 @@ cd <Goodbye_Background のフォルダ>\worker
 $env:SAM2_MODEL_DIR = "$HOME\sam2-tiny-video-models"
 uv run python -c "import os; from pathlib import Path; from cutout.models import fetch_models, MODEL_REVISION; fetch_models(Path(os.environ['SAM2_MODEL_DIR']), MODEL_REVISION)"
 
-# bench.py の場所
-$env:BENCH_PY = "<goodbye-background-tmp のフォルダ>\bench.py"
-
+# bench.py は tools/sam2-bench/bench.py を自動で使う（別の場所のものを使うときだけ $env:BENCH_PY を指定）
 uv run pytest -m slow tests/test_tracker_parity.py -v -rs
 ```
 

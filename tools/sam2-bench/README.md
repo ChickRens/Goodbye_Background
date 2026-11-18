@@ -1,5 +1,10 @@
 # sam2-bench（使い捨てのスパイク）
 
+> 2026-11-18: 元は別リポジトリ `ChickRens/goodbye-background-tmp`。履歴ごとこのフォルダに取り込みました。
+> 本番の動画切り抜き（`worker/`）を作る前の計測用で、`bench.py` はワーカーの遅いテスト
+> `worker/tests/test_tracker_parity.py` の基準として残しています。**tiny（入力 512）専用**なので、本番の small（1024）とは比べられません。
+> 本番の Docker イメージには入りません（`DockerFile` は `src`・`frontend`・`models`・`migrations` だけをコピーする）。
+
 SAM2.1-tiny の動画トラッキングを CPU で計測し、高速化の手段を比べます。
 
 ## ファイル
