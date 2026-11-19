@@ -6,9 +6,9 @@ import {
   saveImage,
   getCompletedImage,
   uploadImage,
-} from './api.js?v=1.6.1';
-import { createCanvasController } from './canvas.js?v=1.6.1';
-import { showToast } from './toast.js?v=1.6.1';
+} from './api.js?v=1.6.2';
+import { createCanvasController } from './canvas.js?v=1.6.2';
+import { showToast } from './toast.js?v=1.6.2';
 
 /**
  * 画面には常に1枚分の大きな編集エリア（canvas+ツールバー）だけがあり、

@@ -334,10 +334,47 @@
 }
 
 .vcanvas-wrap {
-    width: 100%;
+    position: relative; /* 準備中の表示(.vprepare)をフレームの上に重ねるため */
+    /* 枠をフレーム（canvas）の大きさに合わせる（重ねる表示がフレームの左右にはみ出さないように） */
+    width: fit-content;
+    max-width: 100%;
+    margin-inline: auto;
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+/* フレームの準備中（サーバーへの登録中。js/video/preview.js が data-state を設定）は、フレームを暗くして
+   「準備中」を重ねる。点を打てるようになる（ready）と消えるので、いつからタップできるかが見て分かる */
+.vprepare {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border-radius: var(--radius-sm);
+    background: var(--overlay-bg);
+    color: var(--overlay-text);
+    text-align: center;
+    cursor: progress;
+}
+
+.vcanvas-wrap[data-state="preparing"] .vprepare {
+    display: flex;
+}
+
+.vprepare-text {
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.vprepare-sub {
+    font-size: 0.85rem;
+    opacity: 0.85;
 }
 
 /* canvas は動画の実寸(幅 640px〜)で描かれるので、必ず枠の幅に縮めて表示する（スマホではみ出さないように） */
@@ -352,11 +389,29 @@
 }
 
 .frame-panel .edit-status {
+    /* style.css の .edit-status（画像アプリ用。画像の上に重ねる帯: position: absolute・背景色付き）を打ち消して、
+       フレームの下に普通の文字として出す。打ち消していなかったので、PC ではページの上端（ヘッダーの裏）に
+       描かれて見えず、いつ点を打てるかが分からなかった（2026-11-19） */
+    position: static;
+    width: auto;
+    max-width: none;
+    padding: 0;
+    border-radius: 0;
+    background: none;
     margin: 0;
     min-height: 1.4em;
     font-size: 0.85rem;
     color: var(--text-muted);
     text-align: center;
+    word-break: auto-phrase; /* 文節の途中で折り返さない（スマホで「い」だけが次の行に残らないように） */
+    text-wrap: balance;
+}
+
+/* 準備ができて点を打てるようになったときの案内は、目立つ色・太字にする */
+.frame-panel .edit-status[data-tone="ready"] {
+    color: var(--success-ink);
+    font-size: 0.95rem;
+    font-weight: 700;
 }
 
 /* 背景色の手順では、フレームは仕上がりの見本として見せるだけ（タップしても点は増えない） */
