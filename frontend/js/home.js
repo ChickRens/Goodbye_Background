@@ -4,7 +4,7 @@
  *   - 動画(1本)     → handoff.js に保存して video.html へ（js/video/page.js が取り出して範囲の選択から始める）
  * 写真と動画を一緒に選んだとき・動画を2本以上選んだときは、移動せずにエリアの下で選び直してもらう。
  */
-import { saveFiles, saveVideo } from './handoff.js?v=1.6.0';
+import { saveFiles, saveVideo } from './handoff.js?v=1.6.1';
 
 const zone = document.getElementById('start-zone');
 const input = document.getElementById('start-input');
