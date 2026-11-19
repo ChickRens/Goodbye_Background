@@ -1,6 +1,6 @@
-import { uploadImage } from './api.js?v=1.6.0';
-import { createLocalId } from './id.js?v=1.6.0';
-import { showToast } from './toast.js?v=1.6.0';
+import { uploadImage } from './api.js?v=1.6.1';
+import { createLocalId } from './id.js?v=1.6.1';
+import { showToast } from './toast.js?v=1.6.1';
 
 /**
  * アップロードの入口は2つある。

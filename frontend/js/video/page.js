@@ -19,15 +19,15 @@
  * アップロードは手順にせず裏で進め、進み具合は送信に要る「背景色」の手順で初めて出す。
  * ホーム画面で動画が選ばれていれば、起動時に受け取って範囲の選択から始める（js/handoff.js）。
  */
-import { createVideoJob, startVideoJob } from '../api.js?v=1.6.0';
-import { takeVideo } from '../handoff.js?v=1.6.0';
-import { showToast } from '../toast.js?v=1.6.0';
-import { clampRange, captureFrame, formatMs, MAX_CLIP_MS } from './range.js?v=1.6.0';
-import { createFrameSet } from './frame_set.js?v=1.6.0';
-import { formatFrameTime, MAX_FRAMES } from './frames.js?v=1.6.0';
-import { putWithProgress } from './upload.js?v=1.6.0';
-import { toJobTime, trimForUpload } from './trim.js?v=1.6.0';
-import { pollJob } from './job.js?v=1.6.0';
+import { createVideoJob, startVideoJob } from '../api.js?v=1.6.1';
+import { takeVideo } from '../handoff.js?v=1.6.1';
+import { showToast } from '../toast.js?v=1.6.1';
+import { clampRange, captureFrame, formatMs, MAX_CLIP_MS } from './range.js?v=1.6.1';
+import { createFrameSet } from './frame_set.js?v=1.6.1';
+import { formatFrameTime, MAX_FRAMES } from './frames.js?v=1.6.1';
+import { putWithProgress } from './upload.js?v=1.6.1';
+import { toJobTime, trimForUpload } from './trim.js?v=1.6.1';
+import { pollJob } from './job.js?v=1.6.1';
 import {
   apiErrorMessage,
   failureMessage,
@@ -35,7 +35,7 @@ import {
   refundMessage,
   remainingMessage,
   SERVER_RESTARTED_MESSAGE,
-} from './messages.js?v=1.6.0';
+} from './messages.js?v=1.6.1';
 
 /** アップロードの上限（サーバーの MAX_INPUT_BYTES と同じ 200MB） */
 const MAX_INPUT_BYTES = 209_715_200;

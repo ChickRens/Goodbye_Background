@@ -7,9 +7,9 @@
  * 仕様: docs/superpowers/specs/2026-11-09-video-multi-frame-prompts-design.md §6
  */
 
-import { createFramePreview } from './preview.js?v=1.6.0';
-import { MAX_FRAMES, allFramesReady, buildPrompts, canAddFrame, formatFrameTime } from './frames.js?v=1.6.0';
-import { toJobTime } from './trim.js?v=1.6.0';
+import { createFramePreview } from './preview.js?v=1.6.1';
+import { MAX_FRAMES, allFramesReady, buildPrompts, canAddFrame, formatFrameTime } from './frames.js?v=1.6.1';
+import { toJobTime } from './trim.js?v=1.6.1';
 
 /**
  * @param {Object} opts
