@@ -18,8 +18,8 @@
  * 座標: canvas の解像度はフレーム画像の実ピクセルなので、タップ点はフレームの座標で届く。
  * 動画ジョブには toNormalized で 0〜1 にして送る（仕様 §3。既存の 3 つの座標系とは混ざらない）。
  */
-import { setVideoPreviewFrame, previewVideoMask } from '../api.js?v=1.6.1';
-import { createCanvasController } from '../canvas.js?v=1.6.1';
+import { setVideoPreviewFrame, previewVideoMask } from '../api.js?v=1.6.2';
+import { createCanvasController } from '../canvas.js?v=1.6.2';
 
 /** 動画ジョブに送れる点の上限（サーバーの MAX_POINTS と同じ値） */
 export const MAX_POINTS = 8;
@@ -29,6 +29,8 @@ export const BUSY_RETRY_DELAYS_MS = [1000, 2000, 4000];
 
 /** /preview-frame が受け付けるフレームの大きさ（サーバーと同じ 10MB）。PNG で超えたら JPEG にする */
 const MAX_FRAME_BYTES = 10 * 1024 * 1024;
+/** フレームの準備（サーバーへの登録）が終わり、点を打てるようになったときの案内 */
+const READY_TEXT = '準備ができました。残したい所をタップしてください';
 const FALLBACK_JPEG_QUALITY = 0.92;
 
 /** プレビュー画像の座標 → 0〜1 の正規化座標（範囲外は 0〜1 に丸め込む） */
@@ -203,8 +205,27 @@ export function createFramePreview({ canvasEl, modeSwitchEl, undoBtn, redoBtn, s
     onChange();
   }
 
-  function setStatus(text) {
+  /** tone: 'ready' のときだけ「準備ができた」案内として目立たせる（css/video.css の .edit-status[data-tone]） */
+  function setStatus(text, tone = null) {
     statusEl.textContent = text;
+    if (tone) statusEl.dataset.tone = tone;
+    else delete statusEl.dataset.tone;
+  }
+
+  /**
+   * フレームの準備の状態を枠（.vcanvas-wrap）に書く。preparing の間はフレームを暗くして「準備中」を重ね、
+   * 点を打てるようになったこと（ready）が見て分かるようにする（css/video.css の .vprepare）
+   */
+  const wrapEl = canvasEl.closest('.vcanvas-wrap');
+  function setPhase(phase) {
+    if (!wrapEl) return;
+    if (phase) wrapEl.dataset.state = phase;
+    else delete wrapEl.dataset.state;
+  }
+
+  /** 準備ができて、まだ点が無いときの案内 */
+  function showReady() {
+    setStatus(READY_TEXT, 'ready');
   }
 
   /** PREVIEW_BUSY なら待ってやり直す。待つ間は「混み合っています…」を出す */
@@ -234,8 +255,9 @@ export function createFramePreview({ canvasEl, modeSwitchEl, undoBtn, redoBtn, s
   async function load(newJobId, newFrameBlob, newTimeMs) {
     const gen = generation;
     registered = false;
+    setPhase('preparing');
     sync();
-    setStatus('プレビューを準備中…');
+    setStatus('切り抜きの準備中です。終わるとタップできるようになります');
     try {
       if (frameBlob !== newFrameBlob || !frameImg) {
         jobId = newJobId;
@@ -254,7 +276,9 @@ export function createFramePreview({ canvasEl, modeSwitchEl, undoBtn, redoBtn, s
       await registerFrame(gen);
       if (gen !== generation) return false;
       registered = true;
-      setStatus(points.length === 0 ? '残したい所をタップしてください' : '');
+      setPhase('ready');
+      if (points.length === 0) showReady();
+      else setStatus('');
       if (points.length > 0) {
         // やり直し（登録の失敗・計算の失敗の後）: 今の一覧を計算し直す
         shown = { version: -1, objectPresent: null };
@@ -264,6 +288,7 @@ export function createFramePreview({ canvasEl, modeSwitchEl, undoBtn, redoBtn, s
       return true;
     } catch (err) {
       if (gen !== generation) return false;
+      setPhase('error');
       setStatus('');
       onError(err, 'プレビューの準備');
       sync();
@@ -274,7 +299,7 @@ export function createFramePreview({ canvasEl, modeSwitchEl, undoBtn, redoBtn, s
   function handlePointAdd(point) {
     if (locked) return;
     if (!registered) {
-      setStatus('準備中です。少しお待ちください');
+      setStatus('まだ準備中です。「準備ができました」と出てからタップしてください');
       return;
     }
     if (points.length >= MAX_POINTS) {
@@ -293,7 +318,7 @@ export function createFramePreview({ canvasEl, modeSwitchEl, undoBtn, redoBtn, s
       // 点が無いときは送らない（サーバーは 1〜8 個）。元のフレームに戻す
       controller.setBaseSource(frameImg);
       shown = { version, objectPresent: null };
-      setStatus('残したい所をタップしてください');
+      setStatus(READY_TEXT, 'ready');
       sync();
       return;
     }
@@ -401,6 +426,7 @@ export function createFramePreview({ canvasEl, modeSwitchEl, undoBtn, redoBtn, s
     locked = false;
     controller.reset();
     applyMode('positive');
+    setPhase(null);
     setStatus('');
     sync();
   }

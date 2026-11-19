@@ -7,11 +7,11 @@
 <title>動画の切り抜き｜Goodbye Background</title>
 <!-- app.html と同じ理由で検索結果には出さない（紹介ページに評価を集める） -->
 <meta name="robots" content="noindex, follow" />
-<link rel="stylesheet" href="css/tokens.css?v=1.6.1" />
-<link rel="stylesheet" href="css/checker-colors.css?v=1.6.1" />
-<link rel="stylesheet" href="css/style.css?v=1.6.1" />
-<link rel="stylesheet" href="css/kind-switch.css?v=1.6.1" />
-<link rel="stylesheet" href="css/video.css?v=1.6.1" />
+<link rel="stylesheet" href="css/tokens.css?v=1.6.2" />
+<link rel="stylesheet" href="css/checker-colors.css?v=1.6.2" />
+<link rel="stylesheet" href="css/style.css?v=1.6.2" />
+<link rel="stylesheet" href="css/kind-switch.css?v=1.6.2" />
+<link rel="stylesheet" href="css/video.css?v=1.6.2" />
 <link rel="icon" type="image/png" href="video-favicon.png" />
 <link rel="apple-touch-icon" href="video-favicon.png" />
 </head>
@@ -87,8 +87,15 @@
         <div id="frame-panels" class="frame-panels"></div>
         <template id="frame-panel-template">
           <div class="frame-panel">
+            <!-- data-state: preparing（フレームの登録中。タップしても点は打てない）/ ready / error（js/video/preview.js が設定） -->
             <div class="vcanvas-wrap">
               <canvas role="img" aria-label="点を打つフレーム。タップした位置を残す／消す対象として指定できます"></canvas>
+              <!-- 準備中だけフレームの上に重ねる。読み上げは下の .edit-status（role="status"）が担う -->
+              <div class="vprepare" aria-hidden="true">
+                <span class="vwait-spinner"></span>
+                <span class="vprepare-text">切り抜きの準備中…</span>
+                <span class="vprepare-sub">数秒かかります。終わるとタップできるようになります</span>
+              </div>
             </div>
             <p class="edit-status" role="status" aria-live="polite"></p>
             <p class="valert" data-frame-warning role="alert" hidden>この点では切り抜く対象が見つかりませんでした。このまま送ると失敗するので、残したい物の真ん中をタップし直してください。</p>
@@ -238,6 +245,6 @@
   </main>
 </div>
 
-<script type="module" src="js/video/page.js?v=1.6.1"></script>
+<script type="module" src="js/video/page.js?v=1.6.2"></script>
 </body>
 </html>

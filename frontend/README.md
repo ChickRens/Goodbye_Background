@@ -63,10 +63,10 @@ assets/        画像
 
 ## 更新時のキャッシュ対策（`?v=` の版番号）
 
-CSS・JS は `css/site.css?v=1.6.1` のように版番号付きで読み込んでいる（HTML の `<link>` / `<script>` と、
+CSS・JS は `css/site.css?v=1.6.2` のように版番号付きで読み込んでいる（HTML の `<link>` / `<script>` と、
 JS どうしの `import` のすべて）。ブラウザが古い CSS/JS を使い続けて、新旧のファイルが混ざった状態で
 表示されるのを防ぐため。**CSS や JS を変更して配信し直すときは、全ファイルの `?v=` を同じ新しい番号に
-置き換えること**（例: `grep -rl "?v=1.6.1" . | xargs sed -i 's/?v=1.6.1/?v=1.6.2/g'`）。
+置き換えること**（例: `grep -rl "?v=1.6.2" . | xargs sed -i 's/?v=1.6.2/?v=1.6.3/g'`）。
 JS の `import` で番号がそろっていないと、同じファイルが別物として2回読み込まれるので必ず全部そろえる。
 
 ## リロードしても写真を消さない（js/persist.js）
@@ -293,6 +293,11 @@ JS の `import` で番号がそろっていないと、同じファイルが別�
    停止 → 移動 → `loadeddata`/`canplay`・`requestVideoFrameCallback` を待つ → 描いた結果が全部黒/透明なら
    ミュートで play()→pause() して 1 回だけやり直す（それでも駄目なら「プレビューをやり直す」）。それを `frame.png` として
    `POST /video-jobs/{id}/preview-frame` で登録する（サーバーが 1 回だけエンコードしてジョブごとに持つ）。
+   登録が終わるまでは点を打てないので、`preview.js` が `.vcanvas-wrap` に `data-state="preparing"` を付け、フレームを暗くして
+   「切り抜きの準備中…」（`.vprepare`）を重ねる（重ねた表示がタップを受けるので、準備中のタップは点にならない）。
+   登録が終わると `ready` にして表示を消し、フレームの下に「準備ができました。残したい所をタップしてください」を緑の太字で出す
+   （`.edit-status[data-tone="ready"]`）。動画ページの `.edit-status` は `style.css` の重ねる帯（`position: absolute`）を
+   `video.css` で打ち消してフレームの下に出す（打ち消していなかった頃は PC でページの上端に描かれて見えなかった）。
    タップのたびに今の点の一覧を丸ごと `POST /video-jobs/{id}/preview` に送り、返ってきた alpha マスク（グレースケール PNG）を
    フレームに合成して（`applyMaskAlpha`）`canvas.js` で市松模様の上に出す（消える所は薄いフレームが透けて見える）。
    Undo / Redo は手元の点の一覧を戻す・進めて送り直すだけ（画像機能の `/upload`・`/segment`・`/undo`・`/redo` は使わない）。
