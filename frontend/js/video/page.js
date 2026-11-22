@@ -36,6 +36,10 @@ import {
   remainingMessage,
   SERVER_RESTARTED_MESSAGE,
 } from './messages.js?v=1.6.2';
+import { trackVisit } from '../visit.js?v=1.6.2';
+
+// 流入元（utm 付きの URL）の記録。下の処理が URL を書き換える前に呼ぶ
+trackVisit();
 
 /** アップロードの上限（サーバーの MAX_INPUT_BYTES と同じ 200MB） */
 const MAX_INPUT_BYTES = 209_715_200;

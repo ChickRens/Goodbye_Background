@@ -5,6 +5,10 @@
  * 写真と動画を一緒に選んだとき・動画を2本以上選んだときは、移動せずにエリアの下で選び直してもらう。
  */
 import { saveFiles, saveVideo } from './handoff.js?v=1.6.2';
+import { trackVisit } from './visit.js?v=1.6.2';
+
+// 流入元（utm 付きの URL）の記録。下の処理が URL を書き換える前に呼ぶ
+trackVisit();
 
 const zone = document.getElementById('start-zone');
 const input = document.getElementById('start-input');

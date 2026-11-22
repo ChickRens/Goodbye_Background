@@ -61,7 +61,7 @@ image_cutout/        画像切り抜き機能（既存の画像機能は全て�
   session/           セッション（session_id → 元画像 image_id の対応）
 maintenance/         TtlStore（全ストアの実体）と期限切れ削除ユースケース
 migrations/{sqlite,postgres}/  利用ログテーブルのマイグレーション（起動時に自動適用。src の外）
-analytics/           利用ログの記録（mpsc チャネル → バックグラウンドで INSERT）
+analytics/           利用ログ（usage_tracking）と流入元（visit_tracking。utm 付きの URL で来た訪問 → visit_records）の記録（mpsc チャネル → バックグラウンドで INSERT）
 common/              エラー定義マクロ（leaf_error! / leaf_detail_error! / parent_error!）
 ```
 
@@ -89,6 +89,9 @@ common/              エラー定義マクロ（leaf_error! / leaf_detail_error!
   1 つ目の Router（`track_usage` の前に merge される）に入れて `operation.rs` / `recorder.rs` も更新、
   記録しないもの（ポーリング・内部の通知）は 2 つ目の Router に入れる。ハンドラは `api/handler/video_cutout/<ep>/`、
   メソッドは `VideoCutoutApp` に足し、先頭で `maybe_cleanup()` を呼ぶ
+- **流入元（utm）の記録**: `POST /track-visit`（`presentation/router.rs` の `visit_routes`。`track_usage` の外、常に 204）。
+  フロントは `frontend/js/visit.js` の `trackVisit()` を各エントリーポイントの先頭で呼ぶ（URL から utm_* を消すので、URL を書き換える処理より前）。
+  集計は `scripts/utm_report_{postgres,sqlite}.sql`（client_id で usage_records と結び付けて「使ったか」も出す）
 - **ストアの値は不変**: `get` で `Arc<V>` を取り、clone して変更し、`save/insert` で丸ごと置き換える
 - テストは各ファイル末尾の `#[cfg(test)] mod xxx_test`。時刻が絡むものは `FakeClock` を使う
 - 既存コメント・ドキュメントは日本語。追記も日本語で揃える

@@ -131,4 +131,40 @@ mod visit_recorder_test {
             vec![(Some(id.to_string()), "youtube".into(), Some("longform".into()), None, None, "/".into())]
         );
     }
+
+    /// 手動で実行する: 空の PostgreSQL を用意して
+    /// `TEST_DATABASE_URL_POSTGRES=postgres://... cargo test postgres_recorder -- --ignored`
+    #[tokio::test]
+    #[ignore]
+    async fn postgres_recorder_inserts_a_visit() {
+        let url = std::env::var("TEST_DATABASE_URL_POSTGRES")
+            .expect("TEST_DATABASE_URL_POSTGRES に空の PostgreSQL を指定して実行すること");
+        let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await.unwrap();
+        sqlx::migrate!("./migrations/postgres").run(&pool).await.unwrap();
+        let recorder = ChannelVisitRecorder::postgres(pool.clone());
+        let id = Uuid::new_v4();
+
+        recorder.record(
+            VisitEvent::new(Some(id), Some("youtube"), Some("longform"), Some("c"), None, Some("/video.html")).unwrap(),
+        );
+
+        let mut rows: Vec<Row> = Vec::new();
+        for _ in 0..100 {
+            rows = sqlx::query_as(
+                "SELECT client_id, utm_source, utm_medium, utm_campaign, utm_content, landing_path FROM visit_records WHERE client_id = $1",
+            )
+            .bind(id.to_string())
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            if !rows.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            rows,
+            vec![(Some(id.to_string()), "youtube".into(), Some("longform".into()), Some("c".into()), None, "/video.html".into())]
+        );
+    }
 }
