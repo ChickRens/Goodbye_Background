@@ -2,5 +2,6 @@
 //!
 //! ルーティングの定義は `presentation::router`。
 
+pub mod analytics;
 pub mod image_cutout;
 pub mod video_cutout;

@@ -12,6 +12,10 @@ import { initEditor } from './editor.js?v=1.6.2';
 import { takeFiles } from './handoff.js?v=1.6.2';
 import { showToast } from './toast.js?v=1.6.2';
 import { loadSaved, startAutoSave, isLikelyExpired } from './persist.js?v=1.6.2';
+import { trackVisit } from './visit.js?v=1.6.2';
+
+// 流入元（utm 付きの URL）の記録。下の処理が URL を書き換える前に呼ぶ
+trackVisit();
 
 const store = createStore();
 

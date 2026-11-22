@@ -342,3 +342,23 @@ export async function previewVideoMask(jobId, timeMs, points) {
   const maskBlob = await res.blob();
   return { maskBlob, objectPresent };
 }
+
+/**
+ * POST /track-visit（流入元の記録。js/visit.js から呼ぶ）
+ * request : { utm_source, utm_medium, utm_campaign, utm_content, landing_path }（utm_* は無ければ null）
+ * response: 204（本文が壊れていても・utm_source が無くても 204。記録されないだけ）
+ *   - keepalive: 送った直後に別のページへ移っても届くようにする
+ *   - 計測なので失敗しても例外は投げない（画面には何も出さない）
+ */
+export async function postVisit(body) {
+  try {
+    await request('/track-visit', {
+      method: 'POST',
+      headers: buildHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+      keepalive: true,
+    });
+  } catch {
+    /* 計測の失敗は無視する（request がコンソールに出している） */
+  }
+}

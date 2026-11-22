@@ -2,7 +2,7 @@
 //!
 //! 起動の流れ:
 //! 1. コマンドライン引数で利用ログの保存先 DB を選ぶ（なし/`--sqlite` → SQLite, `--postgres` → PostgreSQL）
-//! 2. DB に接続してマイグレーションを実行し、`UsageRecorder` と動画の回数制限（`DailyQuota`）を同じプールで作る
+//! 2. DB に接続してマイグレーションを実行し、`UsageRecorder` と動画の回数制限（`DailyQuota`）・流入元の記録（`VisitRecorder`）を同じプールで作る
 //! 3. `App::new` で画像の全ユースケースを組み立てる（ここで `models/` の ONNX モデルを読み込む。無いと panic）
 //! 4. `VideoCutoutApp::new` で動画のユースケースを組み立てる（動画の環境変数か、プレビューの SAM2.1 small のモデル
 //!    `models/sam2.1-small-video/` が足りなければ無効 = 503。足りないものの名前は起動ログに出る）
@@ -38,6 +38,7 @@ use crate::{
         recorder::{PostgresUsageRecorder, SQLiteUsageRecorder},
         usage_recorder::UsageRecorder,
     },
+    analytics::visit_tracking::{recorder::ChannelVisitRecorder, visit_recorder::VisitRecorder},
     composition::{video_wiring::VideoCutoutApp, wiring::App},
     config::CLEANUP_INTERVAL,
     maintenance::deleting_expired_entries::clock::{clock::AppClock, clock_impl::RealClock},
@@ -60,7 +61,11 @@ async fn main() {
         }
     };
     
-    let (usage_recorder, video_quota): (Arc<dyn UsageRecorder>, Arc<dyn DailyQuota>) = match backend {
+    let (usage_recorder, video_quota, visit_recorder): (
+        Arc<dyn UsageRecorder>,
+        Arc<dyn DailyQuota>,
+        Arc<dyn VisitRecorder>,
+    ) = match backend {
         DatabaseBackend::Sqlite => {
             let database_url = env::var("DATABASE_URL_SQLITE").expect("DATABASE_URL_SQLITE must be set");
             let pool = SqlitePoolOptions::new()
@@ -74,7 +79,8 @@ async fn main() {
                 .expect("Failed to run SQLite migrations");
             (
                 Arc::new(SQLiteUsageRecorder::new(pool.clone())),
-                Arc::new(SqliteDailyQuota::new(pool)),
+                Arc::new(SqliteDailyQuota::new(pool.clone())),
+                Arc::new(ChannelVisitRecorder::sqlite(pool)),
             )
         }
         DatabaseBackend::Postgres => {
@@ -93,7 +99,8 @@ async fn main() {
                 .expect("Failed to run PostgreSQL migrations");
             (
                 Arc::new(PostgresUsageRecorder::new(pool.clone())),
-                Arc::new(PostgresDailyQuota::new(pool)),
+                Arc::new(PostgresDailyQuota::new(pool.clone())),
+                Arc::new(ChannelVisitRecorder::postgres(pool)),
             )
         }
     };
@@ -134,7 +141,7 @@ async fn main() {
         }
     });
 
-    let router = router::route(app_for_router.clone(), video);
+    let router = router::route(app_for_router.clone(), video, visit_recorder);
 
     let port: u16 = env::var("PORT")
         .unwrap_or_else(|_| "3000".to_string())
