@@ -15,6 +15,8 @@ use crate::{
         redo::handler::redo, save::handler::save, segment::handler::segment, undo::handler::undo,
         upload::handler::upload,
     },
+    analytics::visit_tracking::visit_recorder::VisitRecorder,
+    api::handler::analytics::track_visit::handler::track_visit,
     api::handler::video_cutout::{
         create_job::handler::create_video_job, get_job::handler::get_video_job,
         preview_mask::handler::preview_video_mask, report_event::handler::report_video_job_event,
@@ -46,8 +48,9 @@ use crate::{
 ///   （それ以外の動画の本文は小さい JSON）
 /// - `track_usage`: 画像の 7 API と、動画の作成・開始の利用ログを記録する
 /// - 動画の取得（ポーリング）・プレビュー・通知は `track_usage` の後に merge するので記録しない
+/// - `/track-visit`（流入元の記録。`visit_routes`）も `track_usage` の後に merge する（`visit_records` に別に記録する）
 /// - `fallback_service`: それ以外のパスは `frontend/` ディレクトリを静的配信（相対パス。cwd 依存）
-pub fn route(app: Arc<App>, video: Arc<VideoCutoutApp>) -> Router {
+pub fn route(app: Arc<App>, video: Arc<VideoCutoutApp>, visits: Arc<dyn VisitRecorder>) -> Router {
     let (video_tracked, video_untracked) = video_routes(video);
     Router::new()
         .route("/upload", post(upload))
@@ -63,6 +66,7 @@ pub fn route(app: Arc<App>, video: Arc<VideoCutoutApp>) -> Router {
         .merge(video_tracked)
         .layer(from_fn_with_state(app, track_usage))
         .merge(video_untracked)
+        .merge(visit_routes(visits))
         .fallback_service(static_files("frontend"))
 }
 
@@ -107,6 +111,86 @@ pub fn video_routes(video: Arc<VideoCutoutApp>) -> (Router, Router) {
         .route("/internal/video-jobs/{id}/events", post(report_video_job_event))
         .with_state(video);
     (tracked, untracked)
+}
+
+/// 計測のルート（`POST /track-visit`。本文 `{utm_source, utm_medium, utm_campaign, utm_content, landing_path}`、常に 204）。
+/// `track_usage` の外に merge するので利用ログには入らない。`App` を使わないのでモデル無しでテストできる。
+pub fn visit_routes(visits: Arc<dyn VisitRecorder>) -> Router {
+    Router::new().route("/track-visit", post(track_visit)).with_state(visits)
+}
+
+#[cfg(test)]
+mod visit_routes_test {
+    use std::sync::{Arc, Mutex};
+
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    use super::visit_routes;
+    use crate::analytics::visit_tracking::{event::VisitEvent, visit_recorder::VisitRecorder};
+
+    #[derive(Default)]
+    struct FakeVisitRecorder {
+        events: Mutex<Vec<VisitEvent>>,
+    }
+
+    impl VisitRecorder for FakeVisitRecorder {
+        fn record(&self, event: VisitEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
+
+    async fn post(body: &str, client_id: Option<&str>) -> (StatusCode, Vec<VisitEvent>) {
+        let recorder = Arc::new(FakeVisitRecorder::default());
+        let router = visit_routes(recorder.clone());
+        let mut request = Request::post("/track-visit").header("content-type", "application/json");
+        if let Some(id) = client_id {
+            request = request.header("client-id", id);
+        }
+        let response = router
+            .oneshot(request.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap();
+        let events = recorder.events.lock().unwrap().clone();
+        (response.status(), events)
+    }
+
+    const YOUTUBE: &str =
+        r#"{"utm_source": "youtube", "utm_medium": "longform", "landing_path": "/"}"#;
+
+    #[tokio::test]
+    async fn records_a_visit_with_client_id() {
+        let id = "11111111-2222-4333-8444-555555555555";
+        let (status, events) = post(YOUTUBE, Some(id)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(
+            events,
+            vec![VisitEvent::new(Some(Uuid::parse_str(id).unwrap()), Some("youtube"), Some("longform"), None, None, Some("/")).unwrap()]
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_or_invalid_client_id_is_recorded_as_none() {
+        for client_id in [None, Some("not-a-uuid")] {
+            let (status, events) = post(YOUTUBE, client_id).await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].client_id(), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn without_source_or_broken_body_records_nothing_but_still_204() {
+        for body in [r#"{"utm_medium": "longform"}"#, "not json", ""] {
+            let (status, events) = post(body, None).await;
+            assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+            assert!(events.is_empty(), "{body}");
+        }
+    }
 }
 
 #[cfg(test)]
